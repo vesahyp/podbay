@@ -201,7 +201,7 @@ async def test_header_shows_one_labelled_quota_group_per_account(tmp_path, monke
         app._update_header()
         text = app.query_one(app_mod.PodbayHeader).query_one("#header-quotas").content.plain
 
-    assert text == "claude 5H 53%  ·  7D 8%" + app_mod.ACCOUNT_SEPARATOR + "personal 5H 2%"
+    assert text == "claude 5H 53%  7D 8%" + app_mod.ACCOUNT_SEPARATOR + "personal 5H 2%"
 
 
 @pytest.mark.asyncio

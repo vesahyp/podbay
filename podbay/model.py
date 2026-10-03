@@ -7,9 +7,10 @@ here reads files directly -- that lives in sources.py, iterm.py, state.py.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+from . import config
 
 
 WORKING = "working"
@@ -261,11 +262,11 @@ def humanize_age(seconds: float) -> str:
     return f"{days}d"
 
 
-# The repo every session is launched from, when there is one (PODBAY_HOME_REPO,
-# a directory name under ~/Repositories): a tool call that only reads there
-# says nothing about where the work is, so it counts only when edited. See
-# repo_groups. Empty when no repo plays that role.
-HOME_BASE = os.environ.get("PODBAY_HOME_REPO", "")
+# The repo every session is launched from, when there is one (`podbay config
+# home-repo <name>`, a directory name under ~/Repositories): a tool call that
+# only reads there says nothing about where the work is, so it counts only
+# when edited. See repo_groups. Empty when no repo plays that role.
+HOME_BASE = config.home_repo()
 
 
 def repo_groups(sessions: list[Session]) -> list[dict]:

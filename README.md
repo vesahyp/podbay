@@ -60,12 +60,21 @@ podbay send <sessionName|pid> <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 ```
 
+Settings live in `~/.config/podbay/config.json`, set from the command line
+and read at the next start:
+
+```
+podbay config home-repo jeeves   # the repo under ~/Repositories you launch every session from
+podbay config                    # show every setting
+```
+
+With a home repo set, `o` offers that directory by default, and a tool call
+that only reads there says nothing about where the work is, so that repo
+counts in the Repos column only when the session edits a file in it.
+
 Optional environment:
 
-- `PODBAY_HOME_REPO=<name>`: the repo under `~/Repositories` you launch every
-  session from. `o` then offers that directory by default, and a tool call
-  that only reads there says nothing about where the work is, so that repo
-  counts in the Repos column only when the session edits a file in it.
+- `PODBAY_HOME_REPO=<name>`: overrides the home repo for one run.
 - `PODBAY_USER=<name>`: how HAL addresses you. Default: your login name.
 - `PODBAY_NO_SPLASH=1`: same as `--no-splash`.
 - `PODBAY_LOG_LEVEL=DEBUG`: more in `~/.local/state/podbay/podbay.log`.
@@ -173,14 +182,19 @@ touched with a tool call, starred when it edited a file there, with a leading
 
 ## Header
 
-The header carries each account's rate limits: `5H` and `7D` from the
-status-line snapshots, plus one `7D <model>` group per model that
-`claude -p /usage` reports (polled every 10 minutes per account, cached in
-`~/.local/state/podbay/usage.json` and `usage-<label>.json`). Every `7D`
-group ends with a straight-line projection to its reset: `~88% at reset`
-when the quota lasts, `out 1d 5h early` when it runs out first. The pace is
-measured on weekday time only, and the projection waits until four weekday
-hours of the window have passed.
+The header carries each account's rate limits on one line, in the compact
+form `claude 5H 36% ↻2h15m  7D 17% ↻1d7h →~17%  Fable 32% →~32%`:
+
+- `5H` and `7D` come from the status-line snapshots; `↻` is the time until
+  that window resets
+- one `<model> N%` group per model that `claude -p /usage` reports, a weekly
+  figure like `7D` (polled every 10 minutes per account, cached in
+  `~/.local/state/podbay/usage.json` and `usage-<label>.json`)
+- `→` is the straight-line projection to the reset: `→~88%` when the quota
+  lasts, `→out 1d5h` when it runs out that long before the reset. The pace
+  is measured on weekday time only, and the projection waits until four
+  weekday hours of the window have passed. Green under 85%, yellow to 99%,
+  red when it runs out
 
 ## State and logs
 

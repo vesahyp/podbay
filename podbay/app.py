@@ -28,10 +28,12 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Label, Static
 
+from . import config
 from . import glyphs
 from . import iterm as iterm_mod
 from .accounts import Account, by_label, discover
@@ -146,7 +148,7 @@ REMOTE_STYLE = "bold #5fd7ff"
 # The account label in the header, in front of each account's quota group.
 ACCOUNT_TONE = "label"
 ACCOUNT_STYLE = f"bold {HAL_AMBER}"
-ACCOUNT_SEPARATOR = "   │   "
+ACCOUNT_SEPARATOR = "  │  "
 # Enter on the account pick list is "take this one"; the digits are the
 # shortcut shown in front of each row.
 ACCOUNT_PICK_KEYS = "123456789"
@@ -1396,11 +1398,14 @@ class PodbayApp(App):
         self._limits = limits or {}
         self._limits_now = now
 
-        self._fit_recap_column()
-        # a live filter query stays applied across a refresh -- this
-        # recomputes self._visible_rows from the new self.rows and redraws
-        # the table, restoring the cursor by session id (see _redraw_table).
-        self._apply_filter()
+        try:
+            self._fit_recap_column()
+            # a live filter query stays applied across a refresh -- this
+            # recomputes self._visible_rows from the new self.rows and redraws
+            # the table, restoring the cursor by session id (see _redraw_table).
+            self._apply_filter()
+        except NoMatches:
+            return  # the screen is already gone: a scan landing during shutdown
 
         self._scanning = False
         self._last_scan_at = now
@@ -2111,10 +2116,10 @@ class PodbayApp(App):
 
     @staticmethod
     def _open_default_dir(session: Session | None) -> str:
-        """Where a new claude starts: the home-base repo (PODBAY_HOME_REPO)
-        when there is one and it exists on disk, since every session is
-        launched from there; else the highlighted session's directory; else
-        home."""
+        """Where a new claude starts: the home-base repo (`podbay config
+        home-repo`) when there is one and it exists on disk, since every
+        session is launched from there; else the highlighted session's
+        directory; else home."""
         if HOME_BASE:
             home_base = sources.REPOS_DIR / HOME_BASE
             if home_base.is_dir():
@@ -2288,6 +2293,22 @@ def cmd_send(target: str, text: str) -> None:
         sys.exit(1)
 
 
+def cmd_config(key: str | None, value: str | None) -> None:
+    """`podbay config` lists every setting, `podbay config home-repo` prints
+    one, `podbay config home-repo jeeves` sets it (takes effect at the next
+    podbay start)."""
+    if key is None:
+        data = config.read()
+        for name, field in sorted(config.KEYS.items()):
+            print(f"{name} = {data.get(field, '')}")
+        return
+    if value is None:
+        print(config.read().get(config.KEYS[key], ""))
+        return
+    data = config.set_value(key, value)
+    print(f"{key} = {data.get(config.KEYS[key], '')}  ({config.CONFIG_PATH}; restart podbay to apply)")
+
+
 def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
     """Print the deterministic session inventory. Never touches the TUI.
     Default (no --table/--status) is JSON, one gather_sessions() call shared
@@ -2322,6 +2343,10 @@ def main() -> None:
     send_parser.add_argument("target", help="session name or pid")
     send_parser.add_argument("text", nargs="+", help="message text")
 
+    config_parser = sub.add_parser("config", help="show or set a podbay setting (see podbay/config.py)")
+    config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
+    config_parser.add_argument("value", nargs="?", help="the new value; none prints the current one; '' clears it")
+
     inventory_parser = sub.add_parser("inventory", help="print a deterministic session inventory")
     inventory_parser.add_argument("--json", action="store_true", help="print JSON (default)")
     inventory_parser.add_argument("--table", action="store_true", help="print as a plain-text table")
@@ -2336,7 +2361,9 @@ def main() -> None:
     logs.install_excepthook()
     log.info("start pid=%d argv=%s", os.getpid(), sys.argv[1:])
 
-    if args.command == "list":
+    if args.command == "config":
+        cmd_config(args.key, args.value)
+    elif args.command == "list":
         cmd_list()
     elif args.command == "focus":
         cmd_focus(args.target)

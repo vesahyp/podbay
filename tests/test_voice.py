@@ -20,20 +20,20 @@ def test_limits_segments_five_hour_and_week_with_countdowns():
 
     # window Sat 16:00 -> Sat 16:00: 61% spent in 60 weekday hours of 120
     # runs out Fri ~02:20, 1d 13h before the reset
-    assert _texts(segments) == "5H 53% (resets 0h 9m)  ·  7D 61% (resets 3d 4h, out 1d 13h early)"
+    assert _texts(segments) == "5H 53% ↻9m  7D 61% ↻3d4h →out 1d13h"
     assert _pcts(segments) == [53, 61, "alert"]
 
 
 def test_limits_segments_only_five_hour():
     segments = limits_segments(32, NOW_TS + 3600, None, None, NOW)
-    assert _texts(segments) == "5H 32% (resets 1h 0m)"
+    assert _texts(segments) == "5H 32% ↻1h00m"
     assert _pcts(segments) == [32]
 
 
 def test_limits_segments_only_week():
     segments = limits_segments(None, None, 61, NOW_TS + 86400, NOW)
     # window Thu 12:00 -> Thu 12:00: 96 of 120 weekday hours elapsed
-    assert _texts(segments) == "7D 61% (resets 1d 0h, ~76% at reset)"
+    assert _texts(segments) == "7D 61% ↻1d0h →~76%"
     assert _pcts(segments) == [61, "ok"]
 
 
@@ -80,7 +80,7 @@ def test_limits_segments_appends_per_model_weekly_entry():
 
     # the Fable entry has no reset time of its own and borrows the account-wide one
     # window Tue 13:00 -> Tue 13:00: 23 of 120 weekday hours elapsed
-    assert _texts(segments) == "5H 24% (resets 3h 31m)  ·  7D 13% (resets 6d 1h, ~68% at reset)  ·  7D Fable 8% (~42% at reset)"
+    assert _texts(segments) == "5H 24% ↻3h31m  7D 13% ↻6d1h →~68%  Fable 8% →~42%"
     assert _pcts(segments) == [24, 13, "ok", 8.0, "ok"]
 
 
@@ -93,7 +93,7 @@ def test_limits_segments_multiple_model_entries_each_get_their_own_group():
         ],
     )
 
-    assert _texts(segments) == "7D Fable 8%  ·  7D Opus 41%"
+    assert _texts(segments) == "Fable 8%  Opus 41%"
     assert _pcts(segments) == [8.0, 41.0]
 
 
@@ -105,7 +105,7 @@ def test_limits_segments_model_entry_uses_its_own_reset_time():
 
     # window Mon 12:00 -> Mon 12:00: 50% in 48 of 120 weekday hours runs out
     # Fri 12:00, a whole weekend (3d) before the Monday reset
-    assert _texts(segments) == "7D Fable 50% (out 3d 0h early)"
+    assert _texts(segments) == "Fable 50% →out 3d0h"
     assert _pcts(segments) == [50.0, "alert"]
 
 
@@ -121,7 +121,7 @@ def test_seven_day_projection_states_the_margin_in_days_and_hours():
     # window Sun 12:00 -> Sun 12:00: 90% in 60 weekday hours runs out Wed
     # ~18:40, 3d 17h before the reset
     text, pct = _seven_day_projection(90.0, NOW_TS + 4 * 86400, NOW)
-    assert (text, pct) == ("out 3d 17h early", "alert")
+    assert (text, pct) == ("→out 3d17h", "alert")
 
 
 def test_seven_day_projection_counts_weekday_time_only():
@@ -129,7 +129,7 @@ def test_seven_day_projection_counts_weekday_time_only():
     # have passed, the weekend in between counts for nothing
     monday = datetime(2026, 9, 14, 8, 0)
     text, pct = _seven_day_projection(10.0, monday.timestamp() + 4 * 86400, monday)
-    assert (text, pct) == ("~50% at reset", "ok")
+    assert (text, pct) == ("→~50%", "ok")
 
 
 def test_projection_tone_only_warns_near_the_line():
@@ -162,7 +162,7 @@ def test_header_segments_includes_per_model_weekly_entry():
         model_entries=[{"key": "week_model", "label": "Fable", "pct": 8.0, "resets_text": "x"}],
     )
 
-    assert _texts(segments) == "● POD BAY  ·  HAL 9000  ·  7D Fable 8%"
+    assert _texts(segments) == "● POD BAY  ·  HAL 9000  ·  Fable 8%"
 
 
 def test_scan_status_keeps_width_and_flips_glyph():

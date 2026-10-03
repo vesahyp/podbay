@@ -94,7 +94,7 @@ async def test_header_widget_shows_per_model_weekly_entry_coloured():
         header = app.query_one(PodbayHeader)
         title = header.query_one("#header-quotas", Static)
 
-        assert "7D Fable 91%" in title.content.plain
+        assert "Fable 91%" in title.content.plain
         model_pct_span = next(
             s for s in title.content.spans if title.content.plain[s.start : s.end] == "91%"
         )

@@ -36,21 +36,36 @@ def scan_status(scanning: bool, last_scan: datetime | None) -> str:
     return f"{glyph} {stamp}"
 
 
+# The header has one line for every account's figures, so every duration is
+# the compact clock form: 9m, 3h31m, 1d4h. The ↻ in front of it means
+# "resets in", the → in front of a projection "heads for".
+RESET_MARK = "↻"
+PROJECTION_MARK = "→"
+
+
+def _compact(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    if days:
+        return f"{days}d{hours}h"
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m"
+
+
 def _five_hour_countdown(resets_at: float | None, now: datetime) -> str | None:
     if resets_at is None:
         return None
     diff = resets_at - now.timestamp()
     if diff <= 0:
         return None
-    hours = int(diff // 3600)
-    minutes = int((diff % 3600) // 60)
-    return f"{hours}h {minutes}m"
+    return _compact(diff)
 
 
 def _days_hours(seconds: float) -> str:
-    days = int(seconds // 86400)
-    hours = int((seconds % 86400) // 3600)
-    return f"{days}d {hours}h" if days else f"{hours}h"
+    return _compact(seconds)
 
 
 def _seven_day_countdown(resets_at: float | None, now: datetime) -> str | None:
@@ -120,9 +135,9 @@ def _projection_tone(at_reset: float) -> str:
 
 def _seven_day_projection(pct: float, resets_at: float | None, now: datetime) -> "HeaderSegment | None":
     """Where the 7D figure lands at reset if spending keeps the pace it has
-    kept over the window's weekday time so far: '~88% at reset' when it
-    lasts, 'out 1d 13h early' (the margin in calendar time before the reset)
-    when it runs out first, toned by _projection_tone.
+    kept over the window's weekday time so far: '→~88%' when it lasts,
+    '→out 1d13h' (the margin in calendar time before the reset) when it
+    runs out first, toned by _projection_tone.
     The percentage alone never answers the question you ask the bar,
     which is whether the week's quota reaches the reset."""
     if resets_at is None:
@@ -136,30 +151,23 @@ def _seven_day_projection(pct: float, resets_at: float | None, now: datetime) ->
         return None
     at_reset = pct * _weekday_seconds(start, resets_at) / worked
     if at_reset < 100:
-        return (f"~{at_reset:.0f}% at reset", _projection_tone(at_reset))
+        return (f"{PROJECTION_MARK}~{at_reset:.0f}%", _projection_tone(at_reset))
     runs_out_at = _after_weekday_seconds(start, worked * 100 / pct)
-    return (f"out {_days_hours(max(0.0, resets_at - runs_out_at))} early", _projection_tone(at_reset))
+    return (f"{PROJECTION_MARK}out {_days_hours(max(0.0, resets_at - runs_out_at))}", _projection_tone(at_reset))
 
 
 def _seven_day_notes(pct: float, resets_at: float | None, now: datetime, countdown: bool) -> list["HeaderSegment"]:
-    """The parenthesised tail of a 7D group: the reset countdown (when asked
-    for) and the projection, comma-joined, or nothing when neither is known."""
-    parts: list[HeaderSegment] = []
+    """The tail of a 7D group: the reset countdown (when asked for) and the
+    projection, each a word apart, or nothing when neither is known."""
+    segments: list[HeaderSegment] = []
     if countdown:
         text = _seven_day_countdown(resets_at, now)
         if text:
-            parts.append((f"resets {text}", None))
+            segments.append((f" {RESET_MARK}{text}", None))
     projection = _seven_day_projection(pct, resets_at, now)
     if projection:
-        parts.append(projection)
-    if not parts:
-        return []
-    segments: list[HeaderSegment] = [(" (", None)]
-    for i, part in enumerate(parts):
-        if i:
-            segments.append((", ", None))
-        segments.append(part)
-    segments.append((")", None))
+        segments.append((" ", None))
+        segments.append(projection)
     return segments
 
 
@@ -182,8 +190,8 @@ def limits_segments(
     model_entries: list[dict] | None = None,
 ) -> list[HeaderSegment]:
     """Account rate-limit readout as segments, e.g.
-    '5H 32% (resets 2h 10m)  ·  7D 61% (resets 3d 4h, out 17h early)  ·
-    7D Fable 8% (~58% at reset)'. The 5H/7D figures cover every model
+    '5H 32% ↻2h10m  7D 61% ↻3d4h →out 17h  Fable 8% →~58%'.
+    The 5H/7D figures cover every model
     (Claude Code reports no per-model split there); model_entries carries
     the per-model weekly figures instead, from `claude -p /usage` (see
     usage.py) -- one group per entry, no countdown since /usage doesn't line
@@ -197,7 +205,7 @@ def limits_segments(
         group: list[HeaderSegment] = [("5H ", None), (f"{five_pct:.0f}%", five_pct)]
         countdown = _five_hour_countdown(five_resets_at, now)
         if countdown:
-            group.append((f" (resets {countdown})", None))
+            group.append((f" {RESET_MARK}{countdown}", None))
         groups.append(group)
 
     if week_pct is not None:
@@ -212,7 +220,8 @@ def limits_segments(
         if pct is None:
             continue
         label = entry.get("label")
-        prefix = f"7D {label} " if label else "7D "
+        # a weekly figure like the 7D one before it; the model name says so
+        prefix = f"{label} " if label else "7D "
         group = [(prefix, None), (f"{pct:.0f}%", pct)]
         resets_at = entry.get("resets_at")
         if resets_at is None:
@@ -223,7 +232,7 @@ def limits_segments(
     segments: list[HeaderSegment] = []
     for i, group in enumerate(groups):
         if i:
-            segments.append(("  ·  ", None))
+            segments.append(("  ", None))
         segments.extend(group)
     return segments
 
