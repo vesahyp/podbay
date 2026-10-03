@@ -810,6 +810,7 @@ def gather_sessions(
         main_last_turn_ts = None
         turn_ended = None
         waiting_on = None
+        subagents_running = 0
         path = transcript_path_for(cwd, session_id, projects_dir)
         if path is not None:
             transcript = tail_read_transcript(path)
@@ -865,6 +866,7 @@ def gather_sessions(
                 repos_touched=sorted(transcript.get("repos_touched", set())),
                 repos_edited=sorted(transcript.get("repos_edited", set())),
                 background_tasks=list(transcript.get("background_tasks", {}).values()),
+                subagents_running=subagents_running,
                 waiting_on=waiting_on,
                 turn_ended=turn_ended,
                 iterm_tab_id=tab.tab_id if tab else None,

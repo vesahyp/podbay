@@ -86,6 +86,9 @@ class Session:
     # Background Bash commands and Monitors the transcript started:
     # {"id", "ts" (local datetime), "timeout_ms" (Monitor only), "ended"}.
     background_tasks: list[dict] = field(default_factory=list)
+    # Subagent transcripts modified since the main turn ended: a background
+    # Agent call ends the main turn while the work goes on in those files.
+    subagents_running: int = 0
 
     # iTerm2 tab-title glyph fallback (None when no tab or unrecognized
     # glyph); registry status is the last-resort fallback.
@@ -194,8 +197,9 @@ class Session:
         permission prompt); "end_turn" falls through to the parked / due /
         needs_you logic. With no transcript signal at all (last_turn is
         None), fall back to the iTerm2 tab-title glyph, and failing that to
-        the (stale-prone) registry status. A finished turn with a background
-        Bash command or Monitor still running is WATCHING, not needs_you. A
+        the (stale-prone) registry status. A finished turn whose subagents
+        still run is WORKING; one with a background Bash command or Monitor
+        still running is WATCHING, not needs_you. A
         session with no transcript file at all is EMPTY: opened, never used.
         is_shell wins over everything else: a plain terminal has no Claude
         turn/park state to classify. A registry status of "waiting" newer
@@ -212,6 +216,8 @@ class Session:
             if self.last_turn_ts is not None and (now - self.last_turn_ts) > STALLED_THRESHOLD:
                 return STALLED
             return WORKING
+        if self.subagents_running:
+            return WORKING  # the turn ended, its agents did not: nothing is finished yet
         if self.last_turn is None:
             if self.tab_busy is not None:
                 if self.tab_busy:

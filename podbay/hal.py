@@ -55,6 +55,8 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         line = None
         if derived == NEEDS_YOU and s.unread:
             kind = (s.waiting_on or {}).get("kind")
+            if kind == "subagents_running":
+                continue  # the turn ended but its agents have not: nothing is finished yet
             if kind in ("ask_user_question", "prompt", "question_text"):
                 line = voice.hal_question(s.title)
             else:

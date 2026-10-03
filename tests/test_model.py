@@ -322,3 +322,17 @@ def test_find_session_by_what_a_person_says():
     assert find_session(sessions, "ecarbrowser ux") is ux
     assert find_session(sessions, "nothing like it") is None
     assert find_session(sessions, "") is None
+
+
+def test_running_subagents_keep_a_session_working_after_its_turn_ended():
+    from datetime import datetime, timedelta
+
+    from podbay.model import NEEDS_YOU, WORKING, Session
+
+    now = datetime.now()
+    s = Session(session_id="a", pid=1, cwd="/x", name="a", name_source="derived", status="idle",
+                status_updated_at=now, updated_at=now, started_at=now - timedelta(hours=1),
+                last_turn="end_turn", last_turn_ts=now, subagents_running=2)
+    assert s.derive_status(now) == WORKING
+    s.subagents_running = 0
+    assert s.derive_status(now) == NEEDS_YOU

@@ -118,3 +118,14 @@ def test_a_session_seen_for_the_first_time_is_not_an_event():
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
     lines = hal.remarks(memory, [_session("a", last_turn="in_progress"), _session("b")], {}, NOW)
     assert lines == [] and memory.events == []
+
+
+def test_a_turn_that_ended_with_agents_still_running_is_not_finished():
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    delegating = _session("a", waiting_on={"kind": "subagents_running", "detail": "2"})
+    assert hal.remarks(memory, [delegating], {}, NOW) == []
+    assert memory.events == []
+    # once the agents are done and the turn is really over, it counts
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    assert memory.events == [] and hal.remarks(memory, [_session("a")], {}, NOW)
