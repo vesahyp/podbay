@@ -287,7 +287,16 @@ def get_ttys_for_pids(pids: list[int]) -> dict[int, str]:
     return result
 
 
-def _run_applescript(script: str, timeout: float = 3.0) -> str:
+# Every script here walks iTerm2's windows, tabs and sessions; with a dozen
+# sessions and the TUI polling the listing too, iTerm2 has taken six seconds
+# to answer, and a call that gives up early reads as "no such tab". So every
+# call gets a long leash: a CLI run has no cache to fall back on, and the
+# TUI runs the listing from a worker thread.
+SCRIPT_TIMEOUT = 20.0
+LIST_TIMEOUT = SCRIPT_TIMEOUT
+
+
+def _run_applescript(script: str, timeout: float = SCRIPT_TIMEOUT) -> str:
     result = subprocess.run(
         ["osascript", "-e", script],
         capture_output=True, text=True, timeout=timeout,
@@ -307,7 +316,7 @@ class ItermLister:
 
     def _refresh(self) -> None:
         try:
-            out = _run_applescript(LIST_SCRIPT)
+            out = _run_applescript(LIST_SCRIPT, timeout=LIST_TIMEOUT)
         except (subprocess.SubprocessError, OSError):
             return
         self._tabs, self._windows = _parse_all(out)
@@ -426,7 +435,7 @@ def open_window(command: str | None = None, profile: str | None = None) -> str |
         cmd += ["-e", line]
     cmd += [profile or "", command or ""]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=SCRIPT_TIMEOUT)
     except (subprocess.SubprocessError, OSError):
         return None
     if result.returncode != 0:
@@ -456,7 +465,7 @@ WRITE_WINDOW_SCRIPT_LINES = [
 ]
 
 
-def write_text_to_window(window_id: str, text: str, timeout: float = 3.0) -> bool:
+def write_text_to_window(window_id: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
     """Write `text` into the current session of the window with this id.
     Returns True iff a matching window was found; False (never raises) on
     no match or when iTerm2 couldn't be reached."""
@@ -504,7 +513,7 @@ def read_session_text(tty: str, max_lines: int = 200) -> str | None:
     return "\n".join(lines[-max_lines:])
 
 
-def send_text(tty: str, text: str, timeout: float = 3.0) -> bool:
+def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
     """Write `text` into the iTerm2 session whose tty matches, via `write
     text` (which appends a newline -- submitting a Claude Code prompt, or
     queuing behind one that's still running). Never selects or activates
