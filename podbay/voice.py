@@ -302,6 +302,15 @@ def hal_finished(title: str) -> str:
     return f"{title} has finished, {USER_NAME}. It is waiting for you."
 
 
+def hal_ended(title: str, last_text: str | None) -> str:
+    """A session whose claude exited: one line, its last words cut short."""
+    said = " ".join((last_text or "").split())
+    if len(said) > 240:
+        said = said[:239] + "…"
+    tail = f" Its last words: {said}" if said else ""
+    return f"{title} has ended, {USER_NAME}.{tail}"
+
+
 def hal_question(title: str) -> str:
     return f"{title} has a question for you, {USER_NAME}."
 

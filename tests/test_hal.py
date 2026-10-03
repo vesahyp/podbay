@@ -129,3 +129,26 @@ def test_a_turn_that_ended_with_agents_still_running_is_not_finished():
     # once the agents are done and the turn is really over, it counts
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
     assert memory.events == [] and hal.remarks(memory, [_session("a")], {}, NOW)
+
+
+def test_a_session_whose_claude_exits_is_announced_with_its_last_words(monkeypatch):
+    monkeypatch.setattr(hal, "pid_alive", lambda pid: False)
+    memory = hal.Memory()
+    site = _session("site", last_turn="in_progress")
+    site.recap = "Deployed the site.\n\nAll green."
+    hal.remarks(memory, [site], {}, NOW)
+
+    shell = _session("shell-7", shell=True)  # its terminal, back at the prompt
+    lines = hal.remarks(memory, [shell], {}, NOW)
+
+    assert lines == ["SITE has ended, Vesa. Its last words: Deployed the site. All green."]
+    assert memory.events == [("site", lines[0])]
+    assert hal.remarks(memory, [shell], {}, NOW) == []  # said once
+
+
+def test_a_session_missing_from_one_scan_but_still_running_is_not_ended(monkeypatch):
+    monkeypatch.setattr(hal, "pid_alive", lambda pid: True)
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    assert hal.remarks(memory, [], {}, NOW) == []
+    assert memory.events == []

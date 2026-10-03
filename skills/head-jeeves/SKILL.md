@@ -128,10 +128,13 @@ it appears.
 
 ### /head-jeeves event <name>: <what happened>
 
-podbay saw a session finish and wait for the user, ask a question, stall, or
-come due. Tell the user in one line what happened and what it needs from
-them; for a finished session, add what it finished (one glance at `podbay
-excerpt <name> --turns 6`). No file. Then refresh the board.
+podbay saw a session finish and wait for the user, ask a question, stall,
+come due, or end (its claude exited and the terminal is a shell again). Tell
+the user in one line what happened and what it needs from them; for a
+finished session, add what it finished (one glance at `podbay excerpt <name>
+--turns 6`). An ended session is gone from the inventory, so its event
+carries its last words: pass on what they say it finished. No file. Then
+refresh the board.
 
 ### /head-jeeves checkup <name> <session-id>
 

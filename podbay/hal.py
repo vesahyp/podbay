@@ -7,6 +7,7 @@ them as toasts. `podbay config voice off` silences him.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -26,14 +27,25 @@ class Memory:
     """What HAL already said, so a refresh every 3 s does not repeat it."""
 
     statuses: dict[str, str] = field(default_factory=dict)  # session id -> derived status
+    seen: dict[str, Session] = field(default_factory=dict)  # session id -> the session as last seen
     hot_windows: set[str] = field(default_factory=set)  # "<account>:5H" etc. already warned
     heated: set[str] = field(default_factory=set)  # sessions whose prompts read heated last time
     newly_heated: list[str] = field(default_factory=list)  # ids that turned hot this refresh (for a checkup)
     # (session name, line) for each session event this refresh: finished,
-    # question, stalled, due. What podbay forwards to Head Jeeves.
+    # question, stalled, due, ended. What podbay forwards to Head Jeeves.
     events: list[tuple[str, str]] = field(default_factory=list)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # someone else's process: it exists
+    return True
 
 
 def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], now: datetime) -> list[str]:
@@ -69,7 +81,18 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         if line:
             lines.append(line)
             memory.events.append((s.name, line))
+    if memory.primed:
+        # A session whose claude exited drops out of the registry; its
+        # terminal goes back to being a shell. That is a finish too, and
+        # the last thing it said is what the user wants to hear.
+        for session_id in memory.statuses.keys() - current.keys():
+            gone = memory.seen.get(session_id)
+            if gone is not None and not pid_alive(gone.pid):
+                line = voice.hal_ended(gone.title, gone.recap)
+                lines.append(line)
+                memory.events.append((gone.name, line))
     memory.statuses = current
+    memory.seen = {s.session_id: s for s in sessions if s.session_id in current}
 
     heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}
     memory.newly_heated = []
