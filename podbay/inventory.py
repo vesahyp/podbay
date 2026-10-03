@@ -50,6 +50,9 @@ def _session_dict(s: Session, now: datetime) -> dict:
         # first prompt. The handle to use when talking about it.
         "title": s.title,
         "head_jeeves": is_head_jeeves(s),
+        # Who started it with `podbay open`: "head-jeeves" marks the ones
+        # Head Jeeves closes when they are done.
+        "opened_by": s.opened_by,
         "account": s.account,
         "remote_url": s.remote_url,
         "tab": s.terminal,

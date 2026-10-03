@@ -581,6 +581,85 @@ def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
     return result.stdout.strip().lower() == "true"
 
 
+# argv-based, same reason as SEND_SCRIPT_LINES. Closes the session on the
+# tty, which closes its tab when it is the only one there. Returns
+# "closed <window id> last" when that was the window's only session,
+# "closed <window id> more" otherwise, or "missing" when no session has
+# the tty.
+CLOSE_SCRIPT_LINES = [
+    "on run argv",
+    '  tell application "iTerm2"',
+    "    set targetTty to item 1 of argv",
+    "    repeat with w in windows",
+    "      repeat with t in tabs of w",
+    "        repeat with s in sessions of t",
+    "          if (tty of s) is targetTty then",
+    "            set wid to id of w",
+    "            set lastOne to ((count of tabs of w) is 1 and (count of sessions of t) is 1)",
+    "            tell s to close",
+    '            if lastOne then return "closed " & wid & " last"',
+    '            return "closed " & wid & " more"',
+    "          end if",
+    "        end repeat",
+    "      end repeat",
+    "    end repeat",
+    '    return "missing"',
+    "  end tell",
+    "end run",
+]
+
+# Closing a window's last session leaves the window in iTerm2's AppleScript
+# view with no tabs (verified), and such a window broke the listing once.
+# iTerm2 ignores a close of that window for several seconds (about 7 in a
+# test), even from the same script, so close_tty runs this again until the
+# window is gone. Returns "gone" or "waiting".
+CLOSE_EMPTY_WINDOW_SCRIPT_LINES = [
+    "on run argv",
+    '  tell application "iTerm2"',
+    "    try",
+    "      set w to (first window whose id is ((item 1 of argv) as integer))",
+    "    on error",
+    '      return "gone"',
+    "    end try",
+    "    if (count of tabs of w) is 0 then close w",
+    '    return "waiting"',
+    "  end tell",
+    "end run",
+]
+EMPTY_WINDOW_WAIT_SECONDS = 20.0
+
+
+def _osascript_lines(lines: list[str], args: list[str], timeout: float) -> str | None:
+    cmd = ["osascript"]
+    for line in lines:
+        cmd += ["-e", line]
+    cmd += args
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def close_tty(tty: str, timeout: float = SCRIPT_TIMEOUT, wait: float = EMPTY_WINDOW_WAIT_SECONDS) -> bool:
+    """Close the iTerm2 session on this tty, and its tab or window when
+    nothing else is in it. True iff a session had the tty; False (never
+    raises) when none did or iTerm2 could not be reached."""
+    out = _osascript_lines(CLOSE_SCRIPT_LINES, [tty], timeout) or ""
+    parts = out.split()
+    if len(parts) != 3 or parts[0] != "closed":
+        return False
+    _, window_id, rest = parts
+    if rest == "last":
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            if _osascript_lines(CLOSE_EMPTY_WINDOW_SCRIPT_LINES, [window_id], timeout) == "gone":
+                break
+            time.sleep(0.5)
+        else:
+            log.warning("iTerm2 window %s kept with no tabs after %s s", window_id, wait)
+    return True
+
+
 # The session podbay itself runs in, found by the UUID half of
 # ITERM_SESSION_ID ("w0t1p0:UUID"); `rows`/`columns` give the visible grid
 # and `contents` the whole buffer, whose last `rows` lines are the screen.

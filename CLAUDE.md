@@ -36,6 +36,8 @@ podbay/
   iterm.py          AppleScript: list tabs, focus, send text, open window
   state.py          park/note/seen state and the resume snapshot;
                       parse_when for park expressions
+  opened.py         the sessions `podbay open` started and who ran it;
+                      its own file, since the TUI rewrites state.json
   usage.py          `claude -p /usage` per account, cached
   history.py        past sessions to resume, with transcript search
   inventory.py      the JSON/table/status views for other agents
@@ -78,6 +80,7 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 
 - Read-only against Claude Code's files. podbay writes only under
   `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
+  `podbay close` is the one command that ends a session and closes a tab.
 - `Enter` is the only action that switches to iTerm2. Open and resume start
   Claude in a tab and leave the user in podbay.
 - Every user-facing string lives in `voice.py`.

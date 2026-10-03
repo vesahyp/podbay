@@ -60,6 +60,7 @@ podbay send <sessionName|pid> <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay excerpt <sessionName|pid|id> [--turns N]
 podbay open <dir> [--account LABEL] [--name NAME] [--wait SECONDS] [first prompt...]
+podbay close <sessionName|#N|title> [--force]
 podbay board [--out PATH]
 ```
 
@@ -80,7 +81,14 @@ podbay config                    # show every setting
 home repo set the session starts there and its first prompt names `<dir>`.
 The prompt reaches claude through a file under `~/.local/state/podbay/prompts/`,
 so its length does not matter. It waits (180 s by default) until the session
-is up, and otherwise exits 1 with the end of that terminal's screen.
+is up, and otherwise exits 1 with the end of that terminal's screen. Each
+launch is recorded in `~/.local/state/podbay/opened.json` with the session
+that ran it, and `podbay inventory` shows that as `opened_by`.
+
+`podbay close` ends a finished session (SIGTERM, as closing its terminal
+would) and closes its iTerm2 tab, or its window when that tab was the only
+one. A session that is working, watching a background task or stalled stays
+open unless `--force`; Head Jeeves is never closed.
 
 With a home repo set, `o` offers that directory by default, and a tool call
 that only reads there says nothing about where the work is, so that repo

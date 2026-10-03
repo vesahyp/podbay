@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import iterm as iterm_mod
+from . import opened as opened_mod
 from .accounts import DEFAULT_LABEL, Account, discover
 from .model import Session
 from .state import SessionState, StateStore
@@ -928,6 +929,10 @@ def gather_sessions(
                 iterm_title=tab.title if tab else None,
             )
         )
+
+    launches = opened_mod.read()
+    for s in sessions:
+        s.opened_by = opened_mod.opener(s, launches)
 
     live_ttys = {tab.tty for tab in tabs_by_pid.values() if tab is not None}
     sessions.extend(_shell_sessions(iterm_lister, live_ttys, datetime.now(), pid_by_tty, cwd_by_pids))

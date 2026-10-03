@@ -131,6 +131,10 @@ class Session:
     iterm_tab_id: str | None = None
     iterm_title: str | None = None
 
+    # The name of the session that started this one with `podbay open`
+    # (see opened.py); None when nothing recorded it.
+    opened_by: str | None = None
+
     # True for a synthetic row built from an iTerm2 pane with no live
     # Claude registry entry -- a plain shell. tty/window_id identify the
     # pane for arranging/focusing it same as a Claude session.

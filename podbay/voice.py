@@ -287,6 +287,27 @@ def open_failed(where: str, seconds: int) -> str:
     return f"I'm sorry, {USER_NAME}. claude did not come up in {where} within {seconds} s. Its screen ends:"
 
 
+def closed(title: str, terminal: str | None) -> str:
+    where = f" and terminal #{terminal}" if terminal else " and its terminal"
+    return f"closed {title}{where}"
+
+
+def closed_no_tab(title: str) -> str:
+    return f"ended {title}; it had no iTerm2 tab to close"
+
+
+def close_refused_working(title: str, state: str) -> str:
+    return f"I'm sorry, {USER_NAME}. {title} is {state}, so I left it open. --force closes it anyway."
+
+
+def close_refused_head_jeeves() -> str:
+    return f"I'm sorry, {USER_NAME}. I cannot close Head Jeeves."
+
+
+def close_still_running(title: str, seconds: int) -> str:
+    return f"I'm sorry, {USER_NAME}. {title} did not exit within {seconds} s, so its terminal stays open."
+
+
 def no_tab() -> str:
     return f"I'm sorry, {USER_NAME}. I cannot find that tab."
 

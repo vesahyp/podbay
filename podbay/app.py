@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -44,6 +45,7 @@ from .accounts import Account, by_label, discover
 from . import layout
 from . import logs
 from . import notifications
+from . import opened as opened_mod
 from . import screens
 from . import sources
 from . import usage
@@ -2556,6 +2558,31 @@ def open_launch(directory: str, prompt: str) -> tuple[str, str]:
     return str(home), f"{lead}\n\n{prompt}" if prompt else lead
 
 
+def _ancestor_pids(pid: int, limit: int = 30) -> list[int]:
+    """`pid`'s parent, its parent, and so on up to launchd."""
+    chain: list[int] = []
+    while pid > 1 and len(chain) < limit:
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True, timeout=2).stdout
+            pid = int(out.strip())
+        except (subprocess.SubprocessError, OSError, ValueError):
+            break
+        chain.append(pid)
+    return chain
+
+
+def _calling_session(sessions: list[Session], ancestors: list[int]) -> Session | None:
+    """The Claude session this podbay process runs under: the first
+    ancestor that is a live session's pid. None from a plain shell."""
+    by_pid = {s.pid: s for s in sessions if not s.is_shell}
+    return next((by_pid[pid] for pid in ancestors if pid in by_pid), None)
+
+
+def _new_session_on(tty: str, before: set[str]) -> Session | None:
+    sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
+    return next((s for s in sessions if not s.is_shell and s.tty == tty and s.session_id not in before), None)
+
+
 def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int) -> bool:
     """True once a new Claude session sits on `tty` in the registry, or the
     screen shows the Claude banner below the typed command (`marker` is
@@ -2568,10 +2595,26 @@ def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int) 
             screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
             if marker in screen and "Claude Code" in screen.rsplit(marker, 1)[1]:
                 return True
-        sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
-        if any(not s.is_shell and s.tty == tty and s.session_id not in before for s in sessions):
+        if _new_session_on(tty, before) is not None:
             return True
     return False
+
+
+# After the banner shows, the registry can take a while longer to list the
+# session; this long podbay keeps looking for its id to record.
+REGISTER_WAIT_SECONDS = 30
+
+
+def _record_session_id(tty: str, before: set[str], opened_at: datetime) -> None:
+    deadline = time.monotonic() + REGISTER_WAIT_SECONDS
+    while True:
+        started = _new_session_on(tty, before)
+        if started is not None:
+            opened_mod.set_session(tty, opened_at, started.session_id)
+            return
+        if time.monotonic() >= deadline:
+            return
+        time.sleep(OPEN_POLL_SECONDS)
 
 
 def cmd_open(directory: str, account_label: str | None, name: str | None, prompt: str, wait: int = OPEN_WAIT_SECONDS) -> None:
@@ -2607,13 +2650,17 @@ def cmd_open(directory: str, account_label: str | None, name: str | None, prompt
             print("could not open a new iTerm2 window", file=sys.stderr)
             sys.exit(1)
         tty, where = opened[1], f"a new window ({opened[1]})"
+    caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
+    opened_at = datetime.now()
+    opened_mod.record(tty, name, caller.name if caller else None, opened_at)
     if wait <= 0:
         print(f"typed into {where} as {account.label}: {launch_dir}")
         return
     print(f"waiting up to {wait} s for claude in {where}", flush=True)
     marker = prompt_file.name if prompt_file else None
     if _wait_for_claude(tty, before, marker, wait):
-        print(voice.open_started(where, account.label, launch_dir))
+        print(voice.open_started(where, account.label, launch_dir), flush=True)
+        _record_session_id(tty, before, opened_at)
         return
     print(voice.open_failed(where, wait), file=sys.stderr)
     screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
@@ -2670,6 +2717,58 @@ def cmd_send(target: str, text: str) -> None:
     if not tty or not iterm_mod.send_text(tty, text):
         print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid})", file=sys.stderr)
         sys.exit(1)
+
+
+# How long a session gets to exit after SIGTERM before close gives up.
+CLOSE_WAIT_SECONDS = 15
+# A session doing any of these has not finished.
+UNFINISHED = (WORKING, WATCHING, STALLED)
+
+
+def _pid_gone(pid: int, wait: float) -> bool:
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def cmd_close(target: str, force: bool) -> None:
+    """End a finished Claude session (SIGTERM, as closing its terminal
+    would) and close its iTerm2 tab, or its window when that tab was the
+    window's only one. A session still working is left alone unless
+    `force`; Head Jeeves' own session is never closed."""
+    sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
+    match = find_session(sessions, target)
+    if match is None:
+        print(f"no live session matches {target!r}", file=sys.stderr)
+        sys.exit(1)
+    if is_head_jeeves(match):
+        print(voice.close_refused_head_jeeves(), file=sys.stderr)
+        sys.exit(1)
+    state = match.derive_status(datetime.now())
+    if state in UNFINISHED and not force:
+        print(voice.close_refused_working(match.title, STATUS_LABELS[state][1]), file=sys.stderr)
+        sys.exit(1)
+    tty = match.tty or iterm_mod.get_tty_for_pid(match.pid)
+    try:
+        os.kill(match.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    if not _pid_gone(match.pid, CLOSE_WAIT_SECONDS):
+        print(voice.close_still_running(match.title, CLOSE_WAIT_SECONDS), file=sys.stderr)
+        sys.exit(1)
+    opened_mod.forget(match.session_id)
+    if not tty or not iterm_mod.close_tty(tty):
+        print(voice.closed_no_tab(match.title))
+        return
+    print(voice.closed(match.title, match.terminal))
 
 
 def cmd_config(key: str | None, value: str | None) -> None:
@@ -2741,6 +2840,10 @@ def main() -> None:
     open_parser.add_argument("--wait", type=int, default=OPEN_WAIT_SECONDS, metavar="SECONDS", help="how long to wait for claude to come up (0: do not wait)")
     open_parser.add_argument("prompt", nargs="*", help="the first prompt, handed to claude through a file")
 
+    close_parser = sub.add_parser("close", help="end a finished claude session and close its iTerm2 tab, or its window when that was the only tab")
+    close_parser.add_argument("target", help=target_help)
+    close_parser.add_argument("--force", action="store_true", help="close it even while it is working")
+
     inventory_parser = sub.add_parser("inventory", help="print a deterministic session inventory")
     inventory_parser.add_argument("--json", action="store_true", help="print JSON (default)")
     inventory_parser.add_argument("--table", action="store_true", help="print as a plain-text table")
@@ -2769,6 +2872,8 @@ def main() -> None:
         cmd_excerpt(args.target, args.turns)
     elif args.command == "open":
         cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait)
+    elif args.command == "close":
+        cmd_close(args.target, args.force)
     elif args.command == "inventory":
         cmd_inventory(args.table, args.status, args.exclude)
     else:

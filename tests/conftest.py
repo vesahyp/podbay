@@ -63,3 +63,12 @@ def _no_home_base_checkout(monkeypatch, tmp_path):
     from podbay import sources as sources_mod
 
     monkeypatch.setattr(sources_mod, "REPOS_DIR", tmp_path / "Repositories")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_opened_file(monkeypatch, tmp_path):
+    """`podbay open` records its launches and gather_sessions reads them;
+    the suite must neither write nor see this machine's file."""
+    from podbay import opened as opened_mod
+
+    monkeypatch.setattr(opened_mod, "OPENED_PATH", tmp_path / "opened.json")
