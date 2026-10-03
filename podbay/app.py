@@ -35,6 +35,7 @@ from textual.widgets import DataTable, Footer, Input, Label, Static
 
 from . import config
 from . import glyphs
+from . import board
 from . import hal
 from . import mood
 from . import reviewer
@@ -155,9 +156,8 @@ HOT_STYLE = f"bold {HAL_AMBER}"
 HEAD_JEEVES_STYLE = "bold #5fd7ff"
 HEAD_JEEVES_GLYPH = "◉"
 # How long a just-started Head Jeeves may take to show up idle before the
-# queued command is dropped, and how often the watch round runs.
+# queued command is dropped.
 HEAD_JEEVES_LAUNCH_TIMEOUT = timedelta(seconds=90)
-HEAD_JEEVES_WATCH_INTERVAL = timedelta(minutes=30)
 # A review file that lands within this of a scan is "new": toast it.
 REVIEWS_POLL_SECONDS = 5
 # Remote Control on: the session can be driven from the phone or the web.
@@ -1264,7 +1264,6 @@ class PodbayApp(App):
         self._head_jeeves_account_label = head_jeeves_account
         # {"follow_up": <command to send once he is up>, "launched_at": datetime}
         self._head_jeeves_pending: dict | None = None
-        self._head_jeeves_last_watch: datetime | None = None
         self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
@@ -1484,7 +1483,7 @@ class PodbayApp(App):
         self._limits = limits or {}
         self._limits_now = now
         self._hal_remarks(sessions, now)
-        self._head_jeeves_round(now)
+        self._ensure_head_jeeves()
         self._watch_reviews()
 
         try:
@@ -1588,21 +1587,21 @@ class PodbayApp(App):
         if not is_head_jeeves(candidate):
             self._send_to_session(candidate, f"/rename {HEAD_JEEVES_NAME}")
         self._send_to_session(candidate, "/head-jeeves")
+        if pending["follow_up"] == "/head-jeeves":
+            return  # nothing queued beyond reporting for duty
         if not self._send_to_session(candidate, pending["follow_up"]):
             self.notify(voice.no_tab(), severity="warning")
             return
         self.notify(voice.head_jeeves_sent(pending["follow_up"]))
 
-    def _head_jeeves_round(self, now: datetime) -> None:
-        """The half-hourly watch, and the first one as soon as podbay has a
-        full picture. Only when Head Jeeves is wanted; starting him for a
-        round when he is not up is part of the deal."""
-        if not self._head_jeeves or not self._live_sessions:
+    def _ensure_head_jeeves(self) -> None:
+        """Start Head Jeeves when he is wanted and not up, with nothing
+        queued but his own report for duty; events find him there. A launch
+        already pending keeps whatever it has queued."""
+        if not self._head_jeeves or not self._live_sessions or self._head_jeeves_pending is not None:
             return
-        if self._head_jeeves_last_watch is not None and now - self._head_jeeves_last_watch < HEAD_JEEVES_WATCH_INTERVAL:
-            return
-        self._head_jeeves_last_watch = now
-        self._send_to_head_jeeves("/head-jeeves watch")
+        if self._head_jeeves_session() is None:
+            self._start_head_jeeves("/head-jeeves")
 
     def _watch_reviews(self) -> None:
         """Toast each review file Head Jeeves wrote since the last look. The
@@ -2543,6 +2542,16 @@ def cmd_open(directory: str, account_label: str | None, name: str | None, prompt
     print(f"started in a new window as {account.label}: {directory}")
 
 
+def cmd_board(out: Path | None) -> None:
+    """Write the board from the live inventory and print its path."""
+    snapshots = sources.read_status_snapshots()
+    sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister(), status_snapshots=snapshots)
+    payload = inventory_payload(sessions, set())
+    limits = {a.label: sources.newest_limits(snapshots, a.label) for a in discover()}
+    path = board.write(board.render(payload, limits=limits), out)
+    print(path)
+
+
 def cmd_excerpt(target: str, turns: int) -> None:
     match = _find_session(target)
     if match is None or match.is_shell:
@@ -2635,6 +2644,9 @@ def main() -> None:
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
     config_parser.add_argument("value", nargs="?", help="the new value; none prints the current one; '' clears it")
 
+    board_parser = sub.add_parser("board", help="write the session board page (cards by who acts next) for Head Jeeves to publish")
+    board_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {board.BOARD_PATH})")
+
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
     excerpt_parser.add_argument("target", help=target_help)
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
@@ -2667,6 +2679,8 @@ def main() -> None:
         cmd_focus(args.target)
     elif args.command == "send":
         cmd_send(args.target, " ".join(args.text))
+    elif args.command == "board":
+        cmd_board(Path(args.out) if args.out else None)
     elif args.command == "excerpt":
         cmd_excerpt(args.target, args.turns)
     elif args.command == "open":

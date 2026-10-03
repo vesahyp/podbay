@@ -60,6 +60,7 @@ podbay send <sessionName|pid> <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay excerpt <sessionName|pid|id> [--turns N]
 podbay open <dir> [--account LABEL] [--name NAME] [first prompt...]
+podbay board [--out PATH]
 ```
 
 Settings live in `~/.config/podbay/config.json`, set from the command line
@@ -164,8 +165,8 @@ on a tool call) or `end_turn`.
   state first, then the iTerm2 tab-title glyph, then the registry status
 - a background subagent still `in_progress` (its own transcript under
   `<session-id>/subagents/`) counts as the session working
-- `end_turn` with a background Bash command or Monitor still running:
-  **watching** (`o`)
+- `end_turn` while a subagent it started still runs: **working**; with a
+  background Bash command or Monitor still running: **watching** (`o`)
 - a turn after the park's due time clears the park, so a resumed session goes
   back to needs-you instead of staying **due**
 - no transcript file at all: **empty** (`-`), opened and never typed into
@@ -217,8 +218,6 @@ and sends him work as prompts:
   most 150 words on what the friction is and the one sentence that gets the
   session back on track. If the agent is the problem and one sentence would
   fix it, he sends that sentence to the agent himself
-- every half hour: `/head-jeeves watch`, a verdict per active session (on
-  track, drifting, stuck) and a checkup for the ones that are not on track
 - `E` on a row: `/head-jeeves exit`, the exit interview before you replace
   an agent: what was asked, where and when it went south, which of your
   prompts were ambiguous or short of a fact the agent needed (quoted), the
@@ -232,6 +231,16 @@ toasts (a session finished, asked, stalled, came due) and he reports it to
 you in one line there; you can ask him what is going on, tell him to start
 a session somewhere with a task (`podbay open`), or to pass a message to a
 session (`podbay send`), and he does it and reports back.
+
+`podbay board` writes the session board, one HTML page of cards grouped by
+who acts next (Needs you, Working, Parked) with terminal number, the repo
+the session works in, title, state, age, context use and the session's last
+text, plus each account's five-hour and weekly usage and Head Jeeves' own
+context use in the header, to `~/.local/state/podbay/board.html`. Head Jeeves publishes that file as an
+artifact with the `comments` capability, so it costs him no context, and
+you read it on the phone. Tapping a card opens a composer; what you type
+reaches him as a comment addressed `#6 sora: <text>`, he passes it on with
+`podbay send` and answers in the thread.
 
 His instructions are the skill in `skills/head-jeeves/`; `make install-skill
 HOME_REPO=~/Repositories/jeeves` links it into the home repo's

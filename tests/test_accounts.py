@@ -491,8 +491,7 @@ async def test_exit_interview_goes_to_a_live_head_jeeves_and_v_shows_what_he_wro
         await pilot.press("escape")
         await pilot.pause()
 
-    # the first watch round went out as soon as there were sessions
-    assert sent[0] == "/head-jeeves watch"
+    assert sent == ["/head-jeeves exit worker p1"]  # nothing goes to him unasked
 
 
 @pytest.mark.asyncio
@@ -531,9 +530,9 @@ async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started
     async with app.run_test(size=(160, 40)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        # first scan: a watch round is due and no Head Jeeves is live, so one is started in the free shell
+        # first scan: no Head Jeeves is live, so one is started in the free shell
         assert sent == [("/dev/ttys005", f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves")]  # default account, default model
-        app.trigger_refresh()  # the session turns hot: the checkup replaces the queued watch
+        app.trigger_refresh()  # the session turns hot: the checkup replaces the queued report for duty
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert app._head_jeeves_pending["follow_up"] == "/head-jeeves checkup worker d1"
@@ -592,4 +591,4 @@ async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tm
             await pilot.pause()
 
     # the claude-account newcomer was not taken for him; the personal one was, and the finish was relayed
-    assert sent[1:] == ["/head-jeeves", "/head-jeeves watch", "/head-jeeves event worker: worker has finished, Vesa. It is waiting for you."]
+    assert sent[1:] == ["/head-jeeves", "/head-jeeves event worker: worker has finished, Vesa. It is waiting for you."]

@@ -193,3 +193,12 @@ def test_inventory_lists_the_terminal_number_in_json_and_table():
     table = render_table(payload).splitlines()
     assert table[0].startswith("TAB")
     assert any(line.startswith("#7 ") and "alpha" in line for line in table)
+
+
+def test_work_repo_prefers_an_edited_project_repo_over_the_home_base():
+    from podbay.inventory import work_repo
+
+    assert work_repo(_session("a", repos_touched=["jeeves", "sora"], repos_edited=["jeeves"])) == "sora"
+    assert work_repo(_session("b", repos_touched=["jeeves", "sora", "podbay"], repos_edited=["podbay"])) == "podbay"
+    assert work_repo(_session("c", repos_touched=["jeeves"], repos_edited=["jeeves"])) == "jeeves"
+    assert work_repo(_session("d", cwd=f"{REPOS}/keitos")) == "keitos"

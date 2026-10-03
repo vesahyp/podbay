@@ -323,8 +323,6 @@ def head_jeeves_late() -> str:
 
 
 def review_ready(name: str, title: str) -> str:
-    if name == "watch.md":
-        return f"Head Jeeves has finished his round, {USER_NAME}."
     kind = "exit interview" if name.endswith("-exit.md") else "checkup"
     return f"Head Jeeves has written the {kind} of {title}, {USER_NAME}. Press v on its row."
 

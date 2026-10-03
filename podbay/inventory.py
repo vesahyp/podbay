@@ -30,12 +30,23 @@ def repo_for_cwd(cwd: str) -> str:
         return p.name
 
 
+def work_repo(s: Session) -> str:
+    for repos in (s.repos_edited, s.repos_touched):
+        others = sorted(r for r in repos if r != HOME_BASE)
+        if others:
+            return others[0]
+    return repo_for_cwd(s.cwd)
+
+
 def _session_dict(s: Session, now: datetime) -> dict:
     idle_minutes = (
         round((now - s.last_turn_ts).total_seconds() / 60, 1) if s.last_turn_ts is not None else None
     )
     return {
         "name": s.name,
+        "state": s.derive_status(now),
+        "age_seconds": s.age_seconds(now),
+        "parked_until": s.parked_until.isoformat() if s.parked_until else None,
         # What the session is about: the tab title Claude Code sets from the
         # first prompt. The handle to use when talking about it.
         "title": s.title,
@@ -48,6 +59,9 @@ def _session_dict(s: Session, now: datetime) -> dict:
         "pid": s.pid,
         "cwd": s.cwd,
         "repo": repo_for_cwd(s.cwd),
+        # The repo the session works in: edited first, else touched, the home
+        # base only when nothing else. What the board shows.
+        "work_repo": work_repo(s),
         "repos_touched": sorted(s.repos_touched),
         "repos_edited": sorted(s.repos_edited),
         "git_branch": s.git_branch,
