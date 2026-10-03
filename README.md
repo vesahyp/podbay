@@ -63,9 +63,9 @@ podbay inventory [--json|--table|--status] [--exclude NAME]...
 Optional environment:
 
 - `PODBAY_HOME_REPO=<name>`: the repo under `~/Repositories` you launch every
-  session from. A tool call that only reads there then says nothing about
-  where the work is, so that repo counts in the Repos column only when the
-  session edits a file in it.
+  session from. `o` then offers that directory by default, and a tool call
+  that only reads there says nothing about where the work is, so that repo
+  counts in the Repos column only when the session edits a file in it.
 - `PODBAY_USER=<name>`: how HAL addresses you. Default: your login name.
 - `PODBAY_NO_SPLASH=1`: same as `--no-splash`.
 - `PODBAY_LOG_LEVEL=DEBUG`: more in `~/.local/state/podbay/podbay.log`.

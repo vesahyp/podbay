@@ -51,3 +51,14 @@ def _home_base_is_jeeves(monkeypatch):
 
     for module in (app_mod, inventory_mod, model_mod):
         monkeypatch.setattr(module, "HOME_BASE", "jeeves")
+
+
+@pytest.fixture(autouse=True)
+def _no_home_base_checkout(monkeypatch, tmp_path):
+    """The open prompt defaults to the home-base checkout when it exists;
+    the suite must not see this machine's, so the repos dir is an empty
+    temp dir. Only the runtime lookup reads sources.REPOS_DIR; the path
+    regex and inventory bound their copy at import."""
+    from podbay import sources as sources_mod
+
+    monkeypatch.setattr(sources_mod, "REPOS_DIR", tmp_path / "Repositories")

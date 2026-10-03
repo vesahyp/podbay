@@ -331,3 +331,23 @@ async def test_transcript_pane_reads_the_sessions_own_account(tmp_path, monkeypa
         entries = app._transcript_cache["p1"][2]
         assert [e["text"] for e in entries] == ["hello from the personal side"]
         assert app.query_one("#transcript-body", Static).content is not None
+
+
+def test_open_default_dir_is_the_home_base_when_set(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from podbay import sources as sources_mod
+    from tests.test_app import _selection_session
+
+    monkeypatch.setattr(sources_mod, "REPOS_DIR", tmp_path)
+    session = _selection_session("a", datetime.now(), cwd="/x/elsewhere")
+
+    monkeypatch.setattr(app_mod, "HOME_BASE", "")
+    assert app_mod.PodbayApp._open_default_dir(session) == "/x/elsewhere"
+    assert app_mod.PodbayApp._open_default_dir(None) == os.path.expanduser("~")
+
+    monkeypatch.setattr(app_mod, "HOME_BASE", "jeeves")
+    assert app_mod.PodbayApp._open_default_dir(session) == "/x/elsewhere"  # no such checkout yet
+    (tmp_path / "jeeves").mkdir()
+    assert app_mod.PodbayApp._open_default_dir(session) == str(tmp_path / "jeeves")
+    assert app_mod.PodbayApp._open_default_dir(None) == str(tmp_path / "jeeves")

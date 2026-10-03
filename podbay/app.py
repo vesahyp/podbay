@@ -2068,7 +2068,7 @@ class PodbayApp(App):
         account (the default one on a shell row); then the directory prompt."""
         session = self._selected_session()
         is_shell = session is not None and getattr(session, "is_shell", False)
-        default_dir = session.cwd if session is not None and session.cwd else os.path.expanduser("~")
+        default_dir = self._open_default_dir(session)
         account = self._accounts[0] if session is None or is_shell else (by_label(self._accounts, session.account) or self._accounts[0])
         free = session if is_shell else self._free_shell_session()
 
@@ -2080,6 +2080,20 @@ class PodbayApp(App):
             self.push_screen(AccountScreen(self._accounts, account, self._live_counts()), handle_account)
         else:
             self._prompt_open_directory(account, default_dir, free)
+
+    @staticmethod
+    def _open_default_dir(session: Session | None) -> str:
+        """Where a new claude starts: the home-base repo (PODBAY_HOME_REPO)
+        when there is one and it exists on disk, since every session is
+        launched from there; else the highlighted session's directory; else
+        home."""
+        if HOME_BASE:
+            home_base = sources.REPOS_DIR / HOME_BASE
+            if home_base.is_dir():
+                return str(home_base)
+        if session is not None and session.cwd:
+            return session.cwd
+        return os.path.expanduser("~")
 
     def _prompt_open_directory(self, chosen: Account, default_dir: str, free: Session | None) -> None:
         def handle_result(value: str | None) -> None:
