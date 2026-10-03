@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Visitors · podbay</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <!--
+    The traffic board. It reads /data/analytics.json, which the nightly
+    pipeline in analytics/ publishes, and only sums days and formats. The
+    pipeline aggregates. Not tracked, not indexed, not authenticated: put
+    nothing here that cannot survive being found.
+  -->
+  <style>
+    main { padding-bottom: 48px; }
+    h1 { font: 600 24px/1.2 var(--mono); margin: 8px 0 4px; }
+    .note { color: var(--muted); font-size: 13px; margin: 6px 0 20px; }
+    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .kpi { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 12px; }
+    .kpi strong { display: block; font: 600 24px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+    .kpi span { color: var(--muted); font-size: 12px; }
+    .kpi.muted strong { color: var(--muted); }
+    .card { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 14px; margin-top: 12px; }
+    .card h2 { font: 600 14px/1.3 var(--sans); margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
+    .card h2 label { font-weight: 400; color: var(--muted); font-size: 12px; }
+    .bars { display: flex; align-items: flex-end; gap: 2px; height: 128px; }
+    .bars div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; }
+    .bars .h { background: var(--red); }
+    .bars .b { background: #555; }
+    .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; }
+    td, th { padding: 4px 0; }
+    td + td, th + th { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody tr { border-top: 1px solid #1d1d1d; }
+    ul.list { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+    ul.list li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    ul.list .k { width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    ul.list .t { flex: 1; height: 6px; background: #1a1a1a; border-radius: 3px; }
+    ul.list .t i { display: block; height: 6px; background: var(--red); border-radius: 3px; }
+    ul.list .v { width: 3em; text-align: right; font-variant-numeric: tabular-nums; }
+    .empty { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap narrow">
+    <header class="top"><a class="brand" href="/"><img src="/icon.svg" alt="">podbay</a></header>
+    <main id="board"><p class="empty">Loading…</p></main>
+  </div>
+  <script>
+    "use strict";
+    const board = document.getElementById("board");
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const fmt = (v) => (v === null || v === undefined ? "–" : esc(v));
+
+    function sumMaps(rows, table, dim) {
+      const acc = {};
+      for (const r of rows) {
+        const m = r[table] && r[table][dim];
+        if (!m) continue;
+        for (const [k, v] of Object.entries(m)) acc[k] = (acc[k] || 0) + v;
+      }
+      return Object.entries(acc).sort((a, b) => b[1] - a[1]);
+    }
+
+    const kpi = (v, label, muted) => `<div class="kpi${muted ? " muted" : ""}"><strong>${fmt(v)}</strong><span>${esc(label)}</span></div>`;
+
+    function list(items) {
+      if (!items.length) return '<p class="empty">None yet.</p>';
+      const max = Math.max(1, ...items.map(([, v]) => v));
+      return '<ul class="list">' + items.map(([k, v]) =>
+        `<li title="${esc(k)}: ${v}"><span class="k">${esc(k)}</span><span class="t"><i style="width:${(v / max) * 100}%"></i></span><span class="v">${v}</span></li>`
+      ).join("") + "</ul>";
+    }
+
+    function render(rows, showBots) {
+      const days = [...new Set(rows.map((r) => r.date))].sort();
+      const last30days = days.slice(-30);
+      const latest = days[days.length - 1];
+      const latestRow = rows.find((r) => r.date === latest) || {};
+      const last30 = rows.filter((r) => last30days.includes(r.date));
+      const byDate = new Map(rows.map((r) => [r.date, r]));
+
+      const views = Object.fromEntries(sumMaps(last30, "bySessions", "cta_view"));
+      const disp = Object.fromEntries(sumMaps(last30, "bySessions", "cta_displayed"));
+      const clicks = Object.fromEntries(sumMaps(last30, "bySessions", "cta_click"));
+      const funnel = [...new Set([...Object.keys(views), ...Object.keys(disp), ...Object.keys(clicks)])]
+        .map((k) => ({ k, displayed: disp[k] || 0, click: clicks[k] || 0, view: views[k] || 0 }))
+        .sort((a, b) => b.view - a.view);
+
+      const sessions30 = last30.reduce((n, r) => n + r.sessions, 0);
+      const bots30 = last30.reduce((n, r) => n + r.bots.sessions, 0);
+      const maxDay = Math.max(1, ...last30days.map((d) => {
+        const r = byDate.get(d) || { sessions: 0, bots: { sessions: 0 } };
+        return r.sessions + (showBots ? r.bots.sessions : 0);
+      }));
+      const bars = last30days.map((d) => {
+        const r = byDate.get(d) || { sessions: 0, bots: { sessions: 0 } };
+        const h = r.sessions, b = r.bots.sessions;
+        return `<div title="${d}: ${h} sessions${showBots ? `, ${b} bots` : ""}">` +
+          (showBots ? `<span class="b" style="height:${(b / maxDay) * 100}%"></span>` : "") +
+          `<span class="h" style="height:${Math.max(1, (h / maxDay) * 100)}%"></span></div>`;
+      }).join("");
+
+      board.innerHTML = `
+        <h1>Visitors</h1>
+        <p class="note">Latest day ${esc(latest)}. People only; bots are counted apart. The nightly run fills in yesterday.</p>
+        <div class="kpis">
+          ${kpi(latestRow.sessions, "sessions, latest day")}
+          ${kpi(latestRow.visitors7d, "visitors, 7 days")}
+          ${kpi(latestRow.visitors30d, "visitors, 30 days")}
+          ${kpi(sessions30, "sessions, 30 days")}
+          ${kpi(latestRow.errors, "errors, latest day")}
+          ${kpi(bots30, "bot sessions, 30 days", true)}
+        </div>
+        <div class="card">
+          <h2>Sessions per day <label><input type="checkbox" id="bots"${showBots ? " checked" : ""}> bots</label></h2>
+          <div class="bars" role="img" aria-label="Sessions per day">${bars}</div>
+          <div class="axis"><span>${esc((last30days[0] || "").slice(5))}</span><span>${esc((latest || "").slice(5))}</span></div>
+        </div>
+        <div class="card">
+          <h2>Links, by session, 30 days</h2>
+          <table><thead><tr><th>link</th><th>seen</th><th>clicked</th><th>CTR</th></tr></thead><tbody>
+          ${funnel.length ? funnel.map((f) => `<tr><td>${esc(f.k)}</td><td>${f.displayed}</td><td>${f.click}</td><td>${f.displayed ? Math.round((f.click / f.displayed) * 100) + "%" : "–"}</td></tr>`).join("")
+            : '<tr><td class="empty" colspan="4">None yet.</td></tr>'}
+          </tbody></table>
+        </div>
+        <div class="card"><h2>Sources, 30 days</h2>${list(sumMaps(last30, "bySessions", "referrer").slice(0, 10))}</div>
+        <div class="card"><h2>Scroll depth, 30 days</h2>${list(sumMaps(last30, "bySessions", "scroll").slice(0, 6))}</div>
+        <div class="card"><h2>Pages, 30 days</h2>${list(sumMaps(last30, "bySessions", "path").slice(0, 8))}</div>
+        <div class="card"><h2>Edge location, 30 days</h2>${list(sumMaps(last30, "bySessions", "edge").slice(0, 8))}</div>
+        <div class="card"><h2>Errors, 30 days</h2>${list(sumMaps(last30, "by", "error").slice(0, 6))}</div>
+        <div class="card"><h2>Speed, latest day</h2><div class="kpis">
+          ${kpi(latestRow.lcp && latestRow.lcp.p50, "LCP p50 ms")}
+          ${kpi(latestRow.lcp && latestRow.lcp.p75, "LCP p75 ms")}
+          ${kpi(latestRow.cls && latestRow.cls.p75, "CLS p75")}
+        </div></div>`;
+      document.getElementById("bots").addEventListener("change", (e) => render(rows, e.target.checked));
+    }
+
+    fetch("/data/analytics.json", { cache: "no-cache" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((rows) => (rows.length ? render(rows, false) : Promise.reject("empty")))
+      .catch(() => {
+        board.innerHTML = '<h1>Visitors</h1><p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>';
+      });
+  </script>
+</body>
+</html>

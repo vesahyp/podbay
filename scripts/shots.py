@@ -4,7 +4,7 @@ made-up sessions, never this machine's.
 The console is the real TUI mounted headless with every source of live data
 replaced by the demo below; Textual exports the screen as SVG. The board is
 board.render() over the same sessions. Playwright then renders both to PNG
-under site/img/.
+under site/img/, which are committed.
 
     make shots
 """
@@ -178,12 +178,13 @@ async def main() -> None:
             await page.goto((tmp / "console.html").as_uri())
             await page.locator("img").screenshot(path=str(OUT / "console.png"), omit_background=True)
 
-            for scheme in ("dark", "light"):
-                phone = await browser.new_page(
-                    viewport={"width": 393, "height": 852}, device_scale_factor=3, color_scheme=scheme, is_mobile=True
-                )
-                await phone.goto((tmp / "board.html").as_uri())
-                await phone.screenshot(path=str(OUT / f"board-{scheme}.png"))
+            # Dark, to sit on the dark page. The board itself follows the
+            # phone's setting.
+            phone = await browser.new_page(
+                viewport={"width": 393, "height": 852}, device_scale_factor=3, color_scheme="dark", is_mobile=True
+            )
+            await phone.goto((tmp / "board.html").as_uri())
+            await phone.screenshot(path=str(OUT / "board.png"))
             await browser.close()
     for f in sorted(OUT.glob("*.png")):
         print(f.relative_to(REPO))

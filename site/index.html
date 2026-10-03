@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>podbay: one console for every Claude Code session</title>
+  <meta name="description" content="podbay is a terminal console over every Claude Code session on your Mac. It shows what each session is doing and which ones need you. Head Jeeves runs it for you from your phone.">
+  <link rel="canonical" href="https://podbay.tienoo.com/">
+  <meta property="og:title" content="podbay">
+  <meta property="og:description" content="One terminal console over every Claude Code session on your Mac, with an operator you talk to from your phone.">
+  <meta property="og:image" content="https://podbay.tienoo.com/img/console.png">
+  <meta property="og:url" content="https://podbay.tienoo.com/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#050505">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <!-- Beacons to /t.gif, read out of the CloudFront access log. The tracker
+       is clavesa's, vendored unmodified from clavesa-dev/web-tracker. A
+       headless browser (the screenshot run) sends nothing. -->
+  <script>window.TRACKER_CONFIG = { enabled: !navigator.webdriver };</script>
+  <script defer src="/tracker.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="/"><img src="/icon.svg" alt="">podbay</a>
+      <nav>
+        <a class="wide" href="#console" data-track="nav-console">Console</a>
+        <a href="#head-jeeves" data-track="nav-head-jeeves">Head Jeeves</a>
+        <a href="#install" data-track="nav-install">Install</a>
+        <a href="https://github.com/vesahyp/podbay" data-track="nav-github">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="hero">
+      <div>
+        <h1>pod<span>bay</span></h1>
+        <p class="lede">One console over every Claude Code session on your Mac.</p>
+        <p class="sub">You run a session per repo, per task, per account. podbay puts them all on one screen: what each one is doing, which ones wait for you, and how much quota each account has left. Head Jeeves, a Claude session of its own, watches them with you and answers on your phone.</p>
+        <div class="cta">
+          <a class="btn primary" href="#install" data-track="hero-install">Install</a>
+          <a class="btn ghost" href="https://github.com/vesahyp/podbay" data-track="hero-github">Source on GitHub</a>
+        </div>
+      </div>
+      <div class="eye" role="img" aria-label="The red eye of HAL 9000"></div>
+    </div>
+
+    <figure class="shot" id="console">
+      <div class="scroll"><img src="/img/console.png" width="3200" height="1168" alt="The podbay console: a table of seven Claude Code sessions with their state, age, context use, model, account, directory and title, the account quotas in the header, and the selected session's conversation below."></div>
+      <figcaption>The console. Sessions that need you sort to the top. The lower half shows the selected session's last turns. The data here is made up.</figcaption>
+    </figure>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <p class="label">The console</p>
+      <h2>Every session, one screen</h2>
+      <p>podbay reads the files Claude Code already keeps: the session registry, the end of each transcript and the status line. It finds the iTerm2 tab of each session. It never writes to Claude Code's files.</p>
+      <div class="grid">
+        <div><h3><b>?</b>Who needs you</h3><p>A session that finished, asked a question or opened a permission dialog sorts to the top. A dot marks an answer you have not read.</p></div>
+        <div><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript, not from guesses.</p></div>
+        <div><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
+        <div><h3><b>↵</b>Jump or send</h3><p>Enter brings up the session's tab. <code>m</code> types a message into it without leaving podbay.</p></div>
+        <div><h3><b>=</b>Park it</h3><p>Snooze a session until <code>tomorrow 9</code> or <code>+2h</code>. It waits at the bottom until it is due.</p></div>
+        <div><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account. Open and resume start Claude as the right one.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="head-jeeves">
+    <div class="wrap split">
+      <div>
+        <p class="label">Head Jeeves</p>
+        <h2>The operator you talk to from your phone</h2>
+        <p>Head Jeeves is a Claude Code session that podbay keeps running. Turn on Remote Control for its account and it is the session the Claude app shows on your phone.</p>
+        <ul>
+          <li>When a session finishes, asks a question or stalls, podbay tells Head Jeeves, and Head Jeeves tells you in one line.</li>
+          <li>Ask what is going on. Tell it to start a session in a repo with a task, or to pass a message to a session. It does that and reports back.</li>
+          <li>The session board is a page of cards that Head Jeeves publishes for you. Tap a card, type, and the message goes to that session.</li>
+          <li>When your prompts in a session turn heated, it reads the session and tells you what the friction is. Before you replace an agent, it writes the exit interview and a handover prompt.</li>
+        </ul>
+      </div>
+      <figure class="phone">
+        <img src="/img/board.png" width="1179" height="2556" loading="lazy" alt="The session board on a phone: cards grouped under Needs you and Working, each with the terminal number, title, repo, context use and the session's last text.">
+        <figcaption>The session board, as it looks on a phone.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap"><div class="narrow">
+      <p class="label">Install</p>
+      <h2>Clone, make, run</h2>
+      <p>You need macOS, iTerm2, <a href="https://docs.astral.sh/uv/">uv</a> and <code>jq</code>. On another terminal the table works, but jump and send do not.</p>
+<pre><code>git clone https://github.com/vesahyp/podbay.git
+cd podbay
+make install   <span class="c"># podbay on PATH, status line set</span>
+
+podbay         <span class="c"># the console</span>
+podbay config head-jeeves on</code></pre>
+      <p>The status line is where Claude Code reports context and quota, so <code>make install</code> points every account's status line at podbay's script. If you keep your own, copy one block into it instead. The <a href="https://github.com/vesahyp/podbay#readme" data-track="install-readme">README</a> has the details and every key.</p>
+      <p>podbay writes only under <code>~/.local/state/podbay/</code>, and types into an iTerm2 tab only when you ask it to. MIT licensed.</p>
+    </div></div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span>podbay. Not affiliated with Anthropic.</span>
+      <a href="https://github.com/vesahyp/podbay" data-track="footer-github">github.com/vesahyp/podbay</a>
+    </div>
+  </footer>
+</body>
+</html>
