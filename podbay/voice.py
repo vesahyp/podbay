@@ -273,6 +273,20 @@ def parse_error() -> str:
     return f"I'm sorry, {USER_NAME}. I'm afraid I can't parse that."
 
 
+def open_target(directory: str) -> str:
+    """Leads the first prompt of a session `podbay open` starts in the home
+    base on behalf of another repo."""
+    return f"The work is in {directory}."
+
+
+def open_started(where: str, account: str, directory: str) -> str:
+    return f"claude is up in {where} as {account}: {directory}"
+
+
+def open_failed(where: str, seconds: int) -> str:
+    return f"I'm sorry, {USER_NAME}. claude did not come up in {where} within {seconds} s. Its screen ends:"
+
+
 def no_tab() -> str:
     return f"I'm sorry, {USER_NAME}. I cannot find that tab."
 

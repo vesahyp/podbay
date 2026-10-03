@@ -59,7 +59,7 @@ podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay excerpt <sessionName|pid|id> [--turns N]
-podbay open <dir> [--account LABEL] [--name NAME] [first prompt...]
+podbay open <dir> [--account LABEL] [--name NAME] [--wait SECONDS] [first prompt...]
 podbay board [--out PATH]
 ```
 
@@ -74,6 +74,13 @@ podbay config head-jeeves-account personal   # the account he runs as (default: 
 podbay config review-model sonnet   # the model Head Jeeves runs on (default: the account's own)
 podbay config                    # show every setting
 ```
+
+`podbay open` starts claude in a terminal sitting at an empty shell prompt
+(one stuck on a half-typed line does not count), or in a new window. With a
+home repo set the session starts there and its first prompt names `<dir>`.
+The prompt reaches claude through a file under `~/.local/state/podbay/prompts/`,
+so its length does not matter. It waits (180 s by default) until the session
+is up, and otherwise exits 1 with the end of that terminal's screen.
 
 With a home repo set, `o` offers that directory by default, and a tool call
 that only reads there says nothing about where the work is, so that repo

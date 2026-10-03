@@ -70,7 +70,7 @@ from .model import (
     sort_key,
 )
 from .splash import FADE_IN_SECONDS, FADE_OUT_SECONDS, ShutdownScreen, SplashScreen
-from .state import StateStore, ParseError, parse_when
+from .state import STATE_PATH, StateStore, ParseError, parse_when
 
 log = logging.getLogger(__name__)
 
@@ -2293,7 +2293,7 @@ class PodbayApp(App):
         self.notify(f"arranged {applied}/{len(plan)} window(s) on the {where}")
 
     def _free_shell_sessions(self) -> list[Session]:
-        """Listed terminals sitting at an idle shell prompt, in table order,
+        """Listed terminals sitting at an empty shell prompt, in table order,
         the highlighted one first. A new window is a last resort: the point is
         to fill the terminals that are already open."""
         busy = sources.busy_ttys()
@@ -2303,6 +2303,7 @@ class PodbayApp(App):
             if getattr(row["session"], "is_shell", False)
             and getattr(row["session"], "tty", None)
             and row["session"].tty not in busy
+            and iterm_mod.at_empty_prompt(row["session"].tty)
         ]
         highlighted = self._selected_session()
         if highlighted is not None and highlighted in free:
@@ -2509,41 +2510,116 @@ def _find_session(target: str) -> Session | None:
     return find_session(sources.gather_sessions(state_store, iterm_lister), target)
 
 
-def cmd_open(directory: str, account_label: str | None, name: str | None, prompt: str) -> None:
-    """Start claude in the first terminal sitting at a shell prompt, or in a
-    new window; prints where. The prompt goes as claude's first argument."""
+PROMPTS_DIR = STATE_PATH.parent / "prompts"
+PROMPT_KEEP = timedelta(days=7)
+OPEN_WAIT_SECONDS = 180
+OPEN_POLL_SECONDS = 5
+
+
+def _write_prompt_file(prompt: str, directory: Path = PROMPTS_DIR) -> Path:
+    """The first prompt goes to claude through a file: typed terminal input
+    is cut at 1024 bytes (MAX_CANON), which once left a long prompt's
+    closing quote off and the shell waiting at a continuation line. Files
+    older than a week are dropped on the way."""
+    directory.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - PROMPT_KEEP.total_seconds()
+    for old in directory.glob("*.txt"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
+    path = directory / f"{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}.txt"
+    path.write_text(prompt)
+    return path
+
+
+def open_command(account: Account, launch_dir: str, name: str | None, prompt_file: Path | None) -> str:
+    """The short line typed into the shell: the prompt is read from its
+    file by the shell, never typed."""
+    args = [f"-n {shlex.quote(name)}"] if name else []
+    if prompt_file is not None:
+        args.append(f'"$(cat {shlex.quote(str(prompt_file))})"')
+    tail = f" {' '.join(args)}" if args else ""
+    return f"cd {shlex.quote(launch_dir)} && {account.command_prefix()}claude{tail}"
+
+
+def open_launch(directory: str, prompt: str) -> tuple[str, str]:
+    """Every session starts in the home base (`podbay config home-repo`)
+    when there is one; the repo it is for goes into its first prompt.
+    Returns (launch directory, prompt)."""
+    target = os.path.abspath(os.path.expanduser(directory))
+    home = sources.REPOS_DIR / HOME_BASE if HOME_BASE else None
+    if home is None or not home.is_dir() or Path(target) == home:
+        return target, prompt
+    lead = voice.open_target(target)
+    return str(home), f"{lead}\n\n{prompt}" if prompt else lead
+
+
+def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int) -> bool:
+    """True once a new Claude session sits on `tty` in the registry, or the
+    screen shows the Claude banner below the typed command (`marker` is
+    text unique to that command). A slow machine takes over a minute to
+    register a new session."""
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        time.sleep(OPEN_POLL_SECONDS)
+        if marker:
+            screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
+            if marker in screen and "Claude Code" in screen.rsplit(marker, 1)[1]:
+                return True
+        sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
+        if any(not s.is_shell and s.tty == tty and s.session_id not in before for s in sessions):
+            return True
+    return False
+
+
+def cmd_open(directory: str, account_label: str | None, name: str | None, prompt: str, wait: int = OPEN_WAIT_SECONDS) -> None:
+    """Start claude in the first terminal sitting at an empty shell prompt,
+    or in a new window, and wait until it is up; prints where, or the
+    screen's tail and exits 1 when it never came up."""
     accounts = discover()
     account = by_label(accounts, account_label)
     if account is None:
         print(f"no account {account_label!r}; known: {', '.join(a.label for a in accounts)}", file=sys.stderr)
         sys.exit(1)
-    args = []
-    if name:
-        args.append(f"-n {shlex.quote(name)}")
-    if prompt:
-        args.append(shlex.quote(prompt))
-    prefix = account.command_prefix()
-    tail = f" {' '.join(args)}" if args else ""
-    command = f"cd {shlex.quote(os.path.expanduser(directory))} && {prefix}claude{tail}"
+    launch_dir, prompt = open_launch(directory, prompt)
+    prompt_file = _write_prompt_file(prompt) if prompt else None
+    command = open_command(account, launch_dir, name, prompt_file)
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
+    before = {s.session_id for s in sessions if not s.is_shell}
     busy = sources.busy_ttys()
     own = None
     try:
         own = os.ttyname(0)
     except OSError:
         pass
-    free = [s for s in sessions if s.is_shell and s.tty and s.tty not in busy and s.tty != own]
-    if free:
-        target = free[0]
+    candidates = [s for s in sessions if s.is_shell and s.tty and s.tty not in busy and s.tty != own]
+    target = next((s for s in candidates if iterm_mod.at_empty_prompt(s.tty)), None)
+    if target is not None:
         if not iterm_mod.send_text(target.tty, command):
             print("could not type into the free terminal", file=sys.stderr)
             sys.exit(1)
-        print(f"started in terminal #{target.terminal or '?'} ({target.tty}) as {account.label}: {directory}")
+        tty, where = target.tty, f"terminal #{target.terminal or '?'} ({target.tty})"
+    else:
+        opened = iterm_mod.open_window_with_tty(command=command)
+        if not opened or not opened[1]:
+            print("could not open a new iTerm2 window", file=sys.stderr)
+            sys.exit(1)
+        tty, where = opened[1], f"a new window ({opened[1]})"
+    if wait <= 0:
+        print(f"typed into {where} as {account.label}: {launch_dir}")
         return
-    if not iterm_mod.open_window(command=command):
-        print("could not open a new iTerm2 window", file=sys.stderr)
-        sys.exit(1)
-    print(f"started in a new window as {account.label}: {directory}")
+    print(f"waiting up to {wait} s for claude in {where}", flush=True)
+    marker = prompt_file.name if prompt_file else None
+    if _wait_for_claude(tty, before, marker, wait):
+        print(voice.open_started(where, account.label, launch_dir))
+        return
+    print(voice.open_failed(where, wait), file=sys.stderr)
+    screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
+    tail = [line for line in screen.splitlines() if line.strip()][-15:]
+    print("\n".join(tail) or "(nothing readable)", file=sys.stderr)
+    sys.exit(1)
 
 
 def cmd_board(out: Path | None) -> None:
@@ -2655,11 +2731,12 @@ def main() -> None:
     excerpt_parser.add_argument("target", help=target_help)
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
 
-    open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window)")
-    open_parser.add_argument("directory", help="where it starts")
+    open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window) and wait until it is up")
+    open_parser.add_argument("directory", help="the repo it is for; it starts in the home base and is told this in its first prompt")
     open_parser.add_argument("--account", default=None, metavar="LABEL", help="the account to run as (default: the default account)")
     open_parser.add_argument("--name", default=None, metavar="NAME", help="the session name (claude -n)")
-    open_parser.add_argument("prompt", nargs="*", help="the first prompt, typed in once claude is up")
+    open_parser.add_argument("--wait", type=int, default=OPEN_WAIT_SECONDS, metavar="SECONDS", help="how long to wait for claude to come up (0: do not wait)")
+    open_parser.add_argument("prompt", nargs="*", help="the first prompt, handed to claude through a file")
 
     inventory_parser = sub.add_parser("inventory", help="print a deterministic session inventory")
     inventory_parser.add_argument("--json", action="store_true", help="print JSON (default)")
@@ -2688,7 +2765,7 @@ def main() -> None:
     elif args.command == "excerpt":
         cmd_excerpt(args.target, args.turns)
     elif args.command == "open":
-        cmd_open(args.directory, args.account, args.name, " ".join(args.prompt))
+        cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait)
     elif args.command == "inventory":
         cmd_inventory(args.table, args.status, args.exclude)
     else:

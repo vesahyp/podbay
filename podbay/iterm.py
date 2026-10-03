@@ -8,6 +8,7 @@ never shell out to osascript once per row.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -404,7 +405,8 @@ SEND_SCRIPT_LINES = [
 # argv-based, same reason as SEND_SCRIPT_LINES. Creates the window via a
 # profile (never the `command` param of `create window`, which replaces the
 # login shell so the window closes the moment the command exits) then
-# writes the command into the new session as a separate step.
+# writes the command into the new session as a separate step. Returns the
+# window id and the new session's tty, tab-separated.
 OPEN_WINDOW_SCRIPT_LINES = [
     "on run argv",
     '  tell application "iTerm2"',
@@ -418,18 +420,19 @@ OPEN_WINDOW_SCRIPT_LINES = [
     "    if targetCommand is not \"\" then",
     "      tell current session of w to write text targetCommand",
     "    end if",
-    "    return id of w",
+    "    return ((id of w) as text) & tab & (tty of current session of w)",
     "  end tell",
     "end run",
 ]
 
 
-def open_window(command: str | None = None, profile: str | None = None) -> str | None:
+def open_window_with_tty(command: str | None = None, profile: str | None = None) -> tuple[str, str] | None:
     """Create a new iTerm2 window (default profile, or `profile` by name)
-    and return its window id -- same id space as WindowInfo.window_id --
-    or None if iTerm2 couldn't be reached. `command`, if given, is written
-    into the new window's session after creation, not passed to `create
-    window`, so the shell survives the command."""
+    and return (window id, tty of its session) -- the id in the same space
+    as WindowInfo.window_id -- or None if iTerm2 couldn't be reached.
+    `command`, if given, is written into the new window's session after
+    creation, not passed to `create window`, so the shell survives the
+    command."""
     cmd = ["osascript"]
     for line in OPEN_WINDOW_SCRIPT_LINES:
         cmd += ["-e", line]
@@ -440,8 +443,16 @@ def open_window(command: str | None = None, profile: str | None = None) -> str |
         return None
     if result.returncode != 0:
         return None
-    out = result.stdout.strip()
-    return out or None
+    window_id, _, tty = result.stdout.strip().partition("\t")
+    if not window_id:
+        return None
+    return window_id, tty
+
+
+def open_window(command: str | None = None, profile: str | None = None) -> str | None:
+    """open_window_with_tty, for callers that want only the window id."""
+    opened = open_window_with_tty(command, profile)
+    return opened[0] if opened else None
 
 
 # argv-based, same reason as SEND_SCRIPT_LINES. `write text` submits the
@@ -511,6 +522,28 @@ def read_session_text(tty: str, max_lines: int = 200) -> str | None:
         return None
     lines = out.splitlines()
     return "\n".join(lines[-max_lines:])
+
+
+# zsh's PS2 names what is still open ("dquote> ", "cmdsubst quote> "),
+# bash's is a bare "> ": a shell showing one is in the middle of a command,
+# and text typed there joins it instead of starting a new one.
+_CONTINUATION_RE = re.compile(r"^\s*(?:[a-z]+ )*[a-z]*>\s*$")
+
+
+def screen_at_empty_prompt(text: str | None) -> bool:
+    """Whether a shell's screen text ends at a prompt that is not a
+    continuation line. Unreadable or blank text is not a prompt."""
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return False
+    return not _CONTINUATION_RE.match(lines[-1])
+
+
+def at_empty_prompt(tty: str) -> bool:
+    """A shell is free only when its screen ends at a fresh prompt: the
+    foreground process alone cannot tell a prompt from a half-typed line
+    the shell is still waiting to finish."""
+    return screen_at_empty_prompt(read_session_text(tty, max_lines=20))
 
 
 def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:

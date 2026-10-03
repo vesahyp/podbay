@@ -514,6 +514,7 @@ async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: batches.pop(0) if batches else [hot, shell, fresh_head])
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
     monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda: set())
+    monkeypatch.setattr(app_mod.iterm_mod, "at_empty_prompt", lambda tty: True)
     monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
     (tmp_path / "jeeves").mkdir()
     monkeypatch.setattr(app_mod, "HOME_BASE", "jeeves")
@@ -572,6 +573,7 @@ async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tm
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: batches.pop(0) if batches else batches)
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
     monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda: set())
+    monkeypatch.setattr(app_mod.iterm_mod, "at_empty_prompt", lambda tty: True)
     sent = []
     monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
     monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append(text) or True)

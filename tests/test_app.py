@@ -1161,6 +1161,7 @@ def test_open_claude_prefers_a_free_terminal_over_a_new_window(monkeypatch, tmp_
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [claude_row, free])
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
     monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda *_a, **_k: {"/dev/ttys003"})
+    monkeypatch.setattr(app_mod.iterm_mod, "at_empty_prompt", lambda tty: True)
 
     sent = []
     monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
@@ -1202,6 +1203,7 @@ def test_resume_uses_a_free_terminal_before_opening_a_window(monkeypatch, tmp_pa
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [free])
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
     monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda *_a, **_k: set())
+    monkeypatch.setattr(app_mod.iterm_mod, "at_empty_prompt", lambda tty: True)
 
     sent = []
     windows = []
