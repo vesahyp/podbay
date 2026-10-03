@@ -90,3 +90,15 @@ def test_shell_rows_say_nothing():
     hal.remarks(memory, [_session("sh", shell=True)], {}, NOW)
     assert hal.remarks(memory, [_session("sh", shell=True)], {}, NOW + timedelta(hours=3)) == []
 
+
+
+def test_a_session_turning_hot_is_announced_once_and_listed_for_a_checkup():
+    memory = hal.Memory()
+    calm = _session("a", last_turn="in_progress")
+    hal.remarks(memory, [calm], {}, NOW)
+    hot = _session("a", last_turn="in_progress")
+    hot.recent_prompts = ["how the fuck is this still broken"]
+    lines = hal.remarks(memory, [hot], {}, NOW)
+    assert any("frustration in A" in l for l in lines)
+    assert memory.newly_heated == ["a"]
+    assert hal.remarks(memory, [hot], {}, NOW) == [] and memory.newly_heated == []

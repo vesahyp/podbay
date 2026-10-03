@@ -430,3 +430,116 @@ async def test_helper_tabs_are_not_listed(tmp_path, monkeypatch):
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert sorted(app._visible_row_keys) == ["first", "unknown"]
+
+
+# -- Head Jeeves -----------------------------------------------------------------
+
+
+def _head(now, **overrides):
+    from tests.test_app import _selection_session
+
+    s = _selection_session("hj", now, cwd="/home/base", **overrides)
+    s.name = "head-jeeves"
+    return s
+
+
+@pytest.mark.asyncio
+async def test_exit_interview_goes_to_a_live_head_jeeves_and_v_shows_what_he_wrote(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from tests.test_app import _selection_session
+
+    accounts = _accounts(tmp_path)
+    now = datetime.now()
+    worker = _selection_session("p1", now, account="personal", cwd="/x/two")
+    worker.name = "worker"
+    head = _head(now)
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [worker, head])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    sent = []
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append(text) or True)
+    reviews = tmp_path / "reviews"
+    app = app_mod.PodbayApp(
+        state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts,
+        head_jeeves=True, reviews_dir=reviews,
+    )
+    toasts = []
+    monkeypatch.setattr(app, "notify", lambda message, *a, **k: toasts.append(str(message)))
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        keys = app._visible_row_keys
+        assert keys[0] == "hj"  # Head Jeeves sorts first
+        table = app.query_one("#table")
+        table.move_cursor(row=keys.index("p1"))
+        app.action_view_review()
+        assert "has not written" in toasts[-1]
+        app.action_exit_interview()
+        assert sent[-1] == "/head-jeeves exit worker p1"
+        # he writes the file; the next scan toasts it and v shows it
+        reviews.mkdir()
+        (reviews / "p1-exit.md").write_text("# worker: exit interview\n\nIt went south at turn two.\n")
+        app.trigger_refresh()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert any("exit interview of" in t for t in toasts)
+        app.action_view_review()
+        await pilot.pause()
+        assert isinstance(app.screen, app_mod.ReviewScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+
+    # the first watch round went out as soon as there were sessions
+    assert sent[0] == "/head-jeeves watch"
+
+
+@pytest.mark.asyncio
+async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started_then_primed(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from tests.test_app import _selection_session
+
+    accounts = _accounts(tmp_path)
+    now = datetime.now()
+    calm = _selection_session("d1", now, cwd="/x/one", last_turn="in_progress")
+    calm.name = "worker"
+    hot = _selection_session("d1", now, cwd="/x/one", last_turn="in_progress", recent_prompts=["this is STILL broken?! again!!"])
+    hot.name = "worker"
+    shell = _selection_session("sh", now, last_turn=None, has_transcript=False, is_shell=True, tty="/dev/ttys005")
+    fresh_head = _head(now + timedelta(seconds=5), status="idle")
+    fresh_head.name = "jeeves-77"  # -n did not stick: podbay renames him
+    fresh_head.started_at = now + timedelta(seconds=5)
+    batches = [[calm, shell], [hot, shell], [hot, shell, fresh_head]]
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: batches.pop(0) if batches else [hot, shell, fresh_head])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda: set())
+    monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
+    (tmp_path / "jeeves").mkdir()
+    monkeypatch.setattr(app_mod, "HOME_BASE", "jeeves")
+    fresh_head.cwd = str(tmp_path / "jeeves")
+    sent = []
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
+    app = app_mod.PodbayApp(
+        state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts,
+        voice_mode=app_mod.hal.VOICE_ON, head_jeeves=True, reviews_dir=tmp_path / "reviews",
+    )
+    monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        # first scan: a watch round is due and no Head Jeeves is live, so one is started in the free shell
+        assert sent == [("/dev/ttys005", f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves --model sonnet")]
+        app.trigger_refresh()  # the session turns hot: the checkup replaces the queued watch
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app._head_jeeves_pending["follow_up"] == "/head-jeeves checkup worker d1"
+        app.trigger_refresh()  # Head Jeeves shows up idle in the home repo
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert [t for _tty, t in sent[1:]] == ["/rename head-jeeves", "/head-jeeves", "/head-jeeves checkup worker d1"]
+    assert app._head_jeeves_pending is None

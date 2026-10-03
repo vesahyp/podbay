@@ -9,6 +9,12 @@ Keys:
   voice       on | off: whether HAL remarks on what changed (a session
               finished, asked, stalled, came due, a quota ran hot) as
               toasts. Default on.
+  head_jeeves  on | off: whether podbay keeps a Head Jeeves session running
+              (a Claude Code session named head-jeeves, started from the home
+              repo, see skills/head-jeeves) and sends it work: a checkup when
+              a session turns heated, a watch round every half hour, an exit
+              interview on E. Default off: it is a session that spends tokens.
+  review_model  the model Head Jeeves runs on. Default sonnet.
 
 PODBAY_HOME_REPO in the environment overrides the file, for a one-off run.
 """
@@ -24,6 +30,8 @@ CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 KEYS = {
     "home-repo": "home_repo",
     "voice": "voice",
+    "head-jeeves": "head_jeeves",
+    "review-model": "review_model",
 }
 
 
@@ -68,6 +76,14 @@ def set_value(key: str, value: str | None, path: Path | None = None) -> dict:
 
 def voice_mode(path: Path | None = None) -> str:
     return "off" if str(read(path).get("voice") or "on") == "off" else "on"
+
+
+def head_jeeves_on(path: Path | None = None) -> bool:
+    return str(read(path).get("head_jeeves") or "off") == "on"
+
+
+def review_model(path: Path | None = None) -> str:
+    return str(read(path).get("review_model") or "sonnet")
 
 
 def home_repo(path: Path | None = None) -> str:

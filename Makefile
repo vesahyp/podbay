@@ -1,4 +1,4 @@
-.PHONY: help run list test install
+.PHONY: help run list test install install-skill
 
 PODBAY := uv run --project .
 
@@ -7,6 +7,7 @@ help:
 	@echo "make list      the same rows as plain text"
 	@echo "make test      run the tests"
 	@echo "make install   ~/.local/bin/podbay symlink + status line in every Claude account"
+	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 
 run:
 	@$(PODBAY) podbay
@@ -29,3 +30,11 @@ install:
 	    "$$d/settings.json" > "$$d/settings.json.tmp" && mv "$$d/settings.json.tmp" "$$d/settings.json" \
 	    && echo "→ $$d/settings.json statusLine"; \
 	done
+
+# Head Jeeves' instructions, linked into the repo every session starts from
+# (the home repo), where Claude Code picks skills up. A link, so the skill
+# in this checkout stays the one copy.
+install-skill:
+	@test -n "$(HOME_REPO)" || { echo "usage: make install-skill HOME_REPO=<path>"; exit 1; }
+	@mkdir -p "$(HOME_REPO)/.claude/skills"
+	@ln -sfn "$(CURDIR)/skills/head-jeeves" "$(HOME_REPO)/.claude/skills/head-jeeves" && echo "→ $(HOME_REPO)/.claude/skills/head-jeeves"

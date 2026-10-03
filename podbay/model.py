@@ -27,6 +27,9 @@ SHELL = "shell_pane"
 
 REMOTE_URL_BASE = "https://claude.ai/code/"
 
+# Head Jeeves' own session, matched by registry name (see app.py).
+HEAD_JEEVES_NAME = "head-jeeves"
+
 STALLED_THRESHOLD = timedelta(minutes=10)
 # A background Bash command has no timeout of its own; past this age a start
 # with no end record is taken as lost (the notification fell outside the tail).
@@ -246,7 +249,13 @@ def sort_key(session: Session, now: datetime):
         secondary = session.parked_until  # ascending -> soonest first
     else:
         secondary = session.status_updated_at  # ascending -> oldest first
+    if is_head_jeeves(session):
+        return (-1, secondary)  # ahead of every group, whatever his status
     return (group, secondary)
+
+
+def is_head_jeeves(session: Session) -> bool:
+    return session.name == HEAD_JEEVES_NAME
 
 
 def humanize_age(seconds: float) -> str:

@@ -66,6 +66,8 @@ and read at the next start:
 ```
 podbay config home-repo jeeves   # the repo under ~/Repositories you launch every session from
 podbay config voice off          # HAL stops remarking on what changed (on | off; default on)
+podbay config head-jeeves on     # keep a Head Jeeves session running and send it work (default off)
+podbay config review-model opus  # the model Head Jeeves runs on (default sonnet)
 podbay config                    # show every setting
 ```
 
@@ -129,6 +131,8 @@ With one config dir nothing changes: no label, no Acct value.
 - `x` toggles Remote Control for the highlighted session by typing
   `/remote-control` into it; on, the session appears in the Claude mobile
   app and on claude.ai/code, and the RC column shows `⇅`
+- `E` sends the highlighted session to Head Jeeves for its exit interview
+  (see Head Jeeves); `v` shows the newest review of it
 - `h` shows today's notification history
 - `r` refreshes now
 - `q` quits through the shutdown eye (again to skip it). When a background
@@ -196,6 +200,33 @@ heated. One remark per event, none for a
 session whose answer you have already seen. When nothing has needed you for
 two hours he says so once. Remarks are toasts and go into the `h` history.
 `podbay config voice off` silences him. He never speaks aloud.
+
+## Head Jeeves
+
+When a session goes south, the agent in it is the wrong one to ask why. Head
+Jeeves is a standing Claude Code session of his own, named `head-jeeves`,
+that reads the other sessions and says what he sees. podbay starts him from
+the home repo when none is live (`podbay config head-jeeves on`, Sonnet by
+default, `podbay config review-model`) and sends him work as prompts:
+
+- the moment a session's prompts turn heated: `/head-jeeves checkup`, at
+  most 150 words on what the friction is and the one sentence that gets the
+  session back on track. If the agent is the problem and one sentence would
+  fix it, he sends that sentence to the agent himself
+- every half hour: `/head-jeeves watch`, a verdict per active session (on
+  track, drifting, stuck) and a checkup for the ones that are not on track
+- `E` on a row: `/head-jeeves exit`, the exit interview before you replace
+  an agent: what was asked, where and when it went south, which of your
+  prompts were ambiguous or short of a fact the agent needed (quoted), the
+  agent's own failures, and a handover prompt for the next agent
+
+His instructions are the skill in `skills/head-jeeves/`; `make install-skill
+HOME_REPO=~/Repositories/jeeves` links it into the home repo's
+`.claude/skills/`, since every session, his included, starts there. He reads
+a session with `podbay excerpt <name>` (the last 80 turns as plain text) and
+writes under `~/.local/state/podbay/reviews/`; podbay watches that directory,
+HAL says when a file lands, `v` shows the newest one for the highlighted
+session. His row has its own colour, sorts first, and is never scored.
 
 ## Header
 

@@ -310,6 +310,29 @@ def hal_heated(title: str) -> str:
     return f"I sense some frustration in {title}, {USER_NAME}. It may be the moment to step back and say what you want in one sentence."
 
 
+def head_jeeves_sent(command: str) -> str:
+    return f"→ head-jeeves: {command}"
+
+
+def head_jeeves_starting() -> str:
+    return f"Starting a Head Jeeves session, {USER_NAME}."
+
+
+def head_jeeves_late() -> str:
+    return f"I'm sorry, {USER_NAME}. Head Jeeves did not report for duty in time."
+
+
+def review_ready(name: str, title: str) -> str:
+    if name == "watch.md":
+        return f"Head Jeeves has finished his round, {USER_NAME}."
+    kind = "exit interview" if name.endswith("-exit.md") else "checkup"
+    return f"Head Jeeves has written the {kind} of {title}, {USER_NAME}. Press v on its row."
+
+
+def review_none(title: str) -> str:
+    return f"Head Jeeves has not written about {title} yet, {USER_NAME}."
+
+
 def hal_quiet() -> str:
     return f"All systems are functioning normally, {USER_NAME}. Nothing needs you."
 

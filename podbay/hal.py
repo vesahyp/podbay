@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from . import mood, voice
-from .model import DUE, NEEDS_YOU, STALLED, Session
+from .model import DUE, NEEDS_YOU, STALLED, Session, is_head_jeeves
 
 # A quota window at or past this is hot: HAL warns once per window.
 QUOTA_HOT_PCT = 85.0
@@ -28,6 +28,7 @@ class Memory:
     statuses: dict[str, str] = field(default_factory=dict)  # session id -> derived status
     hot_windows: set[str] = field(default_factory=set)  # "<account>:5H" etc. already warned
     heated: set[str] = field(default_factory=set)  # sessions whose prompts read heated last time
+    newly_heated: list[str] = field(default_factory=list)  # ids that turned hot this refresh (for a checkup)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
 
@@ -38,7 +39,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     current: dict[str, str] = {}
     attention = False
     for s in sessions:
-        if s.is_shell:
+        if s.is_shell or is_head_jeeves(s):
             continue
         derived = s.derive_status(now)
         current[s.session_id] = derived
@@ -60,11 +61,13 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
             lines.append(voice.hal_due(s.title))
     memory.statuses = current
 
-    heated_now = {s.session_id for s in sessions if not s.is_shell and mood.is_hot(s.recent_prompts)}
+    heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}
+    memory.newly_heated = []
     if memory.primed:
         for s in sessions:
             if s.session_id in heated_now and s.session_id not in memory.heated:
                 lines.append(voice.hal_heated(s.title))
+                memory.newly_heated.append(s.session_id)
     memory.heated = heated_now
 
     for account, figures in sorted(limits.items()):

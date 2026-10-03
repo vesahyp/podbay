@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from rich.console import Group, RenderableType
@@ -37,6 +37,7 @@ from . import config
 from . import glyphs
 from . import hal
 from . import mood
+from . import reviewer
 from . import iterm as iterm_mod
 from .accounts import Account, by_label, discover
 from . import layout
@@ -50,7 +51,9 @@ from .inventory import inventory_payload, render_status, render_table
 from .model import (
     DUE,
     EMPTY,
+    HEAD_JEEVES_NAME,
     HOME_BASE,
+    is_head_jeeves,
     NEEDS_YOU,
     PARKED,
     SHELL,
@@ -147,6 +150,15 @@ RECAP_COLUMN = 12  # index into COLUMN_WIDTHS of the one sized at runtime
 # The last prompts of this session read heated (see mood.py).
 HOT_GLYPH = "⚡"
 HOT_STYLE = f"bold {HAL_AMBER}"
+# Head Jeeves' row: a hue no status uses, whatever his own status is.
+HEAD_JEEVES_STYLE = "bold #5fd7ff"
+HEAD_JEEVES_GLYPH = "◉"
+# How long a just-started Head Jeeves may take to show up idle before the
+# queued command is dropped, and how often the watch round runs.
+HEAD_JEEVES_LAUNCH_TIMEOUT = timedelta(seconds=90)
+HEAD_JEEVES_WATCH_INTERVAL = timedelta(minutes=30)
+# A review file that lands within this of a scan is "new": toast it.
+REVIEWS_POLL_SECONDS = 5
 # Remote Control on: the session can be driven from the phone or the web.
 REMOTE_GLYPH = "⇅"
 REMOTE_STYLE = "bold #5fd7ff"
@@ -183,6 +195,8 @@ ACTIONS = [
     ("R", "resume", "Resume"),
     ("h", "history", "History"),
     ("x", "remote", "Remote"),
+    ("E", "exit_interview", "Exit interview"),
+    ("v", "view_review", "Review"),
     ("r", "refresh", "Refresh"),
     ("q", "quit", "Quit"),
 ]
@@ -272,13 +286,15 @@ def _dir_label(cwd: str) -> str:
     return path
 
 
-def _state_cell(derived: str, selected: bool, row_style: str | None) -> Text | str:
+def _state_cell(derived: str, selected: bool, row_style: str | None, force_style: str | None = None) -> Text | str:
     """The selection mark takes the status glyph's place: the word next to it
-    still says what the state is, so the mark costs no width."""
+    still says what the state is, so the mark costs no width. `force_style`
+    (Head Jeeves' colour) wins over the status colours, selection over that."""
     glyph, word = STATUS_LABELS[derived]
     if selected:
         return Text(f"{SEL_GLYPH} {word}", style=SEL_STYLE)
-    return _cell(f"{glyph} {word}", STATE_STYLES.get(derived, row_style))
+    style = force_style if force_style is not None else STATE_STYLES.get(derived, row_style)
+    return _cell(f"{glyph} {word}", style)
 
 
 # waiting_on["kind"] values (see model.Session docstring) shortened to fit
@@ -384,22 +400,23 @@ def build_rows(sessions: list[Session], now: datetime, selected: set[str] | None
     rows = []
     for s in ordered:
         derived = s.derive_status(now)
-        row_style = ROW_STYLES.get(derived)
+        head = is_head_jeeves(s)
+        row_style = HEAD_JEEVES_STYLE if head else ROW_STYLES.get(derived)
         rows.append(
             {
                 "session_id": s.session_id,
-                "new": _cell(UNREAD_GLYPH, UNREAD_STYLE) if s.unread else "",
-                "state": _state_cell(derived, s.session_id in selected, row_style),
+                "new": _cell(UNREAD_GLYPH, UNREAD_STYLE) if s.unread and not head else "",
+                "state": _state_cell(derived, s.session_id in selected, row_style, force_style=HEAD_JEEVES_STYLE if head else None),
                 "age": _cell(humanize_age(s.age_seconds(now)), row_style),
                 "ctx": _ctx_cell(s.context_pct),
                 "model": _cell(_model_label(s.model), row_style),
                 "account": _cell("" if s.is_shell else s.account, row_style),
                 "remote": _cell(REMOTE_GLYPH, REMOTE_STYLE) if s.remote_session_id else "",
-                "mood": _cell(HOT_GLYPH, HOT_STYLE) if mood.is_hot(s.recent_prompts) else "",
+                "mood": _cell(HOT_GLYPH, HOT_STYLE) if not head and mood.is_hot(s.recent_prompts) else "",
                 "dir": _cell(_dir_label(s.cwd), row_style),
                 "repos": _cell(_repos_label(s, groups), row_style),
                 "wait": _cell(_wait_label(s), row_style),
-                "title": _cell(s.title, row_style),
+                "title": _cell(f"{HEAD_JEEVES_GLYPH} {s.title}" if head else s.title, row_style),
                 "recap": _cell(_short_recap(s.recap), row_style),
                 "parked": _cell(_parked_str(s), row_style),
                 "win": _cell(f"#{s.terminal}" if s.terminal else "", row_style),
@@ -732,6 +749,45 @@ def _history_resume_rows(entries: list) -> list[dict]:
     ]
     rows.sort(key=lambda r: r["sort_ts"], reverse=True)
     return rows
+
+
+class ReviewScreen(ModalScreen[None]):
+    """A saved Head Jeeves review (exit interview or checkup), as Markdown,
+    scrollable. Escape or v closes it."""
+
+    DEFAULT_CSS = """
+    ReviewScreen {
+        align: center middle;
+        background: transparent 60%;
+    }
+    #review-box {
+        width: 110;
+        height: auto;
+        max-height: 40;
+        border: round #e0201f;
+        padding: 1 2;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("v", "close", "Close", show=False)]
+
+    def __init__(self, markdown: str, path: Path):
+        super().__init__()
+        self._markdown = markdown
+        self._path = path
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="review-box"):
+            yield Static(Markdown(self._markdown, code_theme="ansi_dark", inline_code_theme="ansi_dark"))
+            yield Static(Text(f"\n{self._path}", style="dim"))
+
+    def on_mount(self) -> None:
+        self.query_one("#review-box", VerticalScroll).focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 class HistoryScreen(ModalScreen[None]):
@@ -1188,12 +1244,25 @@ class PodbayApp(App):
         notifications_path: Path | None = None,
         accounts: list[Account] | None = None,
         voice_mode: str = hal.VOICE_OFF,
+        head_jeeves: bool = False,
+        review_model: str = "sonnet",
+        reviews_dir: Path | None = None,
     ):
         super().__init__()
         # HAL's remarks (hal.py). Off unless asked: a test or a script that
         # mounts the app must not toast about the real sessions.
         self._voice_mode = voice_mode
         self._hal = hal.Memory()
+        # Head Jeeves (skills/head-jeeves, reviewer.py): a standing session
+        # podbay starts and feeds. Off unless asked, for the same reason: it
+        # starts a Claude session and sends it work that spends tokens.
+        self._head_jeeves = head_jeeves
+        self._review_model = review_model
+        self._reviews_dir = reviews_dir
+        # {"follow_up": <command to send once he is up>, "launched_at": datetime}
+        self._head_jeeves_pending: dict | None = None
+        self._head_jeeves_last_watch: datetime | None = None
+        self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
         # Every Claude Code config dir on the machine (see accounts.py); the
@@ -1404,6 +1473,7 @@ class PodbayApp(App):
         self.state_store.prune({s.session_id for s in sessions}, now)
         self._live_sessions = {s.session_id: s for s in sessions if not getattr(s, "is_shell", False)}
         self.rows = build_rows(sessions, now, self._selected)
+        self._check_head_jeeves_pending(sessions, now)
         self._row_keys = [r["session_id"] for r in self.rows]
         self._selected &= set(self._row_keys)  # drop selections for rows that vanished
         self._write_snapshot(now)
@@ -1411,6 +1481,8 @@ class PodbayApp(App):
         self._limits = limits or {}
         self._limits_now = now
         self._hal_remarks(sessions, now)
+        self._head_jeeves_round(now)
+        self._watch_reviews()
 
         try:
             self._fit_recap_column()
@@ -1435,6 +1507,127 @@ class PodbayApp(App):
             return
         for line in lines:
             self.notify(line, title=voice.SHIP_NAME, timeout=12)
+        if self._head_jeeves:
+            for session_id in self._hal.newly_heated:
+                session = self._live_sessions.get(session_id)
+                if session is not None:
+                    self._send_to_head_jeeves(f"/head-jeeves checkup {session.name} {session.session_id}")
+
+    # ---- Head Jeeves ---------------------------------------------------------
+
+    def _head_jeeves_session(self) -> Session | None:
+        """The live Head Jeeves session, searched across the full row set so
+        an active filter never hides him."""
+        for r in self.rows:
+            if is_head_jeeves(r["session"]):
+                return r["session"]
+        return None
+
+    def _send_to_head_jeeves(self, command: str) -> None:
+        head = self._head_jeeves_session()
+        if head is None:
+            self._start_head_jeeves(command)
+            return
+        if not self._send_to_session(head, command):
+            self.notify(voice.no_tab(), severity="warning")
+            return
+        self.notify(voice.head_jeeves_sent(command))
+
+    def _start_head_jeeves(self, follow_up: str) -> None:
+        """No Head Jeeves session exists: launch one from the home repo (the
+        same free-pane-or-new-window path as resume) and queue `follow_up`
+        for _check_head_jeeves_pending to deliver once he is up idle. A
+        launch already in flight just gets its queued command replaced."""
+        if self._head_jeeves_pending is not None:
+            self._head_jeeves_pending["follow_up"] = follow_up
+            return
+        account = self._accounts[0]
+        command = self._claude_command(account, self._open_default_dir(None), f"-n {HEAD_JEEVES_NAME} --model {shlex.quote(self._review_model)}")
+        launched_at = datetime.now()
+        ok, _used_pane = self._dispatch_command(self._free_shell_sessions(), command)
+        if not ok:
+            self.notify(voice.no_tab(), severity="warning")
+            return
+        self._head_jeeves_pending = {"follow_up": follow_up, "launched_at": launched_at}
+        self.notify(voice.head_jeeves_starting(), title=voice.SHIP_NAME)
+
+    def _check_head_jeeves_pending(self, sessions: list[Session], now: datetime) -> None:
+        """While a launch is pending: look for a session that appeared after
+        it, idle, in the home repo; name it if `-n` did not stick; prime it
+        with a bare /head-jeeves, then deliver the queued command."""
+        pending = self._head_jeeves_pending
+        if pending is None:
+            return
+        if now - pending["launched_at"] > HEAD_JEEVES_LAUNCH_TIMEOUT:
+            self._head_jeeves_pending = None
+            self.notify(voice.head_jeeves_late(), severity="warning")
+            return
+        home = self._open_default_dir(None)
+        candidate = next(
+            (s for s in sessions if not s.is_shell and s.started_at > pending["launched_at"] and s.cwd == home and s.status == "idle"),
+            None,
+        )
+        if candidate is None:
+            return
+        self._head_jeeves_pending = None
+        if not is_head_jeeves(candidate):
+            self._send_to_session(candidate, f"/rename {HEAD_JEEVES_NAME}")
+        self._send_to_session(candidate, "/head-jeeves")
+        if not self._send_to_session(candidate, pending["follow_up"]):
+            self.notify(voice.no_tab(), severity="warning")
+            return
+        self.notify(voice.head_jeeves_sent(pending["follow_up"]))
+
+    def _head_jeeves_round(self, now: datetime) -> None:
+        """The half-hourly watch, and the first one as soon as podbay has a
+        full picture. Only when Head Jeeves is wanted; starting him for a
+        round when he is not up is part of the deal."""
+        if not self._head_jeeves or not self._live_sessions:
+            return
+        if self._head_jeeves_last_watch is not None and now - self._head_jeeves_last_watch < HEAD_JEEVES_WATCH_INTERVAL:
+            return
+        self._head_jeeves_last_watch = now
+        self._send_to_head_jeeves("/head-jeeves watch")
+
+    def _watch_reviews(self) -> None:
+        """Toast each review file Head Jeeves wrote since the last look. The
+        first look only sets the baseline."""
+        current = reviewer.newest_files(self._reviews_dir)
+        previous = self._reviews_seen
+        self._reviews_seen = current
+        if previous is None:
+            return
+        by_id = {s.session_id: s for s in self._live_sessions.values()}
+        for name, mtime in sorted(current.items(), key=lambda item: item[1]):
+            if previous.get(name) == mtime:
+                continue
+            session_id = name.rsplit("-", 1)[0] if name != "watch.md" else ""
+            session = by_id.get(session_id)
+            title = session.title if session is not None else session_id[:8]
+            self.notify(voice.review_ready(name, title), title=voice.SHIP_NAME, timeout=15)
+
+    def action_exit_interview(self) -> None:
+        session = self._selected_session()
+        if session is None or not self._require_claude_session(session, "Exit interview"):
+            return
+        if is_head_jeeves(session):
+            return
+        self._send_to_head_jeeves(f"/head-jeeves exit {session.name} {session.session_id}")
+
+    def action_view_review(self) -> None:
+        session = self._selected_session()
+        if session is None or not self._require_claude_session(session, "Review"):
+            return
+        path = reviewer.latest(session.session_id, self._reviews_dir)
+        if path is None:
+            self.notify(voice.review_none(session.title), severity="warning")
+            return
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            self.notify(voice.review_failed(session.title), severity="error")
+            return
+        self.push_screen(ReviewScreen(text, path))
 
     def _write_snapshot(self, now: datetime) -> None:
         """Persist the live Claude sessions (not shells -- nothing to resume)
@@ -2295,9 +2488,22 @@ def _find_session(target: str) -> Session | None:
     iterm_lister = iterm_mod.ItermLister()
     sessions = sources.gather_sessions(state_store, iterm_lister)
     for s in sessions:
-        if s.name == target or str(s.pid) == target:
+        if s.name == target or str(s.pid) == target or s.session_id == target or s.session_id.startswith(target):
             return s
     return None
+
+
+def cmd_excerpt(target: str, turns: int) -> None:
+    match = _find_session(target)
+    if match is None or match.is_shell:
+        print(f"no live session matches {target!r}", file=sys.stderr)
+        sys.exit(1)
+    account = by_label(discover(), match.account)
+    path = sources.transcript_path_for(match.cwd, match.session_id, account.projects_dir if account else sources.PROJECTS_DIR)
+    if path is None:
+        print(f"{target!r} has no transcript yet", file=sys.stderr)
+        sys.exit(1)
+    print(reviewer.excerpt(path, turns))
 
 
 def cmd_focus(target: str) -> None:
@@ -2378,6 +2584,10 @@ def main() -> None:
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
     config_parser.add_argument("value", nargs="?", help="the new value; none prints the current one; '' clears it")
 
+    excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
+    excerpt_parser.add_argument("target", help="session name, pid or session id")
+    excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
+
     inventory_parser = sub.add_parser("inventory", help="print a deterministic session inventory")
     inventory_parser.add_argument("--json", action="store_true", help="print JSON (default)")
     inventory_parser.add_argument("--table", action="store_true", help="print as a plain-text table")
@@ -2400,6 +2610,8 @@ def main() -> None:
         cmd_focus(args.target)
     elif args.command == "send":
         cmd_send(args.target, " ".join(args.text))
+    elif args.command == "excerpt":
+        cmd_excerpt(args.target, args.turns)
     elif args.command == "inventory":
         cmd_inventory(args.table, args.status, args.exclude)
     else:
@@ -2412,6 +2624,8 @@ def main() -> None:
             backdrop=backdrop,
             notifications_path=notifications.LOG_PATH,
             voice_mode=config.voice_mode(),
+            head_jeeves=config.head_jeeves_on(),
+            review_model=config.review_model(),
         )
         app.run()
         log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")

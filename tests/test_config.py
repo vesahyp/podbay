@@ -36,7 +36,7 @@ def test_cmd_config_prints_and_sets(tmp_path, monkeypatch, capsys):
     path = tmp_path / "config.json"
     monkeypatch.setattr(config, "CONFIG_PATH", path)
     cmd_config(None, None)
-    assert capsys.readouterr().out == "home-repo = \nvoice = \n"
+    assert capsys.readouterr().out == "head-jeeves = \nhome-repo = \nreview-model = \nvoice = \n"
     cmd_config("home-repo", "jeeves")
     assert "home-repo = jeeves" in capsys.readouterr().out
     cmd_config("home-repo", None)
