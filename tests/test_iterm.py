@@ -14,6 +14,7 @@ def test_strip_title_removes_spinner_glyph():
 
 def test_strip_title_no_glyph_passthrough():
     assert strip_title("jeeves-83") == "jeeves-83"
+    assert strip_title("✳ Sora graphics research (claude)") == "Sora graphics research"
 
 
 def test_busy_from_title_idle_glyph_is_not_busy():

@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .model import HOME_BASE, Session, repo_groups
+from .model import HOME_BASE, Session, is_head_jeeves, repo_groups
 from .sources import REPOS_DIR
 
 _WS_RE = re.compile(r"\s+")
@@ -36,6 +36,10 @@ def _session_dict(s: Session, now: datetime) -> dict:
     )
     return {
         "name": s.name,
+        # What the session is about: the tab title Claude Code sets from the
+        # first prompt. The handle to use when talking about it.
+        "title": s.title,
+        "head_jeeves": is_head_jeeves(s),
         "account": s.account,
         "remote_url": s.remote_url,
         "tab": s.terminal,
@@ -91,13 +95,13 @@ def inventory_payload(sessions: list[Session], exclude: set[str]) -> dict:
 def render_table(payload: dict) -> str:
     sessions = payload["sessions"]
     groups = payload["repo_groups"]
-    headers = ["TAB", "NAME", "ACCT", "REPOS", "STATUS", "IDLE", "CTX%", "WAITING", "LAST"]
+    headers = ["TAB", "TITLE", "NAME", "ACCT", "REPOS", "STATUS", "IDLE", "CTX%", "WAITING", "LAST"]
     rows = []
     for s in sessions:
         repos = [r + ("*" if r in s["repos_edited"] else "") for r in s["repos_touched"]]
         rows.append([
             f"#{s['tab']}" if s.get("tab") else "-",
-            s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"],
+            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"],
             f"{s['idle_minutes']}m" if s["idle_minutes"] is not None else "-",
             f"{s['context_pct']:.0f}" if isinstance(s["context_pct"], (int, float)) else "-",
             s["waiting_on"]["kind"] if s["waiting_on"] else "-",

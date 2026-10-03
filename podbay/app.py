@@ -53,6 +53,7 @@ from .model import (
     EMPTY,
     HEAD_JEEVES_NAME,
     HOME_BASE,
+    find_session,
     is_head_jeeves,
     NEEDS_YOU,
     PARKED,
@@ -2498,13 +2499,11 @@ def cmd_list() -> None:
 
 
 def _find_session(target: str) -> Session | None:
+    """See model.find_session: name, pid, id, terminal number, repo or a
+    fragment of the title."""
     state_store = StateStore()
     iterm_lister = iterm_mod.ItermLister()
-    sessions = sources.gather_sessions(state_store, iterm_lister)
-    for s in sessions:
-        if s.name == target or str(s.pid) == target or s.session_id == target or s.session_id.startswith(target):
-            return s
-    return None
+    return find_session(sources.gather_sessions(state_store, iterm_lister), target)
 
 
 def cmd_open(directory: str, account_label: str | None, name: str | None, prompt: str) -> None:
@@ -2624,11 +2623,12 @@ def main() -> None:
 
     sub.add_parser("list", help="print sessions as plain text")
 
+    target_help = "session name, pid, id, terminal number (#6), repo, or a fragment of its title"
     focus_parser = sub.add_parser("focus", help="focus a session's iTerm2 tab")
-    focus_parser.add_argument("target", help="session name or pid")
+    focus_parser.add_argument("target", help=target_help)
 
     send_parser = sub.add_parser("send", help="send a message to a session's iTerm2 tab")
-    send_parser.add_argument("target", help="session name or pid")
+    send_parser.add_argument("target", help=target_help)
     send_parser.add_argument("text", nargs="+", help="message text")
 
     config_parser = sub.add_parser("config", help="show or set a podbay setting (see podbay/config.py)")
@@ -2636,7 +2636,7 @@ def main() -> None:
     config_parser.add_argument("value", nargs="?", help="the new value; none prints the current one; '' clears it")
 
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
-    excerpt_parser.add_argument("target", help="session name, pid or session id")
+    excerpt_parser.add_argument("target", help=target_help)
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
 
     open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window)")

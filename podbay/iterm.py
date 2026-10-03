@@ -140,15 +140,20 @@ def busy_from_title(raw_name: str) -> bool | None:
     return None
 
 
+_TITLE_SUFFIXES = (" (python)", " (claude)")
+
+
 def strip_title(raw_name: str) -> str:
-    """Strip Claude Code's leading status glyph and trailing ' (python)'."""
+    """Strip Claude Code's leading status glyph and the trailing process
+    name iTerm2 adds, ' (python)' or ' (claude)'."""
     name = raw_name.strip()
     if name and not name[0].isalnum():
         parts = name.split(" ", 1)
         if len(parts) == 2:
             name = parts[1]
-    if name.endswith(" (python)"):
-        name = name[: -len(" (python)")]
+    for suffix in _TITLE_SUFFIXES:
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
     return name.strip()
 
 

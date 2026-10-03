@@ -290,3 +290,35 @@ def test_watching_loses_to_due_and_in_progress():
     busy = _watching_session(task)
     busy.last_turn = "in_progress"
     assert busy.derive_status(NOW) == WORKING
+
+
+def test_find_session_by_what_a_person_says():
+    from datetime import datetime
+
+    from podbay.model import Session, find_session
+
+    now = datetime.now()
+
+    def make(sid, name, title, cwd, repos, terminal=None, shell=False):
+        s = Session(session_id=sid, pid=int(sid[-1]), cwd=cwd, name=name, name_source="derived", status="idle",
+                    status_updated_at=now, updated_at=now, started_at=now, iterm_title=title, repos_touched=repos, is_shell=shell)
+        s.window_number = terminal
+        return s
+
+    sora = make("aaaa1111-1", "jeeves-2e", "Sora graphics research", "/r/jeeves", ["jeeves", "sora"], terminal=6)
+    ux = make("bbbb2222-2", "jeeves-53", "ecarbrowser ux", "/r/jeeves", ["jeeves", "ecarbrowser"], terminal=5)
+    other = make("cccc3333-3", "jeeves-99", "ecarbrowser pricing", "/r/ecarbrowser", ["ecarbrowser"], terminal=7)
+    shell = make("tty:/dev/ttys001", "sora shell", "sora", "/r/sora", [], shell=True)
+    sessions = [sora, ux, other, shell]
+
+    assert find_session(sessions, "jeeves-2e") is sora  # exact name
+    assert find_session(sessions, "1") is sora  # pid
+    assert find_session(sessions, "aaaa") is sora  # id prefix
+    assert find_session(sessions, "#6") is sora and find_session(sessions, "6") is sora  # terminal
+    assert find_session(sessions, "sora") is sora  # title fragment, shells never count
+    assert find_session(sessions, "GRAPHICS") is sora  # case does not matter
+    assert find_session(sessions, "pricing") is other
+    assert find_session(sessions, "ecarbrowser") is None  # two sessions fit
+    assert find_session(sessions, "ecarbrowser ux") is ux
+    assert find_session(sessions, "nothing like it") is None
+    assert find_session(sessions, "") is None

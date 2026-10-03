@@ -258,6 +258,36 @@ def is_head_jeeves(session: Session) -> bool:
     return session.name == HEAD_JEEVES_NAME
 
 
+def find_session(sessions: list[Session], target: str) -> Session | None:
+    """The one session `target` means, the way a person says it: its name,
+    pid or session id (or a prefix of the id), its terminal number (`#6` or
+    `6`), its repo, or a fragment of its title, case-insensitive. An exact
+    name wins; a fragment or repo has to fit exactly one session. Shell rows
+    are not candidates."""
+    target = target.strip()
+    if not target:
+        return None
+    candidates = [s for s in sessions if not s.is_shell]
+    for s in candidates:
+        if s.name == target or str(s.pid) == target or s.session_id == target:
+            return s
+    number = target[1:] if target.startswith("#") else target
+    for s in candidates:
+        if s.terminal == number:
+            return s
+    by_prefix = [s for s in candidates if len(target) >= 4 and s.session_id.startswith(target)]
+    if len(by_prefix) == 1:
+        return by_prefix[0]
+    low = target.lower()
+    by_title = [s for s in candidates if low in s.title.lower() or low == s.name.lower()]
+    if len(by_title) == 1:
+        return by_title[0]
+    by_repo = [s for s in candidates if low in {r.lower() for r in s.repos_touched} or s.cwd.lower().rstrip("/").endswith("/" + low)]
+    if len(by_repo) == 1:
+        return by_repo[0]
+    return None
+
+
 def humanize_age(seconds: float) -> str:
     """4m, 2h, 3d style humanised duration. Negative/zero collapses to 0m."""
     seconds = max(0, int(seconds))
