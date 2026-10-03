@@ -36,6 +36,7 @@ from textual.widgets import DataTable, Footer, Input, Label, Static
 from . import config
 from . import glyphs
 from . import hal
+from . import mood
 from . import iterm as iterm_mod
 from .accounts import Account, by_label, discover
 from . import layout
@@ -139,10 +140,13 @@ SHELL_TEXT_TTL = 3.0
 
 # Every column but Recap is fixed; Recap takes what is left so the window
 # number stays on screen at the right edge (None = sized here, not fixed).
-# Order: " ", State, Age, CTX, Model, Acct, RC, Dir, Repos, Wait, Title, Recap, Parked, #.
-COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 2, 14, 18, 4, 38, None, 11, 3]
-TITLE_COLUMN = 10
-RECAP_COLUMN = 11  # index into COLUMN_WIDTHS of the one sized at runtime
+# Order: " ", State, Age, CTX, Model, Acct, RC, Mood, Dir, Repos, Wait, Title, Recap, Parked, #.
+COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 2, 2, 14, 18, 4, 38, None, 11, 3]
+TITLE_COLUMN = 11
+RECAP_COLUMN = 12  # index into COLUMN_WIDTHS of the one sized at runtime
+# The last prompts of this session read heated (see mood.py).
+HOT_GLYPH = "⚡"
+HOT_STYLE = f"bold {HAL_AMBER}"
 # Remote Control on: the session can be driven from the phone or the web.
 REMOTE_GLYPH = "⇅"
 REMOTE_STYLE = "bold #5fd7ff"
@@ -391,6 +395,7 @@ def build_rows(sessions: list[Session], now: datetime, selected: set[str] | None
                 "model": _cell(_model_label(s.model), row_style),
                 "account": _cell("" if s.is_shell else s.account, row_style),
                 "remote": _cell(REMOTE_GLYPH, REMOTE_STYLE) if s.remote_session_id else "",
+                "mood": _cell(HOT_GLYPH, HOT_STYLE) if mood.is_hot(s.recent_prompts) else "",
                 "dir": _cell(_dir_label(s.cwd), row_style),
                 "repos": _cell(_repos_label(s, groups), row_style),
                 "wait": _cell(_wait_label(s), row_style),
@@ -444,6 +449,8 @@ def _detail_text(session: Session, now: datetime) -> Text:
     if session.remote_url:
         text.append(f"{REMOTE_GLYPH} remote control on · ", style=REMOTE_STYLE)
         text.append(session.remote_url + "\n", style="dim")
+    if mood.is_hot(session.recent_prompts):
+        text.append(f"{HOT_GLYPH} the last prompts read heated\n", style=HOT_STYLE)
 
     if session.parked_until is not None:
         text.append(f"\nparked until {_parked_str(session)}\n", style=HAL_AMBER)
@@ -1258,7 +1265,7 @@ class PodbayApp(App):
         self.console.push_theme(HAL_MARKDOWN_THEME)
         table = self.query_one("#table", DataTable)
         self._col_keys = table.add_columns(
-            " ", "State", "Age", "CTX", "Model", "Acct", "RC", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
+            " ", "State", "Age", "CTX", "Model", "Acct", "RC", "⚡", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
         )
         for key, width in zip(self._col_keys, COLUMN_WIDTHS):
             if width:
@@ -1554,7 +1561,7 @@ class PodbayApp(App):
         for r in self._visible_rows:
             recap = self._mark_conv_hit(r) if r["session_id"] in self._conv_hit_ids else r["recap"]
             table.add_row(
-                r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["remote"], r["dir"], r["repos"], r["wait"],
+                r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["remote"], r["mood"], r["dir"], r["repos"], r["wait"],
                 r["title"], recap, r["parked"], r["win"],
                 key=r["session_id"],
             )

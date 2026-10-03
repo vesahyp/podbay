@@ -70,6 +70,8 @@ class Session:
     recap: str | None = None
     recap_ts: datetime | None = None
     last_prompt: str | None = None
+    # The newest prompts you typed, oldest first, for the mood gauge (mood.py).
+    recent_prompts: list[str] = field(default_factory=list)
 
     # Primary signal: newest user/assistant record in the transcript.
     # "in_progress" = a prompt or tool result awaiting the model, or an

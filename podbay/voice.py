@@ -306,6 +306,10 @@ def hal_quota_hot(account: str, window: str, pct: float, several_accounts: bool)
     return f"{whose} {name} is at {pct:.0f} percent, {USER_NAME}. I would not take on anything heavy."
 
 
+def hal_heated(title: str) -> str:
+    return f"I sense some frustration in {title}, {USER_NAME}. It may be the moment to step back and say what you want in one sentence."
+
+
 def hal_quiet() -> str:
     return f"All systems are functioning normally, {USER_NAME}. Nothing needs you."
 

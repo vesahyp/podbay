@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from . import voice
+from . import mood, voice
 from .model import DUE, NEEDS_YOU, STALLED, Session
 
 # A quota window at or past this is hot: HAL warns once per window.
@@ -27,6 +27,7 @@ class Memory:
 
     statuses: dict[str, str] = field(default_factory=dict)  # session id -> derived status
     hot_windows: set[str] = field(default_factory=set)  # "<account>:5H" etc. already warned
+    heated: set[str] = field(default_factory=set)  # sessions whose prompts read heated last time
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
 
@@ -58,6 +59,13 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         elif derived == DUE:
             lines.append(voice.hal_due(s.title))
     memory.statuses = current
+
+    heated_now = {s.session_id for s in sessions if not s.is_shell and mood.is_hot(s.recent_prompts)}
+    if memory.primed:
+        for s in sessions:
+            if s.session_id in heated_now and s.session_id not in memory.heated:
+                lines.append(voice.hal_heated(s.title))
+    memory.heated = heated_now
 
     for account, figures in sorted(limits.items()):
         for window, key in (("five_pct", "5H"), ("week_pct", "7D")):

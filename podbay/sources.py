@@ -23,6 +23,7 @@ PROJECTS_DIR = Path.home() / ".claude" / "projects"
 STATUS_DIR = Path.home() / ".local" / "state" / "podbay" / "status"
 REPOS_DIR = Path.home() / "Repositories"
 TAIL_BYTES = 512 * 1024
+USER_PROMPTS_KEPT = 8
 SNAPSHOT_PRUNE_AFTER_DAYS = 14
 PERMISSION_IDLE_MINUTES = 2.0
 
@@ -256,6 +257,7 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
         "recap": None,
         "recap_ts": None,
         "last_prompt": None,
+        "user_prompts": [],  # the newest typed prompts, oldest first (see mood.py)
         "last_assistant_text": None,
         "git_branch": None,
         "last_turn": None,
@@ -324,6 +326,10 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
                         result["resolved_tool_use_ids"].add(block["tool_use_id"])
+            if not record.get("isMeta") and not _is_interrupt_record(record):
+                typed = _user_entry_text(content)
+                if typed and not typed.startswith("<"):  # a slash command or a notice is not a prompt
+                    result["user_prompts"] = (result["user_prompts"] + [typed])[-USER_PROMPTS_KEPT:]
 
         # Newest record (in tail order) whose type is "user" or "assistant",
         # skipping sidechain records, drives last_turn/last_turn_ts -- keeps
@@ -845,6 +851,7 @@ def gather_sessions(
                 recap=transcript.get("recap"),
                 recap_ts=transcript.get("recap_ts"),
                 last_prompt=transcript.get("last_prompt"),
+                recent_prompts=list(transcript.get("user_prompts", [])),
                 last_turn=transcript.get("last_turn"),
                 last_turn_ts=transcript.get("last_turn_ts"),
                 tab_busy=tab.busy if tab else None,

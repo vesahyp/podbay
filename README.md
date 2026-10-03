@@ -171,6 +171,12 @@ helper terminals (a login, a log tail) and stay out of the table.
 The **RC** column shows `⇅` while Remote Control is on for a session (the
 registry reports its claude.ai session id); the detail pane shows the link.
 
+The **⚡** column marks a session whose last prompts read heated: a lexicon
+over your newest typed prompts (swearing in English and Finnish, shouting,
+`!?` clusters, the words of a third attempt such as "still" and "again"),
+the newest prompt counting most, code spans and URLs left out. No model, no
+tokens. HAL remarks once when a session turns hot (see HAL speaks).
+
 A `●` in the first column marks a finished answer you have not looked at yet.
 It clears when you focus the tab or move into the transcript pane.
 
@@ -185,7 +191,8 @@ touched with a tool call, starred when it edited a file there, with a leading
 
 HAL remarks when something changed, never at random: a session finished and
 waits for you, asked a question, stalled, or a park came due; an account's
-five-hour window or week passed 85%. One remark per event, none for a
+five-hour window or week passed 85%; your prompts in a session turned
+heated. One remark per event, none for a
 session whose answer you have already seen. When nothing has needed you for
 two hours he says so once. Remarks are toasts and go into the `h` history.
 `podbay config voice off` silences him. He never speaks aloud.
