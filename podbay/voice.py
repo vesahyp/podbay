@@ -1,0 +1,269 @@
+"""HAL 9000 voice: every string podbay says out loud to Vesa, in one place.
+
+Keep the wording here, not scattered through app.py, so the tone can be
+tuned in one spot without touching behaviour.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+SHIP_NAME = "HAL 9000"
+
+
+def scan_status(scanning: bool, last_scan: datetime | None) -> str:
+    """Header sub-title: one glyph flips while a scan runs, the width never
+    changes, so the bar does not flash on every 3 s tick."""
+    glyph = "◌" if scanning else "●"
+    stamp = f"{last_scan:%H:%M:%S}" if last_scan else "--:--:--"
+    return f"{glyph} {stamp}"
+
+
+def _five_hour_countdown(resets_at: float | None, now: datetime) -> str | None:
+    if resets_at is None:
+        return None
+    diff = resets_at - now.timestamp()
+    if diff <= 0:
+        return None
+    hours = int(diff // 3600)
+    minutes = int((diff % 3600) // 60)
+    return f"{hours}h {minutes}m"
+
+
+def _days_hours(seconds: float) -> str:
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    return f"{days}d {hours}h" if days else f"{hours}h"
+
+
+def _seven_day_countdown(resets_at: float | None, now: datetime) -> str | None:
+    if resets_at is None:
+        return None
+    diff = resets_at - now.timestamp()
+    if diff <= 0:
+        return None
+    return _days_hours(diff)
+
+
+SEVEN_DAYS = 7 * 86400
+# Below this much weekday time elapsed, a straight-line projection swings
+# with every prompt and says nothing worth reading.
+PROJECTION_MIN_ELAPSED = 4 * 3600
+
+
+def _local(ts: float) -> datetime:
+    return datetime.fromtimestamp(ts).astimezone()
+
+
+def _next_midnight(moment: datetime) -> datetime:
+    return (moment + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _weekday_seconds(start: float, end: float) -> float:
+    """Seconds between two moments that fall on a Monday to Friday (local
+    clock). Vesa does not spend quota at the weekend, so a projection on
+    the calendar clock overstates the week whenever a weekend lies ahead."""
+    if end <= start:
+        return 0.0
+    total = 0.0
+    cur, end_dt = _local(start), _local(end)
+    while cur < end_dt:
+        chunk_end = min(_next_midnight(cur), end_dt)
+        if cur.weekday() < 5:
+            total += (chunk_end - cur).total_seconds()
+        cur = chunk_end
+    return total
+
+
+def _after_weekday_seconds(start: float, seconds: float) -> float:
+    """The moment at which `seconds` of weekday time have passed since
+    `start`, skipping weekends."""
+    cur = _local(start)
+    for _ in range(21):  # bounded: a 7-day window never needs more days than this
+        nxt = _next_midnight(cur)
+        if cur.weekday() < 5:
+            chunk = (nxt - cur).total_seconds()
+            if seconds <= chunk:
+                return (cur + timedelta(seconds=seconds)).timestamp()
+            seconds -= chunk
+        cur = nxt
+    return cur.timestamp()
+
+
+def _projection_tone(at_reset: float) -> str:
+    """A projection is good news until the week runs out: 80% at reset is a
+    fifth to spare, so the live-figure scale (which turns red at 70) would
+    cry wolf. 'warn' covers the band where one heavy day tips it over."""
+    if at_reset < PROJECTION_WARN_AT:
+        return "ok"
+    if at_reset < 100:
+        return "warn"
+    return "alert"
+
+
+def _seven_day_projection(pct: float, resets_at: float | None, now: datetime) -> "HeaderSegment | None":
+    """Where the 7D figure lands at reset if spending keeps the pace it has
+    kept over the window's weekday time so far: '~88% at reset' when it
+    lasts, 'out 1d 13h early' (the margin in calendar time before the reset)
+    when it runs out first, toned by _projection_tone.
+    The percentage alone never answers the question Vesa asks the bar,
+    which is whether the week's quota reaches the reset."""
+    if resets_at is None:
+        return None
+    now_ts = now.timestamp()
+    if resets_at <= now_ts:
+        return None
+    start = resets_at - SEVEN_DAYS
+    worked = _weekday_seconds(start, now_ts)
+    if worked < PROJECTION_MIN_ELAPSED:
+        return None
+    at_reset = pct * _weekday_seconds(start, resets_at) / worked
+    if at_reset < 100:
+        return (f"~{at_reset:.0f}% at reset", _projection_tone(at_reset))
+    runs_out_at = _after_weekday_seconds(start, worked * 100 / pct)
+    return (f"out {_days_hours(max(0.0, resets_at - runs_out_at))} early", _projection_tone(at_reset))
+
+
+def _seven_day_notes(pct: float, resets_at: float | None, now: datetime, countdown: bool) -> list["HeaderSegment"]:
+    """The parenthesised tail of a 7D group: the reset countdown (when asked
+    for) and the projection, comma-joined, or nothing when neither is known."""
+    parts: list[HeaderSegment] = []
+    if countdown:
+        text = _seven_day_countdown(resets_at, now)
+        if text:
+            parts.append((f"resets {text}", None))
+    projection = _seven_day_projection(pct, resets_at, now)
+    if projection:
+        parts.append(projection)
+    if not parts:
+        return []
+    segments: list[HeaderSegment] = [(" (", None)]
+    for i, part in enumerate(parts):
+        if i:
+            segments.append((", ", None))
+        segments.append(part)
+    segments.append((")", None))
+    return segments
+
+
+# A header segment is (text, tone). `tone` is a percentage when `text` is a
+# live figure, so the renderer colours it on the same scale as the CTX
+# column; it is one of PROJECTION_TONES when `text` is a projection, which
+# has its own scale (see _projection_tone). Plain wording carries None.
+HeaderSegment = tuple[str, "float | str | None"]
+PROJECTION_TONES = ("ok", "warn", "alert")
+# A week that ends under this much is comfortably inside the quota.
+PROJECTION_WARN_AT = 85.0
+
+
+def limits_segments(
+    five_pct: float | None,
+    five_resets_at: float | None,
+    week_pct: float | None,
+    week_resets_at: float | None,
+    now: datetime,
+    model_entries: list[dict] | None = None,
+) -> list[HeaderSegment]:
+    """Account rate-limit readout as segments, e.g.
+    '5H 32% (resets 2h 10m)  ·  7D 61% (resets 3d 4h, out 17h early)  ·
+    7D Fable 8% (~58% at reset)'. The 5H/7D figures cover every model
+    (Claude Code reports no per-model split there); model_entries carries
+    the per-model weekly figures instead, from `claude -p /usage` (see
+    usage.py) -- one group per entry, no countdown since /usage doesn't line
+    up with the account-wide reset clock. Every 7D group ends with the
+    straight-line projection to its reset (see _seven_day_projection); a
+    per-model entry without its own reset time borrows the account-wide
+    one, the two clocks differ by a minute. Empty when nothing is known."""
+    groups: list[list[HeaderSegment]] = []
+
+    if five_pct is not None:
+        group: list[HeaderSegment] = [("5H ", None), (f"{five_pct:.0f}%", five_pct)]
+        countdown = _five_hour_countdown(five_resets_at, now)
+        if countdown:
+            group.append((f" (resets {countdown})", None))
+        groups.append(group)
+
+    if week_pct is not None:
+        group = [("7D ", None), (f"{week_pct:.0f}%", week_pct)]
+        group.extend(_seven_day_notes(week_pct, week_resets_at, now, countdown=True))
+        groups.append(group)
+
+    for entry in model_entries or []:
+        if entry.get("key") != "week_model":
+            continue  # "session" and "week_all" are covered by the account-wide 7D figure above
+        pct = entry.get("pct")
+        if pct is None:
+            continue
+        label = entry.get("label")
+        prefix = f"7D {label} " if label else "7D "
+        group = [(prefix, None), (f"{pct:.0f}%", pct)]
+        resets_at = entry.get("resets_at")
+        if resets_at is None:
+            resets_at = week_resets_at
+        group.extend(_seven_day_notes(pct, resets_at, now, countdown=False))
+        groups.append(group)
+
+    segments: list[HeaderSegment] = []
+    for i, group in enumerate(groups):
+        if i:
+            segments.append(("  ·  ", None))
+        segments.extend(group)
+    return segments
+
+
+def ship_segments() -> list[HeaderSegment]:
+    """Ship identity, kept apart from the quota figures so the header can
+    put one on each side of the bar."""
+    return [(f"● POD BAY  ·  {SHIP_NAME}", None)]
+
+
+
+
+def header_segments(
+    five_pct: float | None,
+    five_resets_at: float | None,
+    week_pct: float | None,
+    week_resets_at: float | None,
+    now: datetime,
+    model_entries: list[dict] | None = None,
+) -> list[HeaderSegment]:
+    """The header title as segments (see limits_segments): ship identity
+    plus quota figures. Session/pod counts live on screen row by row
+    already, so the bar does not repeat them. Scan state lives in the
+    sub-title/clock, see scan_status."""
+    segments: list[HeaderSegment] = list(ship_segments())
+    limits = limits_segments(five_pct, five_resets_at, week_pct, week_resets_at, now, model_entries)
+    if limits:
+        segments.append(("  ·  ", None))
+        segments.extend(limits)
+    return segments
+
+
+def park_ok(when: datetime) -> str:
+    return f"Affirmative, Vesa. Parked until {when:%a %d.%m %H:%M}."
+
+
+def parse_error() -> str:
+    return "I'm sorry, Vesa. I'm afraid I can't parse that."
+
+
+def no_tab() -> str:
+    return "I'm sorry, Vesa. I cannot find that tab."
+
+
+def message_sent(title: str) -> str:
+    return f"Message relayed to {title}, Vesa."
+
+
+# The startup splash: a two-line HAL 9000 dialog, typed out one line at a
+# time. Speaker labels are padded to the same width so the " > " separators
+# line up ("DAVE > " / "HAL  > ").
+SPLASH_DAVE_SPEAKER = "DAVE"
+SPLASH_DAVE_LINE = "Open the pod bay doors, HAL."
+SPLASH_HAL_SPEAKER = "HAL "
+SPLASH_HAL_LINE = "I'm sorry, Dave. I'm afraid I can't do that."
+
+# The quit sequence: HAL's line as Dave pulls his memory, typed over the
+# eye before it dissolves for good.
+SHUTDOWN_HAL_SPEAKER = "HAL "
+SHUTDOWN_HAL_LINE = "My mind is going, Dave. I can feel it."

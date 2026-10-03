@@ -1,0 +1,296 @@
+from podbay.iterm import busy_from_title, strip_title
+
+
+def test_strip_title_removes_idle_glyph_and_python_suffix():
+    assert strip_title("✳ jeeves-83 (python)") == "jeeves-83"
+
+
+def test_strip_title_removes_spinner_glyph():
+    assert strip_title("◐ jeeves-83") == "jeeves-83"
+
+
+def test_strip_title_no_glyph_passthrough():
+    assert strip_title("jeeves-83") == "jeeves-83"
+
+
+def test_busy_from_title_idle_glyph_is_not_busy():
+    assert busy_from_title("✳ jeeves-83") is False
+
+
+def test_busy_from_title_spinner_glyphs_are_busy():
+    for glyph in "◐◓◑◒◴◷◶◵⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏":
+        assert busy_from_title(f"{glyph} jeeves-83") is True
+
+
+def test_busy_from_title_unknown_glyph_is_none():
+    assert busy_from_title("? jeeves-83") is None
+
+
+def test_busy_from_title_alnum_leading_char_is_none():
+    assert busy_from_title("jeeves-83") is None
+
+
+def test_busy_from_title_empty_string_is_none():
+    assert busy_from_title("") is None
+    assert busy_from_title("   ") is None
+
+
+def test_parse_listing_marks_current_tab_selected():
+    from podbay.iterm import parse_listing
+
+    out = (
+        "CURRENT | /dev/ttys002\n"
+        "W | w1 | 0 | 0 | 800 | 600 | 2\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
+        "S | /dev/ttys002 | B | w1 | 2 | /Users/vesa/jeeves | ✳ two (python)\n"
+    )
+    tabs = parse_listing(out)
+    assert tabs["/dev/ttys001"].selected is False
+    assert tabs["/dev/ttys002"].selected is True
+    assert tabs["/dev/ttys002"].title == "two"
+
+
+def test_parse_listing_without_current_line():
+    from podbay.iterm import parse_listing
+
+    tabs = parse_listing("W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n")
+    assert list(tabs) == ["/dev/ttys001"]
+    assert tabs["/dev/ttys001"].selected is False
+
+
+def test_parse_listing_carries_window_id_and_tab_index():
+    from podbay.iterm import parse_listing
+
+    out = "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 3 | /Users/vesa/jeeves | ✳ one (python)\n"
+    tabs = parse_listing(out)
+    assert tabs["/dev/ttys001"].window_id == "w1"
+    assert tabs["/dev/ttys001"].tab_index == 3
+
+
+def test_parse_windows_multi_window_multi_tab():
+    from podbay.iterm import parse_windows
+
+    out = (
+        "W | w1 | 0 | 0 | 800 | 600 | 2\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
+        "S | /dev/ttys002 | B | w1 | 2 | /Users/vesa/jeeves | ✳ two (python)\n"
+        "W | w2 | 100 | 100 | 900 | 700 | 1\n"
+        "S | /dev/ttys003 | C | w2 | 1 | /Users/vesa/jeeves | ✳ three (python)\n"
+    )
+    windows = parse_windows(out)
+    assert set(windows) == {"w1", "w2"}
+    assert windows["w1"].bounds == (0, 0, 800, 600)
+    assert windows["w1"].tab_count == 2
+    assert windows["w2"].bounds == (100, 100, 900, 700)
+    assert windows["w2"].tab_count == 1
+
+
+def test_parse_windows_negative_coordinates():
+    from podbay.iterm import parse_windows
+
+    out = "W | w1 | -810 | -1410 | 908 | 0 | 1\n"
+    windows = parse_windows(out)
+    assert windows["w1"].bounds == (-810, -1410, 908, 0)
+
+
+def test_parse_all_skips_malformed_lines():
+    from podbay.iterm import parse_listing, parse_windows
+
+    out = (
+        "W | w1 | 0 | 0 | 800 | 600 | 1\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
+        "garbage line with no delimiter\n"
+        "W | broken | not-a-number | 0 | 800 | 600 | 1\n"
+        "S | /dev/ttys002 | onlythree\n"
+        "\n"
+    )
+    tabs = parse_listing(out)
+    windows = parse_windows(out)
+    assert list(tabs) == ["/dev/ttys001"]
+    assert list(windows) == ["w1"]
+
+
+def test_tabinfo_backward_compatible_constructor():
+    from podbay.iterm import TabInfo
+
+    t = TabInfo(tty="/dev/ttys001", tab_id="A", title="one")
+    assert t.window_id is None
+    assert t.tab_index is None
+
+
+def test_windowinfo_fields():
+    from podbay.iterm import WindowInfo
+
+    w = WindowInfo(window_id="w1", bounds=(-810, -1410, 908, 0), tab_count=3)
+    assert w.window_id == "w1"
+    assert w.bounds == (-810, -1410, 908, 0)
+    assert w.tab_count == 3
+
+
+class _FakeCompletedProcess:
+    def __init__(self, stdout="", returncode=0):
+        self.stdout = stdout
+        self.returncode = returncode
+
+
+def test_open_window_returns_new_window_id(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeCompletedProcess(stdout="98765\n")
+
+    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
+    assert iterm.open_window() == "98765"
+    # argv-based: command/profile travel as trailing argv items, never
+    # interpolated into the script text.
+    assert calls[0][-2:] == ["", ""]
+
+
+def test_open_window_passes_command_and_profile_as_argv(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeCompletedProcess(stdout="1\n")
+
+    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
+    iterm.open_window(command="echo 'hi \" there'", profile="Podbay")
+    assert calls[0][-2:] == ["Podbay", "echo 'hi \" there'"]
+    script = "\n".join(cmd for flag, cmd in zip(calls[0], calls[0][1:]) if flag == "-e")
+    assert "create window with profile targetProfile" in script
+    # never passed through create window's own `command` param -- that
+    # replaces the login shell, so the window would close when it exits
+    assert "with command" not in script
+
+
+def test_open_window_returns_none_on_nonzero_exit(monkeypatch):
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess(stdout="", returncode=1))
+    assert iterm.open_window() is None
+
+
+def test_open_window_returns_none_when_iterm_unreachable(monkeypatch):
+    import podbay.iterm as iterm
+    import subprocess as real_subprocess
+
+    def boom(cmd, **kwargs):
+        raise real_subprocess.SubprocessError("no iTerm2")
+
+    monkeypatch.setattr(iterm.subprocess, "run", boom)
+    assert iterm.open_window() is None
+
+
+def test_write_text_to_window_true_on_match(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeCompletedProcess(stdout="true\n")
+
+    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
+    assert iterm.write_text_to_window("w1", "hello \"world\"") is True
+    assert calls[0][-2:] == ["w1", 'hello "world"']
+
+
+def test_write_text_to_window_false_on_no_match(monkeypatch):
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess(stdout="false\n"))
+    assert iterm.write_text_to_window("nope", "hello") is False
+
+
+def test_write_text_to_window_false_when_iterm_unreachable(monkeypatch):
+    import podbay.iterm as iterm
+    import subprocess as real_subprocess
+
+    def boom(cmd, **kwargs):
+        raise real_subprocess.SubprocessError("no iTerm2")
+
+    monkeypatch.setattr(iterm.subprocess, "run", boom)
+    assert iterm.write_text_to_window("w1", "hello") is False
+
+
+def test_read_session_text_trims_to_last_n_lines(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+    lines = [f"line {i}" for i in range(10)]
+
+    def fake_run_applescript(script, timeout=3.0):
+        calls.append((script, timeout))
+        return "\n".join(lines) + "\n"
+
+    monkeypatch.setattr(iterm, "_run_applescript", fake_run_applescript)
+    result = iterm.read_session_text("/dev/ttys005", max_lines=3)
+    assert result == "\n".join(lines[-3:])
+    assert '"/dev/ttys005"' in calls[0][0]
+
+
+def test_read_session_text_returns_none_on_no_match(monkeypatch):
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(iterm, "_run_applescript", lambda script, timeout=3.0: "")
+    assert iterm.read_session_text("/dev/ttysXYZ") is None
+
+
+def test_read_session_text_returns_none_when_iterm_unreachable(monkeypatch):
+    import podbay.iterm as iterm
+    import subprocess as real_subprocess
+
+    def boom(script, timeout=3.0):
+        raise real_subprocess.SubprocessError("no iTerm2")
+
+    monkeypatch.setattr(iterm, "_run_applescript", boom)
+    assert iterm.read_session_text("/dev/ttys005") is None
+
+
+def test_itermlister_shares_one_applescript_call_for_tabs_and_windows(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake_run_applescript(script, timeout=3.0):
+        calls.append(script)
+        return "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
+
+    monkeypatch.setattr(iterm, "_run_applescript", fake_run_applescript)
+    lister = iterm.ItermLister()
+    tabs = lister.tabs()
+    windows = lister.windows()
+    assert len(calls) == 1
+    assert "/dev/ttys001" in tabs
+    assert "w1" in windows
+
+
+def test_parse_all_keeps_the_session_path():
+    from podbay.iterm import parse_listing
+
+    tabs = parse_listing(
+        "W | w1 | 0 | 0 | 800 | 600 | 1\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/Repositories/kafka-infra | ✳ one (python)\n"
+        "S | /dev/ttys002 | B | w1 | 2 |  | ✳ two (python)\n"
+    )
+    assert tabs["/dev/ttys001"].path == "/Users/vesa/Repositories/kafka-infra"
+    assert tabs["/dev/ttys002"].path is None
+
+
+def test_parse_windows_uses_iterms_own_number_and_ranks_only_as_fallback():
+    from podbay.iterm import parse_windows
+
+    # iTerm reused number 2 for a newer window after the old window 2 closed.
+    out = (
+        "W | 249 | 0 | 0 | 800 | 600 | 1 | 1\n"
+        "W | 300 | 0 | 0 | 800 | 600 | 1 | 2\n"
+        "W | 280 | 0 | 0 | 800 | 600 | 1 | 3\n"
+        "W | 290 | 0 | 0 | 800 | 600 | 1 | \n"
+    )
+    windows = parse_windows(out)
+    assert {w: info.number for w, info in windows.items()} == {"249": 1, "300": 2, "280": 3, "290": 4}

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Launcher for a ~/.local/bin/podbay symlink. Resolves the project from the
+# script's own location (through symlinks), so the checkout can live anywhere.
+here=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+exec uv run --project "$here" podbay "$@"

@@ -1,0 +1,562 @@
+"""iTerm2 tab mapping and focus.
+
+Maps a session's pid to its controlling tty, and the tty to an iTerm2 tab
+via AppleScript. The tab listing is cached and refreshed on a TTL so we
+never shell out to osascript once per row.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import time
+from dataclasses import dataclass
+
+LIST_SCRIPT = """
+tell application "iTerm2"
+	set out to ""
+	try
+		set out to "CURRENT | " & (tty of current session of current window) & linefeed
+	end try
+	repeat with w in windows
+		set wid to id of w
+		set b to bounds of w
+		set x1 to item 1 of b
+		set y1 to item 2 of b
+		set x2 to item 3 of b
+		set y2 to item 4 of b
+		set tabList to tabs of w
+		set wnum to ""
+		try
+			tell current session of current tab of w to set wnum to (variable named "tab.window.number")
+		end try
+		set out to out & "W | " & wid & " | " & x1 & " | " & y1 & " | " & x2 & " | " & y2 & " | " & (count of tabList) & " | " & wnum & linefeed
+		set tabIndex to 0
+		repeat with t in tabList
+			set tabIndex to tabIndex + 1
+			repeat with s in sessions of t
+				try
+					tell s to set sessionPath to (variable named "path")
+				on error
+					set sessionPath to ""
+				end try
+				set out to out & "S | " & (tty of s) & " | " & (id of s) & " | " & wid & " | " & tabIndex & " | " & sessionPath & " | " & (name of s) & linefeed
+			end repeat
+		end repeat
+	end repeat
+	return out
+end tell
+"""
+# bounds of w is a 4-item list {x1, y1, x2, y2}; concatenating it "as string"
+# collapses to an unparseable run of digits (verified), so each coordinate is
+# pulled out with "item N of b" and joined with the record's own " | " delimiter.
+
+# Only selects/activates when a matching tty is found, so running this
+# against a tty that matches nothing is a safe no-op (no focus stolen).
+FOCUS_SCRIPT_TEMPLATE = """
+tell application "iTerm2"
+	set found to false
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if (tty of s) is "{tty}" then
+					select w
+					select t
+					select s
+					set found to true
+				end if
+			end repeat
+		end repeat
+	end repeat
+	if found then
+		activate
+	end if
+	return found
+end tell
+"""
+
+# Guarded the same way FOCUS_SCRIPT_TEMPLATE is: a window id that matches
+# nothing leaves "found" false and moves/resizes no window.
+SET_BOUNDS_SCRIPT_TEMPLATE = """
+tell application "iTerm2"
+	set found to false
+	repeat with w in windows
+		if ((id of w) as text) is "{window_id}" then
+			set bounds of w to {bounds}
+			set found to true
+		end if
+	end repeat
+	return found
+end tell
+"""
+
+@dataclass
+class TabInfo:
+    tty: str
+    tab_id: str
+    title: str
+    busy: bool | None = None
+    # True for the selected session of iTerm2's current window.
+    selected: bool = False
+    window_id: str | None = None
+    tab_index: int | None = None
+    # iTerm2's own view of the session's working directory; lsof can't be
+    # relied on for another process's cwd here.
+    path: str | None = None
+
+
+@dataclass
+class WindowInfo:
+    window_id: str
+    # AppleScript order: x1, y1, x2, y2. Can be negative (a monitor placed
+    # above/left of the built-in display gives negative y/x).
+    bounds: tuple[int, int, int, int]
+    tab_count: int
+    # iTerm2's own window number (the one in the title bar), read from the
+    # "tab.window.number" variable; the rank of the window id stands in when
+    # iTerm does not report it. iTerm reuses a closed window's number, so
+    # the rank alone drifts from what the title bar shows.
+    number: int | None = None
+
+
+# Claude Code's leading tab-title glyph: a still "✳" means idle, a spinner
+# frame means busy. Anything else (no glyph, unrecognized) is None -- the
+# caller falls back to another signal.
+IDLE_GLYPH = "✳"
+BUSY_GLYPHS = "◐◓◑◒◴◷◶◵⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+def busy_from_title(raw_name: str) -> bool | None:
+    """Busy/idle from the tab title's leading status glyph; None when the
+    glyph isn't recognized (or there's no leading glyph at all)."""
+    name = raw_name.strip()
+    if not name:
+        return None
+    glyph = name[0]
+    if glyph == IDLE_GLYPH:
+        return False
+    if glyph in BUSY_GLYPHS:
+        return True
+    return None
+
+
+def strip_title(raw_name: str) -> str:
+    """Strip Claude Code's leading status glyph and trailing ' (python)'."""
+    name = raw_name.strip()
+    if name and not name[0].isalnum():
+        parts = name.split(" ", 1)
+        if len(parts) == 2:
+            name = parts[1]
+    if name.endswith(" (python)"):
+        name = name[: -len(" (python)")]
+    return name.strip()
+
+
+def _parse_all(out: str) -> tuple[dict[str, TabInfo], dict[str, WindowInfo]]:
+    """Parse LIST_SCRIPT output: an optional 'CURRENT | <tty>' line, one
+    'W | id | x1 | y1 | x2 | y2 | tab_count [| number]' line per window, and one
+    'S | tty | id | window_id | tab_index | path | name' line per session. Lines
+    that don't match a known record type, or have the wrong field count for
+    their type, are skipped rather than raising."""
+    tabs: dict[str, TabInfo] = {}
+    windows: dict[str, WindowInfo] = {}
+    current_tty: str | None = None
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("CURRENT | "):
+            current_tty = line[len("CURRENT | "):].strip()
+            continue
+        if line.startswith("W | "):
+            parts = [p.strip() for p in line.split("|")]  # an empty number leaves a bare trailing "|"
+            if len(parts) not in (7, 8):
+                continue
+            _, window_id, x1, y1, x2, y2, tab_count = parts[:7]
+            try:
+                bounds = (int(x1), int(y1), int(x2), int(y2))
+                windows[window_id] = WindowInfo(window_id=window_id, bounds=bounds, tab_count=int(tab_count))
+            except ValueError:
+                continue
+            if len(parts) == 8 and parts[7].isdigit():
+                windows[window_id].number = int(parts[7])
+            continue
+        if line.startswith("S | "):
+            parts = line.split(" | ", 6)
+            if len(parts) != 7:
+                continue
+            _, tty, tab_id, window_id, tab_index, path, name = parts
+            try:
+                tab_index_val: int | None = int(tab_index)
+            except ValueError:
+                tab_index_val = None
+            tabs[tty] = TabInfo(
+                tty=tty,
+                tab_id=tab_id,
+                title=strip_title(name),
+                busy=busy_from_title(name),
+                path=path or None,
+                window_id=window_id,
+                tab_index=tab_index_val,
+            )
+            continue
+        # Unrecognized record type: skip rather than raise.
+    if current_tty in tabs:
+        tabs[current_tty].selected = True
+    _number_windows(windows)
+    return tabs, windows
+
+
+def _number_windows(windows: dict[str, WindowInfo]) -> None:
+    def sort_key(window_id: str):
+        try:
+            return (0, int(window_id))
+        except ValueError:
+            return (1, 0)
+
+    # Windows iTerm gave no number get the lowest free ones, in id order.
+    used = {w.number for w in windows.values() if w.number is not None}
+    free = (n for n in range(1, len(windows) + len(used) + 1) if n not in used)
+    for window_id in sorted(windows, key=sort_key):
+        if windows[window_id].number is None:
+            windows[window_id].number = next(free)
+
+
+def parse_listing(out: str) -> dict[str, TabInfo]:
+    """tty -> TabInfo, as before window-awareness was added."""
+    tabs, _ = _parse_all(out)
+    return tabs
+
+
+def parse_windows(out: str) -> dict[str, WindowInfo]:
+    """window_id -> WindowInfo, parsed from the same LIST_SCRIPT output."""
+    _, windows = _parse_all(out)
+    return windows
+
+
+def get_tty_for_pid(pid: int) -> str | None:
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "tty=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=2,
+        ).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if not out or out == "??":
+        return None
+    return out if out.startswith("/dev/") else f"/dev/{out}"
+
+
+def _normalize_tty(raw: str) -> str | None:
+    raw = raw.strip()
+    if not raw or raw == "??":
+        return None
+    return raw if raw.startswith("/dev/") else f"/dev/{raw}"
+
+
+def get_ttys_for_pids(pids: list[int]) -> dict[int, str]:
+    """Batch of get_tty_for_pid: one 'ps -p <all pids>' call instead of one
+    subprocess per pid (the per-session cost in a refresh)."""
+    if not pids:
+        return {}
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "pid=,tty=", "-p", ",".join(str(p) for p in pids)],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+    except (subprocess.SubprocessError, OSError):
+        return {}
+    result: dict[int, str] = {}
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        pid_str, tty_raw = parts
+        try:
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        tty = _normalize_tty(tty_raw)
+        if tty is not None:
+            result[pid] = tty
+    return result
+
+
+def _run_applescript(script: str, timeout: float = 3.0) -> str:
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    return result.stdout
+
+
+class ItermLister:
+    """Caches the iTerm2 tab listing; refresh_interval seconds between
+    real AppleScript calls."""
+
+    def __init__(self, refresh_interval: float = 10.0):
+        self.refresh_interval = refresh_interval
+        self._tabs: dict[str, TabInfo] = {}
+        self._windows: dict[str, WindowInfo] = {}
+        self._last_refresh = 0.0
+
+    def _refresh(self) -> None:
+        try:
+            out = _run_applescript(LIST_SCRIPT)
+        except (subprocess.SubprocessError, OSError):
+            return
+        self._tabs, self._windows = _parse_all(out)
+        self._last_refresh = time.time()
+
+    def _maybe_refresh(self, force: bool) -> None:
+        if force or (time.time() - self._last_refresh) > self.refresh_interval:
+            self._refresh()
+
+    def tabs(self, force: bool = False) -> dict[str, TabInfo]:
+        self._maybe_refresh(force)
+        return self._tabs
+
+    def windows(self, force: bool = False) -> dict[str, WindowInfo]:
+        """Same cached AppleScript call as tabs() -- one osascript run
+        populates both."""
+        self._maybe_refresh(force)
+        return self._windows
+
+    def tab_for_pid(self, pid: int) -> TabInfo | None:
+        tty = get_tty_for_pid(pid)
+        if tty is None:
+            return None
+        return self.tabs().get(tty)
+
+    def tabs_for_pids(self, pids: list[int]) -> dict[int, TabInfo | None]:
+        """Batch tab_for_pid: one 'ps' call for every pid instead of one
+        subprocess per pid, plus the (already-cached) tab listing."""
+        ttys = get_ttys_for_pids(pids)
+        tabs = self.tabs()
+        return {pid: tabs.get(ttys[pid]) if pid in ttys else None for pid in pids}
+
+
+def focus_tty(tty: str) -> bool:
+    """Select and activate the iTerm2 tab whose session has this tty.
+    Returns True if a matching tab was found (and focused)."""
+    script = FOCUS_SCRIPT_TEMPLATE.format(tty=tty)
+    try:
+        out = _run_applescript(script)
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return out.strip().lower() == "true"
+
+
+def set_window_bounds(window_id: str, bounds: tuple[int, int, int, int]) -> bool:
+    """Move/resize the iTerm2 window with this id to (x1, y1, x2, y2).
+    Returns True if a matching window was found (and moved/resized)."""
+    x1, y1, x2, y2 = bounds
+    script = SET_BOUNDS_SCRIPT_TEMPLATE.format(window_id=window_id, bounds="{%d, %d, %d, %d}" % (x1, y1, x2, y2))
+    try:
+        out = _run_applescript(script)
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return out.strip().lower() == "true"
+
+
+# argv-based (never string-interpolated) so quotes/unicode in the message
+# survive; also never select/activate the target tab.
+SEND_SCRIPT_LINES = [
+    "on run argv",
+    '  tell application "iTerm2"',
+    "    set targetTty to item 1 of argv",
+    "    set targetText to item 2 of argv",
+    "    set found to false",
+    "    repeat with w in windows",
+    "      repeat with t in tabs of w",
+    "        repeat with s in sessions of t",
+    "          if (tty of s) is targetTty then",
+    # Text and Enter go separately: one burst reads as a paste in Claude
+    # Code and the newline becomes a line break instead of a submit.
+    "            tell s to write text targetText newline NO",
+    "            delay 0.3",
+    "            tell s to write text \"\"",
+    "            set found to true",
+    "          end if",
+    "        end repeat",
+    "      end repeat",
+    "    end repeat",
+    "    return found",
+    "  end tell",
+    "end run",
+]
+
+
+# argv-based, same reason as SEND_SCRIPT_LINES. Creates the window via a
+# profile (never the `command` param of `create window`, which replaces the
+# login shell so the window closes the moment the command exits) then
+# writes the command into the new session as a separate step.
+OPEN_WINDOW_SCRIPT_LINES = [
+    "on run argv",
+    '  tell application "iTerm2"',
+    "    set targetProfile to item 1 of argv",
+    "    set targetCommand to item 2 of argv",
+    "    if targetProfile is \"\" then",
+    "      set w to (create window with default profile)",
+    "    else",
+    "      set w to (create window with profile targetProfile)",
+    "    end if",
+    "    if targetCommand is not \"\" then",
+    "      tell current session of w to write text targetCommand",
+    "    end if",
+    "    return id of w",
+    "  end tell",
+    "end run",
+]
+
+
+def open_window(command: str | None = None, profile: str | None = None) -> str | None:
+    """Create a new iTerm2 window (default profile, or `profile` by name)
+    and return its window id -- same id space as WindowInfo.window_id --
+    or None if iTerm2 couldn't be reached. `command`, if given, is written
+    into the new window's session after creation, not passed to `create
+    window`, so the shell survives the command."""
+    cmd = ["osascript"]
+    for line in OPEN_WINDOW_SCRIPT_LINES:
+        cmd += ["-e", line]
+    cmd += [profile or "", command or ""]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    out = result.stdout.strip()
+    return out or None
+
+
+# argv-based, same reason as SEND_SCRIPT_LINES. `write text` submits the
+# line (unlike SEND_SCRIPT_LINES's split write -- this targets a plain
+# shell, not Claude Code's prompt box, so there's no paste-vs-submit issue).
+WRITE_WINDOW_SCRIPT_LINES = [
+    "on run argv",
+    '  tell application "iTerm2"',
+    "    set targetId to item 1 of argv",
+    "    set targetText to item 2 of argv",
+    "    set found to false",
+    "    repeat with w in windows",
+    "      if ((id of w) as text) is targetId then",
+    "        tell current session of w to write text targetText",
+    "        set found to true",
+    "      end if",
+    "    end repeat",
+    "    return found",
+    "  end tell",
+    "end run",
+]
+
+
+def write_text_to_window(window_id: str, text: str, timeout: float = 3.0) -> bool:
+    """Write `text` into the current session of the window with this id.
+    Returns True iff a matching window was found; False (never raises) on
+    no match or when iTerm2 couldn't be reached."""
+    cmd = ["osascript"]
+    for line in WRITE_WINDOW_SCRIPT_LINES:
+        cmd += ["-e", line]
+    cmd += [window_id, text]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return result.stdout.strip().lower() == "true"
+
+
+# Guarded the same way FOCUS_SCRIPT_TEMPLATE is: a tty that matches nothing
+# returns "" (no marker needed -- an empty session also returns "").
+READ_SESSION_SCRIPT_TEMPLATE = """
+tell application "iTerm2"
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if (tty of s) is "{tty}" then
+					return contents of s
+				end if
+			end repeat
+		end repeat
+	end repeat
+	return ""
+end tell
+"""
+
+
+def read_session_text(tty: str, max_lines: int = 200) -> str | None:
+    """Last `max_lines` lines of a tty's on-screen text (trimmed here, not
+    in AppleScript -- `contents` includes scrollback, ~150 KB). None on
+    unknown tty or any osascript failure, never raises."""
+    script = READ_SESSION_SCRIPT_TEMPLATE.format(tty=tty)
+    try:
+        out = _run_applescript(script, timeout=5.0)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if not out:
+        return None
+    lines = out.splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
+def send_text(tty: str, text: str, timeout: float = 3.0) -> bool:
+    """Write `text` into the iTerm2 session whose tty matches, via `write
+    text` (which appends a newline -- submitting a Claude Code prompt, or
+    queuing behind one that's still running). Never selects or activates
+    the tab. Returns True iff a matching tab was found."""
+    cmd = ["osascript"]
+    for line in SEND_SCRIPT_LINES:
+        cmd += ["-e", line]
+    cmd += [tty, text]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return result.stdout.strip().lower() == "true"
+
+
+# The session podbay itself runs in, found by the UUID half of
+# ITERM_SESSION_ID ("w0t1p0:UUID"); `rows`/`columns` give the visible grid
+# and `contents` the whole buffer, whose last `rows` lines are the screen.
+OWN_SCREEN_SCRIPT_TEMPLATE = """
+tell application "iTerm2"
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if (id of s) is "{uuid}" then
+					return (rows of s as string) & "x" & (columns of s as string) & linefeed & (contents of s)
+				end if
+			end repeat
+		end repeat
+	end repeat
+	return ""
+end tell
+"""
+
+
+def capture_own_screen() -> list[str] | None:
+    """The text currently visible in the iTerm2 session podbay was launched
+    from, one string per screen row, each exactly `columns` wide. None when
+    not in iTerm2 or on any osascript failure, never raises. Plain text
+    only: `contents` carries no colours."""
+    session_id = os.environ.get("ITERM_SESSION_ID", "")
+    if ":" not in session_id:
+        return None
+    uuid = session_id.split(":", 1)[1]
+    try:
+        out = _run_applescript(OWN_SCREEN_SCRIPT_TEMPLATE.format(uuid=uuid), timeout=5.0)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if not out or "\n" not in out:
+        return None
+    header, body = out.split("\n", 1)
+    try:
+        rows_s, cols_s = header.split("x", 1)
+        rows, cols = int(rows_s), int(cols_s)
+    except ValueError:
+        return None
+    if rows <= 0 or cols <= 0:
+        return None
+    lines = body.split("\n")[-rows:]
+    lines = [""] * (rows - len(lines)) + lines
+    return [line[:cols].ljust(cols) for line in lines]
