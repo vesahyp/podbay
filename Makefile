@@ -1,6 +1,15 @@
-.PHONY: help run list test install install-skill
+.PHONY: help run list test install install-skill shots plan apply outputs deploy analytics
 
 PODBAY := uv run --project .
+
+# The site at podbay.tienoo.com: site/ is the page, infra/ its Terraform,
+# analytics/ the nightly traffic rollup. AWS profile personal by default.
+PROFILE ?= personal
+AWS     := AWS_PROFILE=$(PROFILE) aws
+TF      := AWS_PROFILE=$(PROFILE) mise exec -- terraform -chdir=infra
+# The backup bucket that holds Terraform state, <login>-backup-<account id>
+# by convention; set it to use another.
+TFSTATE_BUCKET ?= $(USER)-backup-$(shell $(AWS) sts get-caller-identity --query Account --output text 2>/dev/null)
 
 help:
 	@echo "make run       open the TUI"
@@ -8,6 +17,11 @@ help:
 	@echo "make test      run the tests"
 	@echo "make install   ~/.local/bin/podbay symlink + status line in every Claude account"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
+	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
+	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
+	@echo "make apply     terraform apply the saved plan"
+	@echo "make deploy    ship site/ to podbay.tienoo.com"
+	@echo "make analytics run the site's traffic rollup now (cron runs it nightly)"
 
 run:
 	@$(PODBAY) podbay
@@ -38,3 +52,33 @@ install-skill:
 	@test -n "$(HOME_REPO)" || { echo "usage: make install-skill HOME_REPO=<path>"; exit 1; }
 	@mkdir -p "$(HOME_REPO)/.claude/skills"
 	@ln -sfn "$(CURDIR)/skills/head-jeeves" "$(HOME_REPO)/.claude/skills/head-jeeves" && echo "→ $(HOME_REPO)/.claude/skills/head-jeeves"
+
+# The real TUI and the board, mounted headless over made-up sessions, then
+# rendered to PNG by Playwright. The first run downloads Chromium.
+shots:
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
+	@$(PODBAY) --with playwright python scripts/shots.py
+
+plan:
+	$(TF) init -input=false -backend-config="bucket=$(TFSTATE_BUCKET)"
+	$(TF) plan -out=tfplan
+
+apply:
+	$(TF) apply tfplan
+
+outputs:
+	@$(TF) output
+
+# Everything revalidates (no fingerprinted names here), the tracker pixel is
+# never stored (a cached pixel never reaches the edge and is never logged),
+# and data/ is excluded because the analytics pipeline owns it.
+deploy:
+	@BUCKET=$$($(TF) output -raw bucket_name); DIST=$$($(TF) output -raw distribution_id); \
+	$(AWS) s3 sync site "s3://$$BUCKET" --delete --exclude ".*" --exclude "data/*" --exclude "t.gif" \
+	  --cache-control "public,no-cache" && \
+	$(AWS) s3 cp site/t.gif "s3://$$BUCKET/t.gif" --cache-control "no-store" --content-type "image/gif" && \
+	$(AWS) cloudfront create-invalidation --distribution-id "$$DIST" --paths "/*" >/dev/null && \
+	echo "✓ deployed → $$($(TF) output -raw site_url)"
+
+analytics:
+	analytics/run-analytics.sh; tail -3 analytics/logs/analytics.log
