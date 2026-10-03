@@ -239,15 +239,19 @@ you in one line there; you can ask him what is going on, tell him to start
 a session somewhere with a task (`podbay open`), or to pass a message to a
 session (`podbay send`), and he does it and reports back.
 
-`podbay board` writes the session board, one HTML page of cards grouped by
-who acts next (Needs you, Working, Parked) with terminal number, the repo
-the session works in, title, state, age, context use and the session's last
-text, plus each account's five-hour and weekly usage and Head Jeeves' own
-context use in the header, to `~/.local/state/podbay/board.html`. Head Jeeves publishes that file as an
-artifact with the `comments` capability, so it costs him no context, and
-you read it on the phone. Tapping a card opens a composer; what you type
-reaches him as a comment addressed `#6 sora: <text>`, he passes it on with
-`podbay send` and answers in the thread.
+`podbay board` writes the status board to
+`~/.local/state/podbay/board.html`: one page that says, by project, what
+needs a decision from you, what is ready for you to test (with its URL and
+the steps), what finished today and what is in progress. The sessions
+themselves, with terminal numbers, states, ages, context use and each
+account's five-hour and weekly usage, sit in a collapsed machine room at
+the bottom. The lines come from Head Jeeves, who writes them to
+`~/.local/state/podbay/headlines.json` (format in his skill); a session
+without one shows the first sentence of its recap. He publishes the page as
+an artifact with the `comments` capability, so it costs him no context, and
+you read it on the phone. Tapping a question or a session opens a composer;
+what you type reaches him as a comment addressed `#6 sora: <text>`, he
+passes it on with `podbay send` and answers in the thread.
 
 His instructions are the skill in `skills/head-jeeves/`; `make install-skill
 HOME_REPO=~/Repositories/jeeves` links it into the home repo's

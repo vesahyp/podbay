@@ -2628,7 +2628,10 @@ def cmd_board(out: Path | None) -> None:
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister(), status_snapshots=snapshots)
     payload = inventory_payload(sessions, set())
     limits = {a.label: sources.newest_limits(snapshots, a.label) for a in discover()}
-    path = board.write(board.render(payload, limits=limits), out)
+    headlines, problem = board.load_headlines()
+    if problem:
+        print(f"headlines ignored: {problem}", file=sys.stderr)
+    path = board.write(board.render(payload, limits=limits, headlines=headlines), out)
     print(path)
 
 
@@ -2724,7 +2727,7 @@ def main() -> None:
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
     config_parser.add_argument("value", nargs="?", help="the new value; none prints the current one; '' clears it")
 
-    board_parser = sub.add_parser("board", help="write the session board page (cards by who acts next) for Head Jeeves to publish")
+    board_parser = sub.add_parser("board", help="write the status board page (decisions, ready to test, in progress, by project) for Head Jeeves to publish")
     board_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {board.BOARD_PATH})")
 
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")

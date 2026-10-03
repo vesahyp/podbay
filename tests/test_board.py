@@ -10,45 +10,109 @@ def _session(**over):
         "name": "jeeves-64", "title": "Sora graphics research", "tab": "6", "repo": "sora", "state": "working",
         "age_seconds": 30, "parked_until": None, "last_text": "Slices 1 and 2 are pushed.", "waiting_on": None,
         "has_transcript": True, "head_jeeves": False, "context_pct": 18.0, "work_repo": "sora",
+        "session_id": "s-0", "short_id": "s-0",
     }
     base.update(over)
     return base
 
 
-def test_board_groups_cards_by_who_acts_next_and_addresses_them():
+def test_board_leads_with_outcomes_grouped_by_project():
     payload = {"sessions": [
-        _session(),
-        _session(name="a", title="ecarbrowser ux", tab="5", repo="jeeves", work_repo="ecarbrowser", state="needs_you", age_seconds=600,
-                 context_pct=73, waiting_on={"kind": "ask_user_question", "detail": "Which layout?"}),
-        _session(name="b", title="Urbangreen follow-up", tab="3", repo="urbangreen", work_repo="urbangreen", state="parked", parked_until="2026-10-12T09:00:00", age_seconds=86400 * 9),
-        _session(name="c", title="Claude Code", tab="7", repo="", work_repo="", state="empty", last_text=None, has_transcript=False, context_pct=None),
-        _session(name="head-jeeves", title="head-jeeves", tab="8", repo="jeeves", work_repo="jeeves", state="needs_you", head_jeeves=True, context_pct=7.4),
+        _session(session_id="s-sora", state="needs_you", age_seconds=600,
+                 last_text="**Done, six commits on sora**, all live at https://vesahyp.github.io/sora: - **The race on"),
+        _session(session_id="s-ux", name="a", title="ecarbrowser ux", tab="5", repo="jeeves", work_repo="ecarbrowser",
+                 state="needs_you", age_seconds=600, context_pct=73,
+                 waiting_on={"kind": "ask_user_question", "detail": "Which **layout**?"}),
+        _session(session_id="s-ins", name="b", title="Insurance compare", tab="9", work_repo="ecarbrowser", state="working",
+                 last_text="Comparing the three insurers."),
+        _session(session_id="s-ug", name="c", title="Urbangreen follow-up", tab="3", repo="urbangreen", work_repo="urbangreen",
+                 state="parked", parked_until="2026-10-12T09:00:00", age_seconds=86400 * 9),
+        _session(session_id="s-fix", name="podbay-fix-close", title="podbay-fix-close", tab="14", work_repo="podbay", state="working"),
+        _session(session_id="s-new", name="d", title="Claude Code", tab="7", repo="", work_repo="", state="empty",
+                 last_text=None, has_transcript=False, context_pct=None),
+        _session(session_id="s-hj", name="head-jeeves", title="head-jeeves", tab="8", state="needs_you", head_jeeves=True, context_pct=7.4),
     ]}
-    limits = {"claude": {"five_pct": 36, "five_resets_at": None, "week_pct": 17, "week_resets_at": None},
-              "personal": {"five_pct": 11, "five_resets_at": None, "week_pct": None, "week_resets_at": None}}
+    limits = {"claude": {"five_pct": 36, "five_resets_at": None, "week_pct": 17, "week_resets_at": None}}
     html = board.render(payload, NOW, limits)
 
-    assert html.startswith("<title>Session Board</title>")
-    assert "3 Oct, 18:05 · 4 sessions · 1 needs you" in html
-    assert html.index("<h2>Needs you</h2>") < html.index("<h2>Working</h2>") < html.index("<h2>Parked</h2>")
-    assert 'data-target="#5 ecarbrowser"' in html and 'data-target="#6 sora"' in html and 'data-target="#7"' in html
-    assert "head-jeeves" not in html
-    assert '<p class="ask">asks: Which layout?</p>' in html
-    assert "idle 10m" in html and "active now" in html and "until 10-12 09:00" in html
-    assert "never used" in html
+    assert html.startswith("<title>Status Board</title>")
+    assert "1 decision for you · 1 finished today · 2 in progress" in html
+    order = [html.index(h) for h in ("Decisions for you", "Ready for you to test", "Finished today", "In progress", "Machine room")]
+    assert order == sorted(order)
+    decisions = html[html.index("Decisions for you"):html.index("Ready for you to test")]
+    # only the question is a decision; the finished sora session is not
+    assert 'data-target="#5 ecarbrowser"' in decisions and "Which layout?" in decisions and "sora" not in decisions
+    # ready to test is Head Jeeves' call; without his line a finished session is only finished
+    assert "Nothing new to test today." in html[html.index("Ready for you to test"):html.index("Finished today")]
+    done = html[html.index("Finished today"):html.index("In progress")]
+    assert "Done, six commits on sora, all live at https://vesahyp.github.io/sora</span>" in done
+    assert 'href="https://vesahyp.github.io/sora"' in done and "*" not in done and "race" not in done
+    progress = html[html.index("In progress"):html.index("Machine room")]
+    assert progress.count('class="proj">ecarbrowser<') == 1 and "parked until Mon 12 Oct" in progress
+    assert "podbay-fix" not in progress and "Claude Code" not in progress
+    room = html[html.index("Machine room"):]
+    assert "podbay-fix-close" in room and "<b>claude</b> 5H 36%  7D 17%" in room and "never used" in room
+    assert '<span class="ctx hot">ctx 73%</span>' in room and "Head Jeeves <span class=\"ctx\">ctx 7%</span>" in room
+    assert "head-jeeves</span>" not in html and "#?" not in html
     assert "sendToClaude" in html and 'target + ": " + text' in html
-    # context per card, Head Jeeves' own in the header, the accounts' windows under it
-    assert '<span class="ctx">ctx 18%</span>' in html and '<span class="ctx hot">ctx 73%</span>' in html
-    assert "Head Jeeves <span class=\"ctx\">ctx 7%</span>" in html
-    assert "<b>claude</b> 5H 36%  7D 17%" in html and "<b>personal</b> 5H 11%" in html
 
 
-def test_board_escapes_and_trims_text_and_handles_no_sessions():
-    payload = {"sessions": [_session(title="<b>bold</b>", last_text="x " * 400)]}
+def test_head_jeeves_headlines_win_and_stale_questions_drop():
+    payload = {"sessions": [
+        _session(session_id="s-sora", state="needs_you", last_text="Everything is committed."),
+        _session(session_id="s-ux", name="a", tab="5", work_repo="ecarbrowser", state="working", last_text="Building the layout."),
+        _session(session_id="s-96", name="jeeves-96", tab="4", title="Free browser games", work_repo="jeeves", repo="jeeves",
+                 state="needs_you", last_text="Goal: publish."),
+    ]}
+    headlines = {
+        "s-sora": {"kind": "shipped", "text": "Six improvements live", "link": "vesahyp.github.io/sora",
+                   "steps": ["Open the page on the phone", "Start a race and watch the **lap** counter"]},
+        "s-ux": {"kind": "decision", "text": "Gallery or list?"},  # answered already: the session works again
+        "s-96": {"kind": "decision", "text": "Publish Räkkä on itch.io now?", "repo": "hoyry"},
+        "gone": {"kind": "shipped", "text": "Stats board live", "link": "https://podbay.tienoo.com/stats/",
+                 "repo": "podbay", "at": "2026-10-03T12:00"},
+        "old": {"kind": "shipped", "text": "Yesterday's work", "repo": "keitos", "at": "2026-10-02"},
+    }
+    html = board.render(payload, NOW, headlines=headlines)
+    decisions = html[html.index("Decisions for you"):html.index("Ready for you to test")]
+    assert 'class="proj">hoyry<' in decisions and "Publish Räkkä on itch.io now?" in decisions
+    assert "Gallery or list?" not in html and "Building the layout." in html
+    ready = html[html.index("Ready for you to test"):html.index("In progress")]
+    assert 'href="https://vesahyp.github.io/sora"' in ready and ">https://vesahyp.github.io/sora</a>" in ready
+    assert "<li>Start a race and watch the lap counter</li>" in ready
+    assert "Stats board live" in ready and "Yesterday" not in html
+
+
+def test_clean_line_takes_the_first_sentence_and_never_cuts_a_word():
+    assert board.clean_line("**Done.** The rest [here](http://x).") == "Done."
+    assert board.clean_line("Shipped at vesahyp.github.io/sora. Next one.") == "Shipped at vesahyp.github.io/sora."
+    assert board.clean_line("## Summary\n- `one` thing\n- two") == "Summary"
+    long = board.clean_line("word " * 100)
+    assert long.endswith("word…") and len(long) <= board.LINE_CHARS + 1
+
+
+def test_load_headlines_tolerates_a_missing_or_broken_file(tmp_path):
+    assert board.load_headlines(tmp_path / "none.json") == ({}, None)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{nope")
+    lines, problem = board.load_headlines(bad)
+    assert lines == {} and "bad.json" in problem
+    good = tmp_path / "good.json"
+    good.write_text('{"abc": {"kind": "progress", "text": "Half done"}, "x": {"kind": "shipped"}}')
+    assert board.load_headlines(good) == ({"abc": {"kind": "progress", "text": "Half done"}}, None)
+
+
+def test_a_session_with_no_terminal_number_is_addressed_by_name():
+    assert board._target(_session(tab=None, name="jeeves-64", work_repo="sora")) == "jeeves-64 sora"
+    assert board._target(_session(tab="6", work_repo="sora")) == "#6 sora"
+
+
+def test_board_handles_no_sessions():
+    html = board.render({"sessions": []}, NOW)
+    assert "Nothing waits on you." in html and "No live sessions." in html
+    payload = {"sessions": [_session(title="<b>bold</b>", state="needs_you", last_text="<i>x</i> done")]}
     html = board.render(payload, NOW)
-    assert "&lt;b&gt;bold&lt;/b&gt;" in html and "<b>bold</b>" not in html
-    assert "…</p>" in html
-    assert "No live sessions." in board.render({"sessions": []}, NOW)
+    assert "&lt;b&gt;bold&lt;/b&gt;" in html and "<b>bold</b>" not in html and "<i>x</i>" not in html
 
 
 def test_write_is_atomic_and_cmd_board_prints_the_path(tmp_path, monkeypatch, capsys):

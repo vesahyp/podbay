@@ -103,6 +103,18 @@ TRANSCRIPT = [
         "Ready to merge the payment retry branch?")},
 ]
 
+# What Head Jeeves writes to headlines.json for the demo sessions above.
+HEADLINES = {
+    f"{7:08x}-demo-0000-0000-000000000000": {
+        "kind": "shipped", "text": "Ledger migration is live on staging",
+        "link": "https://staging.ledger.example.com/accounts",
+        "steps": ["Open an account from before 2024", "Check that its balance matches last month's statement"],
+    },
+    f"{2:08x}-demo-0000-0000-000000000000": {
+        "kind": "progress", "text": "Latency charts for the tile server, ready in about an hour",
+    },
+}
+
 LIMITS = {
     "work": {"five_pct": 36, "five_resets_at": None, "week_pct": 41, "week_resets_at": None},
     "personal": {"five_pct": 12, "five_resets_at": None, "week_pct": 18, "week_resets_at": None},
@@ -151,7 +163,7 @@ async def console_svg(tmp: Path) -> str:
 
 def board_html() -> str:
     payload = inventory_payload(demo_sessions(), set())
-    page = board.render(payload, NOW, LIMITS)
+    page = board.render(payload, NOW, LIMITS, HEADLINES)
     # The board is published as an artifact, which supplies the document
     # around it; here it is a page of its own.
     return f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{page}'
