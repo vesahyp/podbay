@@ -1,0 +1,7 @@
+{
+  "name": "podbay-traffic",
+  "cloud": "aws",
+  "version": 1,
+  "catalog": "clavesa_podbay_traffic",
+  "system_catalog": "clavesa_podbay_traffic_system"
+}

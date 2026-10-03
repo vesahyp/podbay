@@ -13,6 +13,12 @@ make test       pytest, about a minute; the app tests mount the real TUI
                 headless and read the real session registry read-only
 make install    ~/.local/bin/podbay symlink + statusLine in every
                 ~/.claude*/settings.json
+
+make shots      the site's screenshots into site/img/ (Playwright)
+make plan       terraform plan for infra/, saved to infra/tfplan
+make apply      apply the saved plan
+make deploy     sync site/ to the bucket and invalidate
+make analytics  the traffic rollup now; cron runs it nightly at 07:30
 ```
 
 ## Layout
@@ -41,7 +47,32 @@ podbay/
   logs.py           the rotating application log
   notifications.py  the history behind `h`
 tests/              pytest; conftest pins one account and a home base
+scripts/shots.py    the site's screenshots: the real TUI and board over
+                      made-up sessions, rendered by Playwright
+site/               podbay.tienoo.com, static: index, 404, stats/ board,
+                      tracker.js (clavesa's, vendored unmodified), t.gif
+infra/              its Terraform: S3 + CloudFront + ACM + Route 53
+analytics/          clavesa workspace: CloudFront logs to data/analytics.json
 ```
+
+## The site
+
+podbay.tienoo.com is one static page, no build step. `make deploy` syncs
+`site/` with `--delete` but excludes `data/`, which the analytics pipeline
+owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
+
+- The screenshots show made-up sessions only. Change the demo in
+  `scripts/shots.py`, run `make shots`, commit the PNGs.
+- The tienoo.com zone is read as a data source, never declared here.
+- The Terraform state bucket is not in the repo: `make plan` passes it as
+  `TFSTATE_BUCKET`, by default `<login>-backup-<account id>`.
+- Tracking follows jeeves' `practices/web-tracking.md`. Mark a new link
+  with `data-track="<surface>-<name>"`; it reaches `/stats/` with no
+  pipeline change. `tracker.js` is never edited here: changes go to
+  `clavesa-dev/web-tracker/` and are copied in.
+- The clavesa workspace is local: never run `clavesa deploy` from
+  `analytics/`. The nightly is `clavesa pipeline run podbay-traffic` on
+  this machine, against a Delta warehouse under `.clavesa/warehouse/`.
 
 ## Hard rules
 

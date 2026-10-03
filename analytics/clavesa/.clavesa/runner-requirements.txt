@@ -1,0 +1,6 @@
+# Extra Python pip dependencies for your transform UDFs — one per line.
+# Installed into the runner image on the next build (pipeline run / workspace deploy).
+# Example:
+#   pyasn>=1.6
+#   crawlerdetect>=0.3
+crawlerdetect>=0.3

@@ -1,0 +1,10 @@
+{
+  "kind": "s3",
+  "bucket": "podbay-cloudfront-logs",
+  "prefix": "cloudfront/",
+  "format": "tsv",
+  "read_options": {
+    "comment": "#",
+    "header": "false"
+  }
+}

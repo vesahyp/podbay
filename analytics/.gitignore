@@ -1,0 +1,18 @@
+# Cron run logs, per machine.
+logs/
+
+# clavesa workspace: commit the pipeline definition (the .tf files, the SQL
+# and Python transforms, .clavesa/sources/), ignore everything the CLI
+# generates or that is local state. The mirrored raw logs matter most: they
+# carry client IPs and belong only in the private S3 bucket.
+clavesa/.clavesa/cache/
+clavesa/.clavesa/warehouse/
+clavesa/.clavesa/modules/
+clavesa/runner/
+clavesa/**/.clavesa/runs/
+clavesa/**/.clavesa/watermarks/
+clavesa/**/.clavesa/progress/
+clavesa/**/__pycache__/
+clavesa/**/.terraform/
+clavesa/**/*.tfstate
+clavesa/**/*.tfstate.*

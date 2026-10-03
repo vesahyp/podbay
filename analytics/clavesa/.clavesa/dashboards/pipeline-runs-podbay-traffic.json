@@ -1,0 +1,17 @@
+{
+  "title": "Pipeline runs — podbay-traffic",
+  "datasets": [
+    { "name": "failures_24h", "dir": "podbay-traffic", "sql": "SELECT COUNT(*) AS n FROM clavesa_podbay_traffic_system__pipelines.runs WHERE pipeline = 'podbay-traffic' AND status = 'FAILED' AND started_at > current_timestamp - INTERVAL 1 DAY" },
+    { "name": "runs_total", "dir": "podbay-traffic", "sql": "SELECT COUNT(*) AS n FROM clavesa_podbay_traffic_system__pipelines.runs WHERE pipeline = 'podbay-traffic'" },
+    { "name": "duration", "dir": "podbay-traffic", "sql": "SELECT x, y FROM (SELECT started_at AS x, duration_ms AS y FROM clavesa_podbay_traffic_system__pipelines.runs WHERE pipeline = 'podbay-traffic' ORDER BY started_at DESC LIMIT 50) t ORDER BY x ASC" },
+    { "name": "failures_by_node", "dir": "podbay-traffic", "sql": "SELECT node AS x, COUNT(*) AS y FROM clavesa_podbay_traffic_system__pipelines.node_runs WHERE pipeline = 'podbay-traffic' AND status = 'failed' GROUP BY node ORDER BY y DESC" },
+    { "name": "recent_runs", "dir": "podbay-traffic", "sql": "SELECT run_id, status, trigger, duration_ms FROM clavesa_podbay_traffic_system__pipelines.runs WHERE pipeline = 'podbay-traffic' ORDER BY started_at DESC LIMIT 10" }
+  ],
+  "widgets": [
+    { "id": "failures-24h", "type": "big_number", "title": "Failures (24h)", "dataset": "failures_24h", "value_field": "n", "layout": { "x": 0, "y": 0, "w": 3, "h": 2 } },
+    { "id": "runs-total", "type": "big_number", "title": "Runs (total)", "dataset": "runs_total", "value_field": "n", "layout": { "x": 3, "y": 0, "w": 3, "h": 2 } },
+    { "id": "duration-trend", "type": "line", "title": "Run duration", "dataset": "duration", "x_field": "x", "y_field": "y", "layout": { "x": 6, "y": 0, "w": 6, "h": 4 } },
+    { "id": "failures-by-node", "type": "bar", "title": "Failures by node", "dataset": "failures_by_node", "x_field": "x", "y_field": "y", "layout": { "x": 0, "y": 2, "w": 6, "h": 4 } },
+    { "id": "recent-runs", "type": "table", "title": "Recent runs", "dataset": "recent_runs", "layout": { "x": 6, "y": 4, "w": 6, "h": 4 } }
+  ]
+}

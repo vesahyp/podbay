@@ -1,0 +1,6 @@
+# clavesa: never commit file:-backend credential payloads
+.clavesa/credentials/*.secret
+# clavesa: per-developer warehouse selection (local/cloud)
+.clavesa/environment.json
+# clavesa: per-developer AWS profile selection
+.clavesa/aws-profile.json
