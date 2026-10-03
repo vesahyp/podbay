@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timedelta
 
 from podbay.model import (
@@ -336,3 +337,23 @@ def test_running_subagents_keep_a_session_working_after_its_turn_ended():
     assert s.derive_status(now) == WORKING
     s.subagents_running = 0
     assert s.derive_status(now) == NEEDS_YOU
+
+
+def test_age_runs_from_the_newest_activity_subagents_included():
+    """The registry status stops at the main turn's end; a subagent working
+    since then makes the session young, not two hours idle."""
+    from datetime import datetime, timedelta
+
+    from tests.test_app import _selection_session
+
+    now = datetime.now()
+    session = _selection_session(
+        "sora", now, status_updated_at=now - timedelta(hours=2), last_turn_ts=now - timedelta(hours=2),
+        subagents_running=1, subagent_written_at=now - timedelta(seconds=20),
+    )
+    assert session.derive_status(now) == "working"
+    assert session.age_seconds(now) == pytest.approx(20, abs=1)
+
+    # with nothing newer, the registry's change still counts
+    quiet = _selection_session("q", now, status_updated_at=now - timedelta(minutes=5), last_turn_ts=now - timedelta(minutes=9))
+    assert quiet.age_seconds(now) == pytest.approx(300, abs=1)

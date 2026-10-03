@@ -39,9 +39,8 @@ def work_repo(s: Session) -> str:
 
 
 def _session_dict(s: Session, now: datetime) -> dict:
-    idle_minutes = (
-        round((now - s.last_turn_ts).total_seconds() / 60, 1) if s.last_turn_ts is not None else None
-    )
+    # One clock for state and age: activity_at counts the subagents too.
+    idle_minutes = round(s.age_seconds(now) / 60, 1) if s.has_transcript else None
     return {
         "name": s.name,
         "state": s.derive_status(now),
@@ -67,7 +66,7 @@ def _session_dict(s: Session, now: datetime) -> dict:
         "git_branch": s.git_branch,
         "registry_status": s.status,
         "started_at": s.started_at.isoformat() if s.started_at else None,
-        "last_activity_at": s.last_turn_ts.isoformat() if s.last_turn_ts else None,
+        "last_activity_at": s.activity_at.isoformat() if s.has_transcript else None,
         "idle_minutes": idle_minutes,
         "turn_ended": s.turn_ended,
         "last_text": _collapse(s.recap, 300) if s.recap else None,

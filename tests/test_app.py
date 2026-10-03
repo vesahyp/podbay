@@ -1654,9 +1654,9 @@ def test_redraw_keeps_the_cursor_index_when_the_highlighted_row_vanishes(monkeyp
     from podbay.state import StateStore
 
     now = datetime.now()
-    a = _selection_session("a", now, last_turn_ts=now)
+    a = _selection_session("a", now, last_turn_ts=now - timedelta(minutes=2))
     b = _selection_session("b", now, last_turn_ts=now - timedelta(minutes=1))
-    c = _selection_session("c", now, last_turn_ts=now - timedelta(minutes=2))
+    c = _selection_session("c", now, last_turn_ts=now)
     sessions = [a, b, c]
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: list(sessions))
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)

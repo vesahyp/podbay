@@ -62,3 +62,18 @@ def test_write_is_atomic_and_cmd_board_prints_the_path(tmp_path, monkeypatch, ca
     app_mod.cmd_board(out)
     assert capsys.readouterr().out.strip() == str(out)
     assert "No live sessions." in out.read_text()
+
+
+def test_a_card_age_never_contradicts_its_state():
+    """sora read "working · idle 2h": the age said idle while the state said
+    working. Each state words its own age."""
+    sub = {"kind": "subagents_running", "detail": "1"}
+    assert board._age(_session(state="working", age_seconds=20, waiting_on=sub), NOW) == "active now · subagent running"
+    assert board._age(_session(state="working", age_seconds=300), NOW) == "active 5m ago"
+    assert board._age(_session(state="watching", age_seconds=600), NOW) == "active 10m ago"
+    assert board._age(_session(state="stalled", age_seconds=1800), NOW) == "silent 30m"
+    assert board._age(_session(state="needs_you", age_seconds=7200), NOW) == "idle 2h"
+    assert board._age(_session(state="needs_you", age_seconds=10), NOW) == "just now"
+    assert board._age(_session(state="shell_pane", age_seconds=10), NOW) == ""
+    for state in ("working", "watching", "stalled"):
+        assert "idle" not in board._age(_session(state=state, age_seconds=7200), NOW)

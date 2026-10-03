@@ -610,6 +610,17 @@ def compute_waiting_on(
 RESUME_GRACE = timedelta(minutes=10)
 
 
+def newest_subagent_write(slug_dir: Path, session_id: str) -> datetime | None:
+    """When any of the session's subagent transcripts was last written."""
+    newest = 0.0
+    for path in (slug_dir / session_id / "subagents").glob("*.jsonl"):
+        try:
+            newest = max(newest, path.stat().st_mtime)
+        except OSError:
+            continue
+    return datetime.fromtimestamp(newest) if newest else None
+
+
 def count_running_subagents(
     slug_dir: Path,
     session_id: str,
@@ -847,6 +858,7 @@ def gather_sessions(
         turn_ended = None
         waiting_on = None
         subagents_running = 0
+        subagent_written_at = None
         path = transcript_path_for(cwd, session_id, projects_dir)
         if path is not None:
             transcript = tail_read_transcript(path)
@@ -860,6 +872,7 @@ def gather_sessions(
             )
             subagents_running = count_running_subagents(
                 path.parent, session_id, main_last_turn_ts, transcript.get("resumed_agents"))
+            subagent_written_at = newest_subagent_write(path.parent, session_id)
             waiting_on = compute_waiting_on(transcript, entry.get("status", "idle"), idle_minutes, subagents_running)
             if transcript.get("last_turn") != "in_progress":
                 sub = subagent_activity(path, session_id, transcript.get("last_turn_ts"))
@@ -904,6 +917,7 @@ def gather_sessions(
                 repos_edited=sorted(transcript.get("repos_edited", set())),
                 background_tasks=list(transcript.get("background_tasks", {}).values()),
                 subagents_running=subagents_running,
+                subagent_written_at=subagent_written_at,
                 waiting_on=waiting_on,
                 turn_ended=turn_ended,
                 iterm_tab_id=tab.tab_id if tab else None,

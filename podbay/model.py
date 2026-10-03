@@ -89,6 +89,8 @@ class Session:
     # Subagent transcripts modified since the main turn ended: a background
     # Agent call ends the main turn while the work goes on in those files.
     subagents_running: int = 0
+    # The newest write to any of its subagent transcripts.
+    subagent_written_at: datetime | None = None
 
     # iTerm2 tab-title glyph fallback (None when no tab or unrecognized
     # glyph); registry status is the last-resort fallback.
@@ -235,8 +237,16 @@ class Session:
             return EMPTY
         return NEEDS_YOU
 
+    @property
+    def activity_at(self) -> datetime:
+        """The newest sign of life, which every age is measured from: the
+        registry's status change, the newest turn (a subagent's in-progress
+        turn included) or a subagent transcript write. The registry alone
+        stops at the main turn's end while its agents work on."""
+        return max(t for t in (self.status_updated_at, self.last_turn_ts, self.subagent_written_at) if t is not None)
+
     def age_seconds(self, now: datetime) -> float:
-        return (now - self.status_updated_at).total_seconds()
+        return (now - self.activity_at).total_seconds()
 
 
 # needs_you and STALLED share a group -- sorted together by age, not
@@ -254,7 +264,7 @@ def sort_key(session: Session, now: datetime):
     if derived == PARKED:
         secondary = session.parked_until  # ascending -> soonest first
     else:
-        secondary = session.status_updated_at  # ascending -> oldest first
+        secondary = session.activity_at  # ascending -> oldest first
     if is_head_jeeves(session):
         return (-1, secondary)  # ahead of every group, whatever his status
     return (group, secondary)

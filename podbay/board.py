@@ -175,11 +175,21 @@ def _ask(session: dict) -> str | None:
 
 
 def _age(session: dict, now: datetime) -> str:
+    """The age in the state's own words: a working session is active, never
+    idle, and says so when the work is its subagents'."""
     seconds = session.get("age_seconds")
-    if seconds is None:
+    state = session.get("state")
+    if seconds is None or state == SHELL:
         return ""
     label = humanize_age(seconds)
-    return "active now" if label == "now" else f"idle {label}"
+    if state in (WORKING, WATCHING):
+        age = "active now" if label == "now" else f"active {label} ago"
+        if (session.get("waiting_on") or {}).get("kind") == "subagents_running":
+            age += " · subagent running"
+        return age
+    if state == STALLED:
+        return f"silent {label}" if label != "now" else "silent"
+    return "just now" if label == "now" else f"idle {label}"
 
 
 def _card(session: dict, css_class: str, now: datetime) -> str:

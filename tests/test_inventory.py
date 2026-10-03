@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timedelta
 
 from podbay.inventory import inventory_payload, render_status, render_table
@@ -202,3 +203,20 @@ def test_work_repo_prefers_an_edited_project_repo_over_the_home_base():
     assert work_repo(_session("b", repos_touched=["jeeves", "sora", "podbay"], repos_edited=["podbay"])) == "podbay"
     assert work_repo(_session("c", repos_touched=["jeeves"], repos_edited=["jeeves"])) == "jeeves"
     assert work_repo(_session("d", cwd=f"{REPOS}/keitos")) == "keitos"
+
+
+def test_inventory_idle_minutes_match_the_age():
+    from datetime import datetime, timedelta
+
+    from podbay.inventory import inventory_payload
+    from tests.test_app import _selection_session
+
+    now = datetime.now()
+    session = _selection_session(
+        "sora", now, status_updated_at=now - timedelta(hours=2), last_turn_ts=now - timedelta(hours=2),
+        subagents_running=1, subagent_written_at=now - timedelta(minutes=1),
+    )
+    row = inventory_payload([session], set())["sessions"][0]
+    assert row["state"] == "working"
+    assert row["idle_minutes"] == pytest.approx(1, abs=0.1)
+    assert row["idle_minutes"] == pytest.approx(row["age_seconds"] / 60, abs=0.1)
