@@ -132,9 +132,10 @@ def test_windowinfo_fields():
 
 
 class _FakeCompletedProcess:
-    def __init__(self, stdout="", returncode=0):
+    def __init__(self, stdout="", returncode=0, stderr=""):
         self.stdout = stdout
         self.returncode = returncode
+        self.stderr = stderr
 
 
 def test_open_window_returns_new_window_id(monkeypatch):
@@ -317,3 +318,54 @@ def test_parse_windows_uses_iterms_own_number_and_ranks_only_as_fallback():
     )
     windows = parse_windows(out)
     assert {w: info.number for w, info in windows.items()} == {"249": 1, "300": 2, "280": 3, "290": 4}
+
+
+def test_run_applescript_raises_when_the_script_fails(monkeypatch):
+    import subprocess as real_subprocess
+
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(
+        iterm.subprocess, "run",
+        lambda cmd, **kw: _FakeCompletedProcess(stdout="", returncode=1),
+    )
+    try:
+        iterm._run_applescript(iterm.LIST_SCRIPT)
+    except real_subprocess.CalledProcessError:
+        return
+    raise AssertionError("a failed script must not read as an empty listing")
+
+
+def test_itermlister_keeps_the_last_listing_when_a_refresh_fails(monkeypatch):
+    import subprocess as real_subprocess
+
+    import podbay.iterm as iterm
+
+    answers = [
+        "W | w1 | 0 | 0 | 800 | 600 | 1 | 6\nS | /dev/ttys001 | A | w1 | 1 | /Users/me/sora | ✳ Sora graphics research\n",
+        None,
+    ]
+
+    def fake_run_applescript(script, timeout=3.0):
+        out = answers.pop(0)
+        if out is None:
+            raise real_subprocess.CalledProcessError(1, "osascript", "", "Can't get missing value. (-1728)")
+        return out
+
+    monkeypatch.setattr(iterm, "_run_applescript", fake_run_applescript)
+    lister = iterm.ItermLister()
+    assert lister.tabs()["/dev/ttys001"].title == "Sora graphics research"
+    tabs = lister.tabs(force=True)
+    assert tabs["/dev/ttys001"].title == "Sora graphics research"
+    assert lister.windows()["w1"].number == 6
+
+
+def test_list_script_skips_a_window_it_cannot_read():
+    # The whole listing failed on one window left with no tabs. Each window
+    # now builds its lines inside its own try and adds them only at the end.
+    from podbay.iterm import LIST_SCRIPT
+
+    body = LIST_SCRIPT[LIST_SCRIPT.index("repeat with w in windows"):]
+    assert body.split("\n", 2)[1].strip() == "try"
+    assert "set out to out & winOut" in body
+    assert "count of tabList" not in body

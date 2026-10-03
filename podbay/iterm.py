@@ -7,11 +7,14 @@ never shell out to osascript once per row.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
 import time
 from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
 
 LIST_SCRIPT = """
 tell application "iTerm2"
@@ -20,34 +23,40 @@ tell application "iTerm2"
 		set out to "CURRENT | " & (tty of current session of current window) & linefeed
 	end try
 	repeat with w in windows
-		set wid to id of w
-		set b to bounds of w
-		set x1 to item 1 of b
-		set y1 to item 2 of b
-		set x2 to item 3 of b
-		set y2 to item 4 of b
-		set tabList to tabs of w
-		set wnum to ""
 		try
-			tell current session of current tab of w to set wnum to (variable named "tab.window.number")
-		end try
-		set out to out & "W | " & wid & " | " & x1 & " | " & y1 & " | " & x2 & " | " & y2 & " | " & (count of tabList) & " | " & wnum & linefeed
-		set tabIndex to 0
-		repeat with t in tabList
-			set tabIndex to tabIndex + 1
-			repeat with s in sessions of t
-				try
-					tell s to set sessionPath to (variable named "path")
-				on error
-					set sessionPath to ""
-				end try
-				set out to out & "S | " & (tty of s) & " | " & (id of s) & " | " & wid & " | " & tabIndex & " | " & sessionPath & " | " & (name of s) & linefeed
+			set wid to id of w
+			set b to bounds of w
+			set x1 to item 1 of b
+			set y1 to item 2 of b
+			set x2 to item 3 of b
+			set y2 to item 4 of b
+			set tabCount to count of tabs of w
+			set wnum to ""
+			try
+				tell current session of current tab of w to set wnum to (variable named "tab.window.number")
+			end try
+			set winOut to "W | " & wid & " | " & x1 & " | " & y1 & " | " & x2 & " | " & y2 & " | " & tabCount & " | " & wnum & linefeed
+			repeat with tabIndex from 1 to tabCount
+				repeat with s in sessions of (tab tabIndex of w)
+					try
+						tell s to set sessionPath to (variable named "path")
+					on error
+						set sessionPath to ""
+					end try
+					set winOut to winOut & "S | " & (tty of s) & " | " & (id of s) & " | " & wid & " | " & tabIndex & " | " & sessionPath & " | " & (name of s) & linefeed
+				end repeat
 			end repeat
-		end repeat
+			set out to out & winOut
+		end try
 	end repeat
 	return out
 end tell
 """
+# One window iTerm2 cannot describe must not take the others with it: a
+# window left with no tabs answers "tabs of w" with a missing value, and
+# before each window had its own try that one error emptied the whole
+# listing, so every session lost its terminal number and title at once.
+# A window is added to the output only after all of its lines are built.
 # bounds of w is a 4-item list {x1, y1, x2, y2}; concatenating it "as string"
 # collapses to an unparseable run of digits (verified), so each coordinate is
 # pulled out with "item N of b" and joined with the record's own " | " delimiter.
@@ -298,10 +307,15 @@ LIST_TIMEOUT = SCRIPT_TIMEOUT
 
 
 def _run_applescript(script: str, timeout: float = SCRIPT_TIMEOUT) -> str:
+    """stdout of the script. A script that fails with nothing on stdout
+    raises CalledProcessError, so a caller can tell iTerm2 refusing from
+    iTerm2 answering with nothing (no windows, no matching tty)."""
     result = subprocess.run(
         ["osascript", "-e", script],
         capture_output=True, text=True, timeout=timeout,
     )
+    if result.returncode != 0 and not result.stdout:
+        raise subprocess.CalledProcessError(result.returncode, "osascript", result.stdout, result.stderr)
     return result.stdout
 
 
@@ -316,9 +330,12 @@ class ItermLister:
         self._last_refresh = 0.0
 
     def _refresh(self) -> None:
+        # A failed listing keeps the last good one: an empty listing would
+        # strip every session of its terminal number and title.
         try:
             out = _run_applescript(LIST_SCRIPT, timeout=LIST_TIMEOUT)
-        except (subprocess.SubprocessError, OSError):
+        except (subprocess.SubprocessError, OSError) as exc:
+            log.warning("iTerm2 listing failed: %s", getattr(exc, "stderr", None) or exc)
             return
         self._tabs, self._windows = _parse_all(out)
         self._last_refresh = time.time()
