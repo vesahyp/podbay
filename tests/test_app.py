@@ -374,6 +374,7 @@ def test_arrange_notifies_when_set_window_bounds_missing(monkeypatch, tmp_path):
 
 def test_open_claude_on_shell_row_sends_into_existing_tty_without_opening_window(monkeypatch, tmp_path):
     import asyncio
+    import shlex
     from datetime import datetime
     from podbay import app as app_mod
     from podbay.app import PromptScreen
@@ -401,10 +402,13 @@ def test_open_claude_on_shell_row_sends_into_existing_tty_without_opening_window
             await pilot.pause()
             application.action_open_claude()
             await pilot.pause()
-            assert not isinstance(application.screen, PromptScreen)
+            # the prompt offers the shell's own directory; Enter takes it
+            assert isinstance(application.screen, PromptScreen)
+            await pilot.press("enter")
+            await pilot.pause()
 
     asyncio.run(run())
-    assert send_calls == [("/dev/ttys005", "claude")]
+    assert send_calls == [("/dev/ttys005", f"cd {shlex.quote(shell_session.cwd)} && claude")]
 
 
 def test_open_claude_elsewhere_prompts_and_opens_window(monkeypatch, tmp_path):
@@ -497,7 +501,7 @@ def test_resume_modal_lists_both_groups_and_opens_selected_entries(monkeypatch, 
         size_bytes: int = 0
 
     class FakeHistory:
-        def list_past_sessions(self, exclude_ids=None, limit=100, since_days=30):
+        def list_past_sessions(self, exclude_ids=None, limit=100, since_days=30, **_kw):
             self.exclude_ids = exclude_ids
             return [FakePastSession("hist-b", "/x/hist", "/proj", now - timedelta(days=2), "old task b")]
 
@@ -578,7 +582,7 @@ def test_resume_with_nothing_to_restore_notifies_and_does_not_open_modal(monkeyp
     from podbay.state import StateStore
 
     class FakeHistory:
-        def list_past_sessions(self, exclude_ids=None, limit=100, since_days=30):
+        def list_past_sessions(self, exclude_ids=None, limit=100, since_days=30, **_kw):
             return []
 
     monkeypatch.setattr(app_mod, "history_mod", FakeHistory(), raising=False)
@@ -715,7 +719,7 @@ def test_resume_conversation_matches_merge_in_and_dedupe_against_shown_rows(monk
     new_match = FakeMatch(FakeSession("z", "/x/other", "some other session", now - timedelta(days=3)), "we discussed kafka lag today", "conversation")
 
     class FakeHistory:
-        def list_past_sessions(self, exclude_ids=None, limit=100, since_days=30):
+        def list_past_sessions(self, exclude_ids=None, limit=100, since_days=30, **_kw):
             return []
 
         def search_sessions(self, query, limit=40, **kwargs):

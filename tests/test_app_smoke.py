@@ -62,10 +62,7 @@ async def test_header_widget_shows_five_hour_and_week_quotas_coloured():
     app = PodbayApp(no_splash=True)
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
-        app._five_pct = 53
-        app._five_resets_at = None
-        app._week_pct = 8
-        app._week_resets_at = None
+        app._limits = {"claude": {"five_pct": 53, "five_resets_at": None, "week_pct": 8, "week_resets_at": None}}
         app._limits_now = datetime.now()
         app._update_header()
 
@@ -91,7 +88,7 @@ async def test_header_widget_shows_per_model_weekly_entry_coloured():
     app = PodbayApp(no_splash=True)
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
-        app._usage_entries = [{"key": "week_model", "label": "Fable", "pct": 91.0, "resets_text": "x"}]
+        app._usage_entries = {"claude": [{"key": "week_model", "label": "Fable", "pct": 91.0, "resets_text": "x"}]}
         app._update_header()
 
         header = app.query_one(PodbayHeader)
@@ -113,9 +110,11 @@ async def test_missing_usage_cache_leaves_header_as_it_was():
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
 
-        assert app._usage_entries == []
+        assert app._usage_entries == {}
+        limits = app._limits.get("claude") or {}
         expected = voice.header_segments(
-            app._five_pct, app._five_resets_at, app._week_pct, app._week_resets_at, app._limits_now
+            limits.get("five_pct"), limits.get("five_resets_at"), limits.get("week_pct"),
+            limits.get("week_resets_at"), app._limits_now,
         )
         assert app.title == "".join(text for text, _pct in expected)
 

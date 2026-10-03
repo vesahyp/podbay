@@ -204,7 +204,7 @@ def test_pastsession_is_dataclass_with_expected_fields():
     import dataclasses
 
     fields = {f.name for f in dataclasses.fields(PastSession)}
-    assert fields == {"session_id", "cwd", "project_dir", "ended_at", "title", "size_bytes"}
+    assert fields == {"session_id", "cwd", "project_dir", "ended_at", "title", "size_bytes", "account"}
 
 
 @dataclass

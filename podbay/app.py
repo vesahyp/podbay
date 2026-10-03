@@ -34,6 +34,7 @@ from textual.widgets import DataTable, Footer, Input, Label, Static
 
 from . import glyphs
 from . import iterm as iterm_mod
+from .accounts import Account, by_label, discover
 from . import layout
 from . import logs
 from . import notifications
@@ -134,10 +135,16 @@ SHELL_TEXT_TTL = 3.0
 
 # Every column but Recap is fixed; Recap takes what is left so the window
 # number stays on screen at the right edge (None = sized here, not fixed).
-# Order: " ", State, Age, CTX, Model, Dir, Repos, Wait, Title, Recap, Parked, #.
-COLUMN_WIDTHS = [1, 11, 4, 4, 12, 14, 18, 4, 38, None, 11, 3]
-TITLE_COLUMN = 8
-RECAP_COLUMN = 9  # index into COLUMN_WIDTHS of the one sized at runtime
+# Order: " ", State, Age, CTX, Model, Acct, Dir, Repos, Wait, Title, Recap, Parked, #.
+COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 14, 18, 4, 38, None, 11, 3]
+TITLE_COLUMN = 9
+RECAP_COLUMN = 10  # index into COLUMN_WIDTHS of the one sized at runtime
+# The account label in the header, in front of each account's quota group.
+ACCOUNT_TONE = "label"
+ACCOUNT_STYLE = f"bold {HAL_AMBER}"
+ACCOUNT_SEPARATOR = "   │   "
+# The Open prompt takes the account as a leading token: "@personal ~/x".
+ACCOUNT_PREFIX = "@"
 RECAP_MIN_WIDTH = 12
 
 SEL_GLYPH = "✓"
@@ -217,6 +224,8 @@ def _header_text(segments: list) -> Text:
     for content, tone in segments:
         if tone is None:
             style = HAL_HEADER_GRAY
+        elif tone == ACCOUNT_TONE:
+            style = ACCOUNT_STYLE
         elif isinstance(tone, str):
             style = PROJECTION_TONE_STYLES.get(tone, HAL_HEADER_GRAY)
         else:
@@ -371,6 +380,7 @@ def build_rows(sessions: list[Session], now: datetime, selected: set[str] | None
                 "age": _cell(humanize_age(s.age_seconds(now)), row_style),
                 "ctx": _ctx_cell(s.context_pct),
                 "model": _cell(_model_label(s.model), row_style),
+                "account": _cell("" if s.is_shell else s.account, row_style),
                 "dir": _cell(_dir_label(s.cwd), row_style),
                 "repos": _cell(_repos_label(s, groups), row_style),
                 "wait": _cell(_wait_label(s), row_style),
@@ -414,7 +424,7 @@ def _detail_text(session: Session, now: datetime) -> Text:
             text.append(session.tty + "\n", style="dim")
         return text
 
-    spec = [_model_label(session.model)]
+    spec = [session.account, _model_label(session.model)]
     if session.effort:
         spec.append(session.effort)
     if session.context_pct is not None:
@@ -601,6 +611,7 @@ def _snapshot_resume_rows(entries: list[dict], now: datetime) -> list[dict]:
             "session_id": e.get("session_id"),
             "cwd": e.get("cwd") or "",
             "title": e.get("title") or e.get("session_id") or "",
+            "account": e.get("account"),
             "sort_ts": ts,
         })
     rows.sort(key=lambda r: r["sort_ts"], reverse=True)
@@ -610,7 +621,7 @@ def _snapshot_resume_rows(entries: list[dict], now: datetime) -> list[dict]:
 def _history_resume_rows(entries: list) -> list[dict]:
     """history.PastSession objects to resume rows, newest first."""
     rows = [
-        {"session_id": e.session_id, "cwd": e.cwd, "title": e.title, "sort_ts": e.ended_at}
+        {"session_id": e.session_id, "cwd": e.cwd, "title": e.title, "account": getattr(e, "account", None), "sort_ts": e.ended_at}
         for e in entries
     ]
     rows.sort(key=lambda r: r["sort_ts"], reverse=True)
@@ -776,6 +787,7 @@ class ResumeScreen(ModalScreen[list[dict] | None]):
                 "session_id": sid,
                 "cwd": match.session.cwd,
                 "title": match.session.title,
+                "account": getattr(match.session, "account", None),
                 "sort_ts": match.session.ended_at,
                 "snippet": match.snippet,
             })
@@ -1068,10 +1080,14 @@ class PodbayApp(App):
         no_splash: bool = False,
         backdrop: list[str] | None = None,
         notifications_path: Path | None = None,
+        accounts: list[Account] | None = None,
     ):
         super().__init__()
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
+        # Every Claude Code config dir on the machine (see accounts.py); the
+        # table, the header quotas, open and resume all work per account.
+        self._accounts: list[Account] = accounts or discover()
         self.no_splash = no_splash
         self.backdrop = backdrop
         self._quitting = False
@@ -1085,13 +1101,12 @@ class PodbayApp(App):
         self._scanning = False
         self._last_scan_at: datetime | None = None
         self._usage_scanning = False
-        self._usage_entries: list[dict] = []
+        # account label -> per-model weekly entries from `claude -p /usage`
+        self._usage_entries: dict[str, list[dict]] = {}
         self._live_sessions: dict[str, Session] = {}
         self._col_keys: list = []
-        self._five_pct: float | None = None
-        self._five_resets_at: float | None = None
-        self._week_pct: float | None = None
-        self._week_resets_at: float | None = None
+        # account label -> sources.newest_limits() of that account's snapshots
+        self._limits: dict[str, dict] = {}
         self._limits_now: datetime = datetime.now()
         self._selected: set[str] = set()
         self._shell_text_cache: dict[str, tuple[float, str]] = {}
@@ -1139,7 +1154,7 @@ class PodbayApp(App):
         self.console.push_theme(HAL_MARKDOWN_THEME)
         table = self.query_one("#table", DataTable)
         self._col_keys = table.add_columns(
-            " ", "State", "Age", "CTX", "Model", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
+            " ", "State", "Age", "CTX", "Model", "Acct", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
         )
         for key, width in zip(self._col_keys, COLUMN_WIDTHS):
             if width:
@@ -1223,8 +1238,10 @@ class PodbayApp(App):
         now = datetime.now()
         with self._polling("session scan"):
             snapshots = sources.read_status_snapshots()
-            sessions = sources.gather_sessions(self.state_store, self.iterm_lister, status_snapshots=snapshots)
-        limits = sources.newest_limits(snapshots)
+            sessions = sources.gather_sessions(
+                self.state_store, self.iterm_lister, status_snapshots=snapshots, accounts=self._accounts
+            )
+        limits = {a.label: sources.newest_limits(snapshots, a.label) for a in self._accounts}
         self.call_from_thread(self._apply_refresh, sessions, now, limits)
 
     def _refresh_usage(self) -> None:
@@ -1238,28 +1255,32 @@ class PodbayApp(App):
 
     @work(thread=True, exclusive=True, group="usage")
     def _usage_worker(self) -> None:
-        data = usage.read_cache(max_age=USAGE_REFRESH_SECONDS)
-        if data is None:
-            with self._polling("usage"):
-                data = usage.fetch()
-            if data is not None:
-                usage.write_cache(data)
-        self.call_from_thread(self._apply_usage, data)
+        """One `claude -p /usage` per account, each behind its own cache."""
+        results: dict[str, dict | None] = {}
+        for account in self._accounts:
+            path = usage.cache_path_for(account)
+            data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS)
+            if data is None:
+                with self._polling("usage"):
+                    data = usage.fetch(account=account)
+                if data is not None:
+                    usage.write_cache(data, path)
+            results[account.label] = data
+        self.call_from_thread(self._apply_usage, results)
 
-    def _apply_usage(self, data: dict | None) -> None:
+    def _apply_usage(self, results: dict[str, dict | None]) -> None:
         self._usage_scanning = False
-        if data is None:
-            return  # keep whatever the header already shows
-        self._usage_entries = data.get("entries", [])
+        for label, data in results.items():
+            if data is None:
+                continue  # keep whatever the header already shows for that account
+            self._usage_entries[label] = data.get("entries", [])
         self._update_header()
-
-    # ---- Slack threads ----------------------------------------------------
 
     def _apply_refresh(
         self,
         sessions: list[Session],
         now: datetime,
-        newest_snapshot: dict | None = None,
+        limits: dict[str, dict] | None = None,
     ) -> None:
         """Runs on the UI thread (via call_from_thread): apply the result of
         a background gather to the table and header. Must stay fast."""
@@ -1273,11 +1294,7 @@ class PodbayApp(App):
         self._selected &= set(self._row_keys)  # drop selections for rows that vanished
         self._write_snapshot(now)
 
-        limits = newest_snapshot or {}
-        self._five_pct = limits.get("five_pct")
-        self._five_resets_at = limits.get("five_resets_at")
-        self._week_pct = limits.get("week_pct")
-        self._week_resets_at = limits.get("week_resets_at")
+        self._limits = limits or {}
         self._limits_now = now
 
         self._fit_recap_column()
@@ -1308,6 +1325,7 @@ class PodbayApp(App):
                     "session_id": session.session_id,
                     "cwd": session.cwd,
                     "title": session.title,
+                    "account": session.account,
                     "window_id": window_id,
                     "bounds": list(win.bounds) if win is not None else None,
                     "seen_at": now.isoformat(),
@@ -1414,7 +1432,7 @@ class PodbayApp(App):
         for r in self._visible_rows:
             recap = self._mark_conv_hit(r) if r["session_id"] in self._conv_hit_ids else r["recap"]
             table.add_row(
-                r["new"], r["state"], r["age"], r["ctx"], r["model"], r["dir"], r["repos"], r["wait"],
+                r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["dir"], r["repos"], r["wait"],
                 r["title"], recap, r["parked"], r["win"],
                 key=r["session_id"],
             )
@@ -1448,15 +1466,32 @@ class PodbayApp(App):
 
 
 
+    def _quota_segments(self) -> list:
+        """One quota group per account, the account's label in front of it
+        when there is more than one account; an account nothing is known
+        about yet shows no group."""
+        segments: list = []
+        for account in self._accounts:
+            limits = self._limits.get(account.label) or {}
+            group = voice.limits_segments(
+                limits.get("five_pct"),
+                limits.get("five_resets_at"),
+                limits.get("week_pct"),
+                limits.get("week_resets_at"),
+                self._limits_now,
+                self._usage_entries.get(account.label),
+            )
+            if not group:
+                continue
+            if segments:
+                segments.append((ACCOUNT_SEPARATOR, None))
+            if len(self._accounts) > 1:
+                segments.append((f"{account.label} ", ACCOUNT_TONE))
+            segments.extend(group)
+        return segments
+
     def _update_header(self) -> None:
-        quota_segments = voice.limits_segments(
-            self._five_pct,
-            self._five_resets_at,
-            self._week_pct,
-            self._week_resets_at,
-            self._limits_now,
-            self._usage_entries,
-        )
+        quota_segments = self._quota_segments()
         ship_segments = voice.ship_segments()
         scan_text = voice.scan_status(self._scanning, self._last_scan_at)
         # app.title stays the one-string version of the whole bar, which the
@@ -1925,33 +1960,46 @@ class PodbayApp(App):
             return iterm_mod.send_text(target.tty, command), True
         return bool(iterm_mod.open_window(command=command)), False
 
+    def _parse_open_target(self, value: str) -> tuple[Account | None, str]:
+        """"@personal ~/Repositories/x" -> (that account, the directory);
+        no @ token means the default account. The account is None when the
+        label names no account on this machine."""
+        value = value.strip()
+        if not value.startswith(ACCOUNT_PREFIX):
+            return self._accounts[0], value
+        label, _, directory = value[len(ACCOUNT_PREFIX):].partition(" ")
+        return by_label(self._accounts, label), directory.strip()
+
+    def _claude_command(self, account: Account, directory: str, args: str = "") -> str:
+        prefix = account.command_prefix()
+        tail = f" {args}" if args else ""
+        return f"cd {shlex.quote(os.path.expanduser(directory))} && {prefix}claude{tail}"
+
     def action_open_claude(self) -> None:
         """Starts Claude in the highlighted terminal when that one is a plain
         shell, otherwise in the next free terminal, and only opens a new
-        window when every terminal is busy."""
+        window when every terminal is busy. The prompt holds the directory
+        with the account in front as "@label": the highlighted session's
+        account, or the default one on a shell row."""
         session = self._selected_session()
-        if session is not None and getattr(session, "is_shell", False):
-            tty = getattr(session, "tty", None)
-            if not tty or not iterm_mod.send_text(tty, "claude"):
-                self.notify(voice.no_tab(), severity="warning")
-                return
-            self.notify(f"claude started in {session.title}")
-            self._follow(tty)
-            self.trigger_refresh()
-            return
-
-        default_dir = session.cwd if session is not None else os.path.expanduser("~")
-        free = self._free_shell_session()
+        is_shell = session is not None and getattr(session, "is_shell", False)
+        default_dir = session.cwd if session is not None and session.cwd else os.path.expanduser("~")
+        account = self._accounts[0] if session is None or is_shell else (by_label(self._accounts, session.account) or self._accounts[0])
+        free = session if is_shell else self._free_shell_session()
 
         def handle_result(value: str | None) -> None:
             if not value:
                 return
-            command = f"cd {shlex.quote(value)} && claude"
+            chosen, directory = self._parse_open_target(value)
+            if chosen is None or not directory:
+                self.notify(voice.bad_open_target(sorted(a.label for a in self._accounts)), severity="error")
+                return
+            command = self._claude_command(chosen, directory)
             if free is not None and free.tty:
                 if not iterm_mod.send_text(free.tty, command):
                     self.notify(voice.no_tab(), severity="warning")
                     return
-                self.notify(f"claude started in {free.title} ({value})")
+                self.notify(f"claude started in {free.title} ({directory})")
                 self._follow(free.tty)
                 self.trigger_refresh()
                 return
@@ -1968,11 +2016,12 @@ class PodbayApp(App):
             if not write_text(window_id, command):
                 self.notify("opened a window but could not start claude", severity="warning")
                 return
-            self.notify(f"claude started in a new window ({value})")
+            self.notify(f"claude started in a new window ({directory})")
             self.trigger_refresh()
 
         target = f"in {free.title}" if free is not None else "in a new window"
-        self.push_screen(PromptScreen(f"Start claude {target}, directory:", initial=default_dir), handle_result)
+        initial = f"{ACCOUNT_PREFIX}{account.label} {default_dir}" if len(self._accounts) > 1 else default_dir
+        self.push_screen(PromptScreen(f"Start claude {target} (@account directory):", initial=initial), handle_result)
 
     def action_resume(self) -> None:
         """Offer sessions to resume: ones from the last snapshot that are no
@@ -1989,7 +2038,7 @@ class PodbayApp(App):
         if list_past_sessions is not None:
             exclude_ids = live_ids | {e.get("session_id") for e in snapshot}
             try:
-                past = list_past_sessions(exclude_ids=exclude_ids, limit=100, since_days=30)
+                past = list_past_sessions(exclude_ids=exclude_ids, limit=100, since_days=30, accounts=self._accounts)
             except Exception:
                 log.warning("list_past_sessions failed", exc_info=True)
                 past = []
@@ -2016,7 +2065,8 @@ class PodbayApp(App):
         opened = 0
         reused = 0
         for entry in selected:
-            command = f"cd {shlex.quote(entry['cwd'])} && claude --resume {shlex.quote(entry['session_id'])}"
+            account = by_label(self._accounts, entry.get("account")) or self._accounts[0]
+            command = self._claude_command(account, entry["cwd"], f"--resume {shlex.quote(entry['session_id'])}")
             ok, used_pane = self._dispatch_command(pool, command)
             if ok:
                 opened += 1
@@ -2042,7 +2092,8 @@ def cmd_list() -> None:
     rows = build_rows(sessions, now)
 
     header = (
-        f"  {'STATE':<12} {'AGE':>5} {'CTX':>4}  {'MODEL':<10} {'DIR':<22} {'TITLE':<40} {'PARKED':<12} {'#':>4} RECAP"
+        f"  {'STATE':<12} {'AGE':>5} {'CTX':>4}  {'MODEL':<10} {'ACCT':<8} {'DIR':<22} {'TITLE':<40} "
+        f"{'PARKED':<12} {'#':>4} RECAP"
     )
     print(header)
     for r in rows:
@@ -2051,13 +2102,14 @@ def cmd_list() -> None:
         age = _plain(r["age"])
         ctx = _plain(r["ctx"])
         model = _plain(r["model"])[:10]
+        account = _plain(r["account"])[:8]
         directory = _plain(r["dir"])[:22]
         title = _plain(r["title"])[:40]
         parked = _plain(r["parked"])
         recap = _plain(r["recap"])
         win = _plain(r["win"])
         print(
-            f"{new} {state:<12} {age:>5} {ctx:>4}  {model:<10} {directory:<22} {title:<40} "
+            f"{new} {state:<12} {age:>5} {ctx:>4}  {model:<10} {account:<8} {directory:<22} {title:<40} "
             f"{parked:<12} {win:>4} {recap}"
         )
 

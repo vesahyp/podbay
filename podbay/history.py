@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .sources import PROJECTS_DIR, TAIL_BYTES, _assistant_entries, _tail_lines, _user_entry_text
+from .accounts import DEFAULT_LABEL, Account, discover
+from .sources import TAIL_BYTES, _assistant_entries, _tail_lines, _user_entry_text
 
 HEAD_BYTES = 64 * 1024
 TITLE_MAX_LEN = 80
@@ -35,6 +36,17 @@ class PastSession:
     ended_at: datetime  # transcript mtime, local tz (matches sources.py)
     title: str
     size_bytes: int
+    # The account whose projects dir holds the transcript: `claude --resume`
+    # only finds it when run as that account.
+    account: str = DEFAULT_LABEL
+
+
+def _project_dirs(projects_dir: Path | None, accounts: list[Account] | None) -> list[tuple[str, Path]]:
+    """(account label, projects dir) pairs to read: the one dir a caller
+    named (as the default account), else every account's."""
+    if projects_dir is not None:
+        return [(DEFAULT_LABEL, projects_dir)]
+    return [(a.label, a.projects_dir) for a in (accounts or discover())]
 
 
 @dataclass
@@ -135,7 +147,7 @@ def _session_info(path: Path) -> tuple[str | None, str | None] | None:
     return cwd, (summary or first_prompt)
 
 
-def _build_session(path: Path, mtime: float) -> PastSession | None:
+def _build_session(path: Path, mtime: float, account: str = DEFAULT_LABEL) -> PastSession | None:
     """Shared by list_past_sessions and search_sessions, so a session's
     title/cwd/ended_at are always derived the same way regardless of which
     path found it."""
@@ -158,31 +170,35 @@ def _build_session(path: Path, mtime: float) -> PastSession | None:
         ended_at=datetime.fromtimestamp(mtime),
         title=_trim_title(title_source),
         size_bytes=size_bytes,
+        account=account,
     )
 
 
 def list_past_sessions(
-    projects_dir: Path = PROJECTS_DIR,
+    projects_dir: Path | None = None,
     exclude_ids: set[str] | None = None,
     limit: int = 100,
     since_days: int | None = 30,
+    accounts: list[Account] | None = None,
 ) -> list[PastSession]:
-    """Newest first. `exclude_ids` are the live sessions (already shown
-    elsewhere); anything older than `since_days` is dropped before the file
-    read, not after, so a huge old transcript never costs a read."""
+    """Newest first, across every account (or the one `projects_dir`).
+    `exclude_ids` are the live sessions (already shown elsewhere); anything
+    older than `since_days` is dropped before the file read, not after, so a
+    huge old transcript never costs a read."""
     exclude_ids = exclude_ids or set()
-    if not projects_dir.is_dir():
-        return []
 
-    candidates: list[tuple[float, Path]] = []
-    for path in projects_dir.glob("*/*.jsonl"):
-        if path.stem in exclude_ids:
+    candidates: list[tuple[float, Path, str]] = []
+    for label, directory in _project_dirs(projects_dir, accounts):
+        if not directory.is_dir():
             continue
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        candidates.append((mtime, path))
+        for path in directory.glob("*/*.jsonl"):
+            if path.stem in exclude_ids:
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            candidates.append((mtime, path, label))
 
     candidates.sort(key=lambda item: item[0], reverse=True)
 
@@ -193,8 +209,8 @@ def list_past_sessions(
     candidates = candidates[:limit]
 
     sessions: list[PastSession] = []
-    for mtime, path in candidates:
-        session = _build_session(path, mtime)
+    for mtime, path, label in candidates:
+        session = _build_session(path, mtime, label)
         if session is not None:
             sessions.append(session)
     return sessions
@@ -328,57 +344,62 @@ def _fallback_matching_files(
 
 def search_sessions(
     query: str,
-    projects_dir: Path = PROJECTS_DIR,
+    projects_dir: Path | None = None,
     limit: int = 40,
     exclude_ids: set[str] | None = None,
     include_ids: set[str] | None = None,
+    accounts: list[Account] | None = None,
 ) -> list[SessionMatch]:
     """Case-insensitive, fixed-string search over every session transcript's
-    full text (title, cwd and conversation), newest first within each group
-    and a title/cwd hit always ranked above a conversation-only one. Never
-    raises: a missing rg, a killed subprocess or a vanished/unreadable file
-    just means fewer results, not an error.
+    full text (title, cwd and conversation) in every account (or the one
+    `projects_dir`), newest first within each group and a title/cwd hit
+    always ranked above a conversation-only one. Never raises: a missing rg,
+    a killed subprocess or a vanished/unreadable file just means fewer
+    results, not an error.
 
     `include_ids`, when given, restricts results to that id set (used by the
     main table to ask "which of my open sessions mention X" without
     scanning the corpus any differently); `exclude_ids` wins when both are
     given."""
     query = query.strip()
-    if not query or not projects_dir.is_dir():
+    if not query:
         return []
     exclude_ids = exclude_ids or set()
     query_lower = query.lower()
 
-    paths = _rg_matching_files(query, projects_dir)
-    if paths is None:
-        paths = _fallback_matching_files(query_lower, projects_dir)
-
     matches: list[SessionMatch] = []
     seen_ids: set[str] = set()
-    for path in paths:
-        if not _is_session_transcript(path, projects_dir):
+    for label, directory in _project_dirs(projects_dir, accounts):
+        if not directory.is_dir():
             continue
-        session_id = path.stem
-        if session_id in exclude_ids or session_id in seen_ids:
-            continue
-        if include_ids is not None and session_id not in include_ids:
-            continue
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        session = _build_session(path, mtime)
-        if session is None:
-            continue
-        seen_ids.add(session_id)
+        paths = _rg_matching_files(query, directory)
+        if paths is None:
+            paths = _fallback_matching_files(query_lower, directory)
 
-        if query_lower in session.title.lower() or query_lower in session.cwd.lower():
-            matches.append(SessionMatch(session=session, snippet=session.title, where="title"))
-            continue
-        snippet = _find_snippet(path, query)
-        if snippet is None:
-            continue  # rg matched something outside anything we can turn into text
-        matches.append(SessionMatch(session=session, snippet=snippet, where="conversation"))
+        for path in paths:
+            if not _is_session_transcript(path, directory):
+                continue
+            session_id = path.stem
+            if session_id in exclude_ids or session_id in seen_ids:
+                continue
+            if include_ids is not None and session_id not in include_ids:
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            session = _build_session(path, mtime, label)
+            if session is None:
+                continue
+            seen_ids.add(session_id)
+
+            if query_lower in session.title.lower() or query_lower in session.cwd.lower():
+                matches.append(SessionMatch(session=session, snippet=session.title, where="title"))
+                continue
+            snippet = _find_snippet(path, query)
+            if snippet is None:
+                continue  # rg matched something outside anything we can turn into text
+            matches.append(SessionMatch(session=session, snippet=snippet, where="conversation"))
 
     matches.sort(key=lambda m: (0 if m.where == "title" else 1, -m.session.ended_at.timestamp()))
     return matches[:limit]

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import iterm as iterm_mod
+from .accounts import DEFAULT_LABEL, Account, discover
 from .model import Session
 from .state import SessionState, StateStore
 
@@ -114,6 +115,7 @@ def read_status_snapshots(status_dir: Path = STATUS_DIR) -> dict[str, dict]:
         five = rate_limits.get("five_hour") or {}
         week = rate_limits.get("seven_day") or {}
         result[session_id] = {
+            "account": data.get("account") or DEFAULT_LABEL,
             "model": (data.get("model") or {}).get("display_name"),
             "effort": (data.get("effort") or {}).get("level"),
             "context_pct": context_window.get("used_percentage"),
@@ -126,11 +128,15 @@ def read_status_snapshots(status_dir: Path = STATUS_DIR) -> dict[str, dict]:
     return result
 
 
-def newest_limits(snapshots: dict[str, dict]) -> dict:
+def newest_limits(snapshots: dict[str, dict], account: str | None = None) -> dict:
     """5h and 7d usage, each from the newest snapshot that carries it. Both
-    figures are account-wide: every session reports the same pair whatever
-    model it runs, and a single snapshot often has only one of the two."""
+    figures are account-wide: every session of one account reports the same
+    pair whatever model it runs, and a single snapshot often has only one of
+    the two. With `account`, only that account's snapshots count (a snapshot
+    that names no account belongs to the default one)."""
     limits: dict = {"five_pct": None, "five_resets_at": None, "week_pct": None, "week_resets_at": None}
+    if account is not None:
+        snapshots = {k: s for k, s in snapshots.items() if (s.get("account") or DEFAULT_LABEL) == account}
     for snap in sorted(snapshots.values(), key=lambda s: s.get("mtime", 0)):
         if snap.get("five_pct") is not None:
             limits["five_pct"] = snap["five_pct"]
@@ -760,28 +766,36 @@ def _shell_sessions(
 def gather_sessions(
     state_store: StateStore,
     iterm_lister: iterm_mod.ItermLister,
-    sessions_dir: Path = SESSIONS_DIR,
-    projects_dir: Path = PROJECTS_DIR,
+    sessions_dir: Path | None = None,
+    projects_dir: Path | None = None,
     status_snapshots: dict[str, dict] | None = None,
     pid_by_tty: Callable[[], dict[str, int]] = _all_pids_by_tty,
     cwd_by_pids: Callable[[list[int]], dict[int, str]] = _cwds_for_pids,
+    accounts: list[Account] | None = None,
 ) -> list[Session]:
     """The main join: registry + transcript + podbay state + iTerm tab +
-    status-line snapshot for every live session, left-joined with every
-    iTerm2 pane -- a pane with no matching registry session becomes a
-    synthetic SHELL row (see _shell_sessions) so every open terminal shows
-    up, Claude or not. `status_snapshots` lets a caller that already read
-    them (e.g. to also find the newest one for the header) pass the dict in
-    rather than have it re-read here; when omitted they're read fresh."""
+    status-line snapshot for every live session of every account, left-joined
+    with every iTerm2 pane -- a pane with no matching registry session
+    becomes a synthetic SHELL row (see _shell_sessions) so every open terminal
+    shows up, Claude or not. `status_snapshots` lets a caller that already
+    read them (e.g. to also find the newest one for the header) pass the dict
+    in rather than have it re-read here; when omitted they're read fresh.
+    `accounts` defaults to every config dir on the machine (accounts.discover);
+    `sessions_dir`/`projects_dir` instead name one account's directories, for
+    a caller that has only those."""
     if status_snapshots is None:
         status_snapshots = read_status_snapshots()
+    if sessions_dir is not None or projects_dir is not None:
+        registries = [(DEFAULT_LABEL, sessions_dir or SESSIONS_DIR, projects_dir or PROJECTS_DIR)]
+    else:
+        registries = [(a.label, a.sessions_dir, a.projects_dir) for a in (accounts or discover())]
 
     sessions: list[Session] = []
-    entries = read_registry(sessions_dir)
-    pids = [int(e["pid"]) for e in entries]
+    entries = [(label, entry, projects) for label, registry, projects in registries for entry in read_registry(registry)]
+    pids = [int(e["pid"]) for _label, e, _projects in entries]
     tabs_by_pid = iterm_lister.tabs_for_pids(pids)
 
-    for entry in entries:
+    for account_label, entry, projects_dir in entries:
         session_id = entry["sessionId"]
         pid = int(entry["pid"])
         cwd = entry.get("cwd", "")
@@ -819,6 +833,7 @@ def gather_sessions(
                 session_id=session_id,
                 pid=pid,
                 cwd=cwd,
+                account=account_label,
                 name=entry.get("name", ""),
                 name_source=entry.get("nameSource", ""),
                 status=entry.get("status", "idle"),

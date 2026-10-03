@@ -53,6 +53,10 @@ class Session:
     updated_at: datetime
     started_at: datetime
 
+    # Which Claude Code account (config dir) the session runs under; the
+    # label from accounts.py, "claude" for the default ~/.claude.
+    account: str = "claude"
+
     git_branch: str | None = None
     recap: str | None = None
     recap_ts: datetime | None = None

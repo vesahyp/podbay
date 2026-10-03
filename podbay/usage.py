@@ -1,6 +1,8 @@
 """Per-model weekly usage, from `claude -p /usage` -- the account-wide 5h/week
 figures come from the status-line snapshot (see sources.py) and never carry
-a per-model breakdown; this is the only place that figure exists at all."""
+a per-model breakdown; this is the only place that figure exists at all.
+Every account has its own quota, so the run and the cache are per account:
+the run inherits the account's CLAUDE_CONFIG_DIR (see accounts.Account.env)."""
 
 from __future__ import annotations
 
@@ -14,7 +16,17 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .accounts import Account
+
 CACHE_PATH = Path.home() / ".local" / "state" / "podbay" / "usage.json"
+
+
+def cache_path_for(account: Account | None) -> Path:
+    """usage.json for the default account (and for callers that name none),
+    usage-<label>.json for every other one."""
+    if account is None or account.is_default:
+        return CACHE_PATH
+    return CACHE_PATH.with_name(f"usage-{account.label}.json")
 
 # "Current session: 29% used · resets Sep 18 at 11:20am (...)" and the same
 # shape for "week (all models)" / "week (<model>)"; the label is whatever
@@ -83,16 +95,19 @@ def _parse_entries(text: str, now: float | None = None) -> list[dict]:
     return entries
 
 
-def fetch(timeout: float = 30.0) -> dict | None:
-    """Run `claude -p /usage` and parse its usage lines. None on anything
-    that isn't a clean parse -- non-zero exit, timeout, no `claude` on PATH,
-    or output with nothing recognisable in it. Never raises."""
+def fetch(timeout: float = 30.0, account: Account | None = None) -> dict | None:
+    """Run `claude -p /usage` as `account` (the default one when None) and
+    parse its usage lines. None on anything that isn't a clean parse --
+    non-zero exit, timeout, no `claude` on PATH, or output with nothing
+    recognisable in it. Never raises."""
+    env = {**os.environ, **(account.env() if account is not None else {})}
     try:
         result = subprocess.run(
             ["claude", "-p", "/usage"],
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError):
         return None
