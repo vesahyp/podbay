@@ -72,3 +72,4 @@ def _isolated_opened_file(monkeypatch, tmp_path):
     from podbay import opened as opened_mod
 
     monkeypatch.setattr(opened_mod, "OPENED_PATH", tmp_path / "opened.json")
+    monkeypatch.setattr(opened_mod, "SENT_PATH", tmp_path / "sent.json")

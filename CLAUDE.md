@@ -36,8 +36,11 @@ podbay/
   iterm.py          AppleScript: list tabs, focus, send text, open window
   state.py          park/note/seen state and the resume snapshot;
                       parse_when for park expressions
-  opened.py         the sessions `podbay open` started and who ran it;
-                      its own file, since the TUI rewrites state.json
+  opened.py         the sessions `podbay open` started and who ran it, and
+                      what agents typed into sessions through podbay, so
+                      the mood gauge skips it; its own files, since the
+                      TUI rewrites state.json
+  mood.py           the heat lexicon behind the ⚡ column
   usage.py          `claude -p /usage` per account, cached
   history.py        past sessions to resume, with transcript search
   inventory.py      the JSON/table/status views for other agents

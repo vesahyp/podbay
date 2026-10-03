@@ -83,7 +83,8 @@ The prompt reaches claude through a file under `~/.local/state/podbay/prompts/`,
 so its length does not matter. It waits (180 s by default) until the session
 is up, and otherwise exits 1 with the end of that terminal's screen. Each
 launch is recorded in `~/.local/state/podbay/opened.json` with the session
-that ran it, and `podbay inventory` shows that as `opened_by`.
+that ran it and the first prompt, and `podbay inventory` shows the former as
+`opened_by`.
 
 `podbay close` ends a finished session (SIGTERM, as closing its terminal
 would) and closes its iTerm2 tab, or its window when that tab was the only
@@ -198,7 +199,10 @@ The **⚡** column marks a session whose last prompts read heated: a lexicon
 over your newest typed prompts (swearing in English and Finnish, shouting,
 `!?` clusters, the words of a third attempt such as "still" and "again"),
 the newest prompt counting most, code spans and URLs left out. No model, no
-tokens. HAL remarks once when a session turns hot (see HAL speaks).
+tokens. Only your own words count: the first prompt of a session that
+`podbay open` started, and anything a Claude session typed into another with
+`podbay send`, are recorded at the source (`opened.json`, `sent.json`) and
+left out. HAL remarks once when a session turns hot (see HAL speaks).
 
 A `●` in the first column marks a finished answer you have not looked at yet.
 It clears when you focus the tab or move into the transcript pane.

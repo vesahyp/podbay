@@ -1,13 +1,25 @@
-"""The sessions `podbay open` started, and who started them.
+"""The sessions `podbay open` started, who started them, and what an agent
+typed into a session through podbay.
 
-Its own file, ~/.local/state/podbay/opened.json, and not part of
-state.json: the TUI holds state.json in memory and writes it back on every
-refresh, so a launch the CLI added there would be lost. Every function
-here reads the file fresh and writes it atomically.
+Two files of its own, ~/.local/state/podbay/opened.json and sent.json, and
+not part of state.json: the TUI holds state.json in memory and writes it
+back on every refresh, so a launch the CLI added there would be lost. Every
+function here reads its file fresh and writes it atomically.
 
-One entry per launch: tty, name, opened_at (ISO), by (the name of the
-Claude session that ran `podbay open`, None from a plain shell) and
+opened.json has one entry per launch: tty, name, opened_at (ISO), by (the
+name of the Claude session that ran `podbay open`, None from a plain
+shell), prompt (the first prompt it handed claude, None without one) and
 session_id once the new session is in the registry.
+
+sent.json has one entry per `podbay send` run from inside a Claude session:
+session_id (the target), text, by and sent_at (ISO). A send from a plain
+shell or the TUI is the user's own and is not recorded.
+
+Both exist so the mood gauge (mood.py) scores only what the user typed: the
+first prompt of a launched session and anything an agent sent are marked
+here, at the source, and gather_sessions drops them from a session's
+prompts. The text is matched, not its position, so a tail read that no
+longer holds the first prompt loses nothing.
 """
 
 from __future__ import annotations
@@ -24,6 +36,7 @@ from .model import Session
 log = logging.getLogger(__name__)
 
 OPENED_PATH = Path.home() / ".local" / "state" / "podbay" / "opened.json"
+SENT_PATH = OPENED_PATH.with_name("sent.json")
 KEEP = timedelta(days=14)
 # A session's registry start can stamp a little before the launch's own
 # clock read, on a busy machine; and one that starts much later on the same
@@ -55,13 +68,31 @@ def _write(entries: list[dict], path: Path) -> None:
         log.warning("opened file %s not written: %s", path, exc)
 
 
-def record(tty: str, name: str | None, by: str | None, opened_at: datetime, path: Path | None = None) -> None:
+def record(
+    tty: str, name: str | None, by: str | None, opened_at: datetime, path: Path | None = None, prompt: str | None = None,
+) -> None:
     """Add one launch; launches older than KEEP are dropped on the way."""
     path = path or OPENED_PATH
     cutoff = opened_at - KEEP
     entries = [e for e in read(path) if _opened_at(e) and _opened_at(e) > cutoff]
-    entries.append({"tty": tty, "name": name, "by": by, "opened_at": opened_at.isoformat(), "session_id": None})
+    entries.append({
+        "tty": tty, "name": name, "by": by, "opened_at": opened_at.isoformat(), "prompt": prompt or None, "session_id": None,
+    })
     _write(entries, path)
+
+
+def record_sent(session_id: str, text: str, by: str, sent_at: datetime, path: Path | None = None) -> None:
+    """Add one `podbay send` an agent ran; sends older than KEEP are dropped
+    on the way."""
+    path = path or SENT_PATH
+    cutoff = sent_at - KEEP
+    entries = [e for e in read(path) if (at := _when(e, "sent_at")) and at > cutoff]
+    entries.append({"session_id": session_id, "text": text, "by": by, "sent_at": sent_at.isoformat()})
+    _write(entries, path)
+
+
+def read_sent(path: Path | None = None) -> list[dict]:
+    return read(path or SENT_PATH)
 
 
 def set_session(tty: str, opened_at: datetime, session_id: str, path: Path | None = None) -> None:
@@ -82,20 +113,24 @@ def forget(session_id: str, path: Path | None = None) -> None:
         _write(kept, path)
 
 
-def _opened_at(entry: dict) -> datetime | None:
+def _when(entry: dict, key: str) -> datetime | None:
     try:
-        return datetime.fromisoformat(entry.get("opened_at") or "")
+        return datetime.fromisoformat(entry.get(key) or "")
     except ValueError:
         return None
 
 
-def opener(session: Session, entries: list[dict]) -> str | None:
-    """Who started `session` with `podbay open`: the entry with its session
-    id, else the newest launch on its tty that it started after. None when
-    podbay open did not start it, or a plain shell did."""
+def _opened_at(entry: dict) -> datetime | None:
+    return _when(entry, "opened_at")
+
+
+def launch(session: Session, entries: list[dict]) -> dict | None:
+    """The `podbay open` launch that started `session`: the entry with its
+    session id, else the newest launch on its tty that it started after.
+    None when podbay open did not start it."""
     for e in entries:
         if e.get("session_id") == session.session_id:
-            return e.get("by")
+            return e
     if not session.tty:
         return None
     launches = [
@@ -105,4 +140,33 @@ def opener(session: Session, entries: list[dict]) -> str | None:
     ]
     if not launches:
         return None
-    return max(launches, key=lambda pair: pair[0])[1].get("by")
+    return max(launches, key=lambda pair: pair[0])[1]
+
+
+def opener(session: Session, entries: list[dict]) -> str | None:
+    """Who started `session` with `podbay open`. None when podbay open did
+    not start it, or a plain shell did."""
+    found = launch(session, entries)
+    return found.get("by") if found else None
+
+
+def agent_text(session: Session, entries: list[dict], sent: list[dict]) -> set[str]:
+    """What podbay typed into `session` for an agent, as the transcript
+    would hold it: the first prompt of its launch, and every `podbay send`
+    a Claude session ran against it. The mood gauge leaves these out."""
+    texts: set[str] = set()
+    found = launch(session, entries)
+    if found and found.get("prompt"):
+        texts.add(str(found["prompt"]).strip())
+    for e in sent:
+        if e.get("session_id") == session.session_id and e.get("text"):
+            texts.add(str(e["text"]).strip())
+    texts.discard("")
+    return texts
+
+
+def user_prompts(prompts: list[str], typed_for_agent: set[str]) -> list[str]:
+    """`prompts` without the ones an agent typed through podbay."""
+    if not typed_for_agent:
+        return list(prompts)
+    return [p for p in prompts if p.strip() not in typed_for_agent]

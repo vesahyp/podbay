@@ -931,8 +931,13 @@ def gather_sessions(
         )
 
     launches = opened_mod.read()
+    sent = opened_mod.read_sent()
     for s in sessions:
         s.opened_by = opened_mod.opener(s, launches)
+        # The mood gauge scores what the user typed: the first prompt of a
+        # launched session and anything an agent sent through podbay are
+        # recorded by `podbay open` and `podbay send` and left out here.
+        s.recent_prompts = opened_mod.user_prompts(s.recent_prompts, opened_mod.agent_text(s, launches, sent))
 
     live_ttys = {tab.tty for tab in tabs_by_pid.values() if tab is not None}
     sessions.extend(_shell_sessions(iterm_lister, live_ttys, datetime.now(), pid_by_tty, cwd_by_pids))

@@ -2652,7 +2652,7 @@ def cmd_open(directory: str, account_label: str | None, name: str | None, prompt
         tty, where = opened[1], f"a new window ({opened[1]})"
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     opened_at = datetime.now()
-    opened_mod.record(tty, name, caller.name if caller else None, opened_at)
+    opened_mod.record(tty, name, caller.name if caller else None, opened_at, prompt=prompt)
     if wait <= 0:
         print(f"typed into {where} as {account.label}: {launch_dir}")
         return
@@ -2708,7 +2708,11 @@ def cmd_focus(target: str) -> None:
 
 
 def cmd_send(target: str, text: str) -> None:
-    match = _find_session(target)
+    """Type `text` into a session's tab. Run from inside a Claude session
+    (Head Jeeves passing an order on), the text is recorded as the agent's,
+    so the mood gauge does not read it as the user's."""
+    sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
+    match = find_session(sessions, target)
     if match is None:
         print(f"no live session matches {target!r}", file=sys.stderr)
         sys.exit(1)
@@ -2717,6 +2721,9 @@ def cmd_send(target: str, text: str) -> None:
     if not tty or not iterm_mod.send_text(tty, text):
         print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid})", file=sys.stderr)
         sys.exit(1)
+    caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
+    if caller is not None:
+        opened_mod.record_sent(match.session_id, text, caller.name or caller.session_id, datetime.now())
 
 
 # How long a session gets to exit after SIGTERM before close gives up.
