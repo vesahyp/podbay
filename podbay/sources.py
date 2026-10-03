@@ -235,7 +235,7 @@ def _note_repos(block: dict, result: dict) -> None:
     """A tool call that acts on a repo path counts as touching that repo.
     Only path-acting tools count: an Agent or SendMessage prompt that merely
     mentions a path is not work in that repo. Edits also count as editing,
-    the stronger signal the grouping uses for the always-shared jeeves checkout."""
+    the stronger signal the grouping uses for the always-shared home base."""
     if block.get("name") not in PATH_TOOLS:
         return
     inp = block.get("input") or {}
@@ -602,7 +602,7 @@ def count_running_subagents(slug_dir: Path, session_id: str, last_activity_at: d
 
 
 def _mark_seen_if_unread(state_store: StateStore, session_id: str, transcript: dict) -> SessionState:
-    """The session's tab is the current iTerm2 tab, so Vesa is looking at
+    """The session's tab is the current iTerm2 tab, so you are looking at
     it: record a finished answer as seen. Writes only when there is
     something unread, so a quiet current tab costs no state write."""
     saved = state_store.get(session_id)
@@ -615,7 +615,7 @@ def _mark_seen_if_unread(state_store: StateStore, session_id: str, transcript: d
 
 def _auto_unpark(state_store: StateStore, session_id: str, last_turn_ts: datetime | None) -> SessionState:
     """Clear an expired park once the session has had a turn after the due
-    time -- otherwise the row stays `due` forever after Vesa resumes it.
+    time -- otherwise the row stays `due` forever after you resume it.
     Turns before the due time leave the park alone."""
     saved = state_store.get(session_id)
     if saved.parked_until is not None and last_turn_ts is not None and last_turn_ts > saved.parked_until:

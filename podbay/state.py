@@ -34,7 +34,7 @@ _WEEKDAYS = {
 class SessionState:
     parked_until: datetime | None = None
     note: str | None = None
-    # When Vesa last looked at this session (tab focused, or chat log opened
+    # When you last looked at this session (tab focused, or chat log opened
     # in podbay); answers finished after this are unread.
     seen_at: datetime | None = None
     updated_at: datetime | None = None

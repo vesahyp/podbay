@@ -39,3 +39,15 @@ def _single_default_account(monkeypatch):
     one = [Account(label="claude", config_dir=Path.home() / ".claude")]
     for module in (app_mod, history_mod, sources_mod):
         monkeypatch.setattr(module, "discover", lambda home=None, _one=one: list(_one))
+
+
+@pytest.fixture(autouse=True)
+def _home_base_is_jeeves(monkeypatch):
+    """The suite's example sessions launch from a home-base repo called
+    jeeves (PODBAY_HOME_REPO), whatever the machine running the tests has."""
+    from podbay import app as app_mod
+    from podbay import inventory as inventory_mod
+    from podbay import model as model_mod
+
+    for module in (app_mod, inventory_mod, model_mod):
+        monkeypatch.setattr(module, "HOME_BASE", "jeeves")

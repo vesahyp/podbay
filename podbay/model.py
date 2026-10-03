@@ -7,6 +7,7 @@ here reads files directly -- that lives in sources.py, iterm.py, state.py.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -123,7 +124,7 @@ class Session:
 
     @property
     def terminal(self) -> str | None:
-        """The number Vesa uses for "terminal #N": iTerm's window number, plus
+        """The number to say for "terminal #N": iTerm's window number, plus
         ".<tab>" for a session outside its window's first tab."""
         if not self.window_number:
             return None
@@ -145,7 +146,7 @@ class Session:
 
     @property
     def unread(self) -> bool:
-        """A finished answer Vesa has not looked at yet."""
+        """A finished answer you have not looked at yet."""
         if self.last_turn != "end_turn" or self.last_turn_ts is None:
             return False
         return self.seen_at is None or self.last_turn_ts > self.seen_at
@@ -213,7 +214,7 @@ class Session:
 
 
 # needs_you and STALLED share a group -- sorted together by age, not
-# needs_you-then-stalled -- since both mean "likely wants Vesa's attention".
+# needs_you-then-stalled -- since both mean "likely wants your attention".
 # Plain shells sit below all Claude work but above parked sessions.
 _GROUP_ORDER = {DUE: 0, NEEDS_YOU: 1, STALLED: 1, WORKING: 2, WATCHING: 2, EMPTY: 3, SHELL: 4, PARKED: 5}
 
@@ -246,16 +247,18 @@ def humanize_age(seconds: float) -> str:
     return f"{days}d"
 
 
-# Every session is launched from jeeves (the home base), so a tool call that
-# only reads there says nothing about where the work is. See repo_groups.
-HOME_BASE = "jeeves"
+# The repo every session is launched from, when there is one (PODBAY_HOME_REPO,
+# a directory name under ~/Repositories): a tool call that only reads there
+# says nothing about where the work is, so it counts only when edited. See
+# repo_groups. Empty when no repo plays that role.
+HOME_BASE = os.environ.get("PODBAY_HOME_REPO", "")
 
 
 def repo_groups(sessions: list[Session]) -> list[dict]:
-    """Group on the repos a session actually works in, not on its cwd:
-    sessions are launched from jeeves, so cwd alone puts them all in one
-    group. A project repo counts when any tool call touched it; jeeves
-    itself counts only when the session edited a file there."""
+    """Group on the repos a session actually works in, not on its cwd: with
+    a home base every session is launched from it, so cwd alone puts them
+    all in one group. A project repo counts when any tool call touched it;
+    the home base itself counts only when the session edited a file there."""
     by_repo: dict[str, list[str]] = {}
     for s in sessions:
         repos = {r for r in s.repos_touched if r != HOME_BASE} | ({HOME_BASE} & set(s.repos_edited))

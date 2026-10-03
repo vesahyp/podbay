@@ -5,7 +5,7 @@
 # The account prefix is derived from CLAUDE_CONFIG_DIR, which the
 # claude-personal alias sets and the default account leaves unset, so one
 # script serves both. settings.json in each config dir points here:
-#   "statusLine": {"type": "command", "command": "sh <jeeves>/tools/podbay/statusline.sh"}
+#   "statusLine": {"type": "command", "command": "sh <podbay checkout>/statusline.sh"}
 #
 # Before rendering, the whole input JSON is saved as a snapshot under
 # ~/.local/state/podbay/status/<session_id>.json with the account label

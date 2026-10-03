@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .model import Session, repo_groups
+from .model import HOME_BASE, Session, repo_groups
 from .sources import REPOS_DIR
 
 _WS_RE = re.compile(r"\s+")
@@ -118,6 +118,13 @@ def _local_hhmm(iso_ts: str | None) -> str:
         return "?"
 
 
+def _repos_label(s: dict) -> list[str]:
+    """The repos a session works in, the home base left out unless it is the
+    only one."""
+    repos = sorted(set(s["repos_touched"]) - {HOME_BASE})
+    return repos or ([HOME_BASE] if HOME_BASE else ["-"])
+
+
 def render_status(payload: dict) -> str:
     sessions = payload["sessions"]
     groups = payload["repo_groups"]
@@ -126,7 +133,7 @@ def render_status(payload: dict) -> str:
     for s in sessions:
         if not s["waiting_on"]:
             continue
-        repos = sorted(set(s["repos_touched"]) - {"jeeves"}) or ["jeeves"]
+        repos = _repos_label(s)
         idle = s["idle_minutes"]
         idle_str = f"{idle:g}" if idle is not None else "?"
         detail = (s["waiting_on"].get("detail") or "")[:120]
@@ -138,7 +145,7 @@ def render_status(payload: dict) -> str:
     for s in sessions:
         if s["waiting_on"] or not s["turn_ended"]:
             continue
-        repos = sorted(set(s["repos_touched"]) - {"jeeves"}) or ["jeeves"]
+        repos = _repos_label(s)
         last = (s["last_text"] or "")[:100]
         lines.append(f"{s['name']} · {','.join(repos)} · done: {last}")
 

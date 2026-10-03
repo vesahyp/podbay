@@ -2,6 +2,9 @@ from datetime import datetime, timedelta
 
 from podbay.inventory import inventory_payload, render_status, render_table
 from podbay.model import Session, repo_groups
+from pathlib import Path
+
+REPOS = str(Path.home() / "Repositories")
 
 NOW = datetime(2026, 9, 18, 12, 0)
 
@@ -9,7 +12,7 @@ NOW = datetime(2026, 9, 18, 12, 0)
 def _session(
     name,
     *,
-    cwd="/Users/vesa/Repositories/jeeves",
+    cwd=f"{REPOS}/jeeves",
     repos_touched=None,
     repos_edited=None,
     waiting_on=None,
@@ -96,9 +99,9 @@ def test_inventory_payload_exclude_by_name_and_short_id():
 
 
 def test_inventory_payload_sorted_by_repo_then_name():
-    a = _session("zeta", cwd="/Users/vesa/Repositories/kafka-infra")
-    b = _session("alpha", cwd="/Users/vesa/Repositories/data-platform")
-    c = _session("beta", cwd="/Users/vesa/Repositories/data-platform")
+    a = _session("zeta", cwd=f"{REPOS}/kafka-infra")
+    b = _session("alpha", cwd=f"{REPOS}/data-platform")
+    c = _session("beta", cwd=f"{REPOS}/data-platform")
 
     payload = inventory_payload([a, b, c], set())
 
@@ -123,8 +126,8 @@ def test_render_status_line_shapes():
         recap="all finished here",
     )
     busy_session = _session("busier", repos_touched=["kafka-infra"], turn_ended=False)
-    grouped_a = _session("ga", cwd="/Users/vesa/Repositories/kafka-infra", repos_touched=["kafka-infra"])
-    grouped_b = _session("gb", cwd="/Users/vesa/Repositories/kafka-infra", repos_touched=["kafka-infra"])
+    grouped_a = _session("ga", cwd=f"{REPOS}/kafka-infra", repos_touched=["kafka-infra"])
+    grouped_b = _session("gb", cwd=f"{REPOS}/kafka-infra", repos_touched=["kafka-infra"])
 
     payload = inventory_payload([waiting_session, done_session, busy_session, grouped_a, grouped_b], set())
     status = render_status(payload)
@@ -155,11 +158,11 @@ def test_render_status_empty_when_no_sessions():
 def test_render_table_marks_edited_repo_and_lists_same_repo_group():
     a = _session(
         "a",
-        cwd="/Users/vesa/Repositories/kafka-infra",
+        cwd=f"{REPOS}/kafka-infra",
         repos_touched=["kafka-infra"],
         repos_edited=["kafka-infra"],
     )
-    b = _session("b", cwd="/Users/vesa/Repositories/kafka-infra", repos_touched=["kafka-infra"], repos_edited=[])
+    b = _session("b", cwd=f"{REPOS}/kafka-infra", repos_touched=["kafka-infra"], repos_edited=[])
 
     payload = inventory_payload([a, b], set())
     table = render_table(payload)

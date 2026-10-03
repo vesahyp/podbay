@@ -46,6 +46,7 @@ from .inventory import inventory_payload, render_status, render_table
 from .model import (
     DUE,
     EMPTY,
+    HOME_BASE,
     NEEDS_YOU,
     PARKED,
     SHELL,
@@ -281,9 +282,9 @@ WAIT_ABBREVIATIONS = {
 
 
 def _repos_label(session: Session, groups: list[dict]) -> str:
-    """repos_touched minus jeeves, each starred when edited, comma-joined,
+    """repos_touched minus the home base, each starred when edited, comma-joined,
     with a leading marker when this session shares a repo with another."""
-    repos = sorted(r for r in session.repos_touched if r != "jeeves")
+    repos = sorted(r for r in session.repos_touched if r != HOME_BASE)
     text = ",".join(r + ("*" if r in session.repos_edited else "") for r in repos)
     if shared_repos(session, groups):
         return f"⇄ {text}" if text else "⇄"
@@ -452,7 +453,7 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
         text = entry["text"]
         role = entry["role"]
         if role == "user":
-            line = Text("▶ VESA  ", style="bold")
+            line = Text(f"▶ {voice.USER_NAME.upper()}  ", style="bold")
             line.append(text)
             blocks.append(line)
         elif role == "assistant":
@@ -1623,7 +1624,7 @@ class PodbayApp(App):
         self.action_focus_selected()
 
     def _mark_seen(self, session: Session) -> None:
-        """Vesa is looking at this session now: clear its unread marker in
+        """You are looking at this session now: clear its unread marker in
         the table at once, and persist so the next scan agrees."""
         now = datetime.now()
         session.seen_at = now

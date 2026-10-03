@@ -83,7 +83,7 @@ def test_empty_live_set_keeps_the_previous_snapshot(tmp_path):
 
     store = StateStore(tmp_path / "s.json")
     now = datetime.now()
-    store.set_snapshot([{"session_id": "old", "cwd": "/Users/vesa/jeeves", "title": "before reboot"}], now)
+    store.set_snapshot([{"session_id": "old", "cwd": "/Users/me/jeeves", "title": "before reboot"}], now)
 
     application = app_mod.PodbayApp(state_store=store, no_splash=True)
     application.rows = []

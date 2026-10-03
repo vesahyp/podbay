@@ -1,62 +1,88 @@
 # podbay
 
-One console over every Claude Code session on this machine, across both
-subscriptions. It reads each account's live session registry
-(`~/.claude/sessions/*.json`, `~/.claude-personal/sessions/*.json`) and each
-session's transcript tail, joins in podbay's own park/note state, and maps
-sessions to iTerm2 tabs so you can jump to one, or send it a message without
-switching to it. Themed as a HAL 9000 ship console (`podbay/voice.py` holds
-every user-facing string).
+One terminal console over every local Claude Code session, across accounts.
 
-Read-only against Claude Code's own files. The only things this tool writes
-are its own state under `~/.local/state/podbay/` and, on request, text into
-an iTerm2 tab via `write text`.
+Claude Code sessions multiply: one per repo, one per task, one per
+subscription. podbay reads the live session registry and transcript tail of
+every Claude Code config dir on the machine, joins in its own park/note
+state, and maps each session to its iTerm2 tab, so one screen says what every
+session is doing, which ones need you, how much of each account's quota is
+left, and lets you jump to a session or send it a message without switching
+tabs. Themed as a HAL 9000 ship console.
 
-Forked from the podbay used at work, minus the parts that only made sense
-there (pull request, Jira and Slack tracking, the coordinator session).
-
-## Run
+Read-only against Claude Code's own files. podbay writes only its own state
+under `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
 
 ```
-make podbay            # from the jeeves root: the TUI
-make podbay-list       # the same rows as plain text
-podbay                 # anywhere, after make podbay-install
+  STATE          AGE  CTX  MODEL      ACCT     DIR                  TITLE                        #
+● ? needs you    42m  27%  Opus 5.5   personal Repositories/jeeves  Feature review (claude)      #5
+● ? needs you     6m  21%  Fable 5.1  claude   Repositories/sora    Racing game (claude)         #6
+  * working      25m  38%  Fable 5.1  claude   Repositories/jeeves  Home console (claude)        #2
+  $ shell        now                           ~                    (-zsh)                       #1
+```
+
+## Requirements
+
+macOS, iTerm2 (tab focus and send use `osascript`; on another terminal the
+table still works and those two actions fail quietly), [`uv`](https://docs.astral.sh/uv/),
+`jq`, Python 3.12 or newer (uv fetches one if missing).
+
+## Install
+
+```
+git clone https://github.com/vesahyp/podbay.git
+cd podbay
+make install
+```
+
+`make install` does two things:
+
+1. Symlinks `bin/podbay` into `~/.local/bin/podbay`. The launcher execs
+   `uv run --project <checkout> podbay`, so uv creates the venv on first run.
+2. Sets `statusLine` in `~/.claude/settings.json` and every
+   `~/.claude-*/settings.json` to `sh <checkout>/statusline.sh`. The status
+   line is the only place Claude Code exposes the context window and
+   rate-limit figures, so this script renders a status line (directory, git
+   branch, context, 5h and 7d usage) and first saves the status JSON as a
+   snapshot under `~/.local/state/podbay/status/`, which is where podbay's
+   CTX column and header quotas come from. If you want to keep your own
+   status line, paste the snapshot block from the top of `statusline.sh`
+   into it instead, and skip step 2.
+
+Then `podbay` opens the TUI; `podbay list` prints the same rows as text.
+
+```
+podbay                 # the TUI
+podbay --no-splash     # without the HAL startup and shutdown sequences
 podbay list
 podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 ```
 
-`bin/podbay` execs `uv run --project <this dir> podbay`, resolving the
-project from its own location, so the `~/.local/bin/podbay` symlink works
-from any checkout path. `podbay --no-splash` (or `PODBAY_NO_SPLASH=1`) skips
-the HAL startup and shutdown sequences.
+Optional environment:
 
-## Setup
-
-`make podbay-install` from the jeeves root does both steps:
-
-1. `ln -sfn <jeeves>/tools/podbay/bin/podbay ~/.local/bin/podbay`
-2. Sets `statusLine` in `~/.claude/settings.json` and every
-   `~/.claude-*/settings.json` to `sh <jeeves>/tools/podbay/statusline.sh`.
-   That script renders the status line as before (with an `[account]`
-   prefix for every account but the default) and first saves the status
-   JSON as a snapshot under `~/.local/state/podbay/status/`, which is where
-   podbay's CTX column and the header quotas come from. Without it those
-   stay empty.
-
-Requirements: macOS, iTerm2 (tab focus and send use `osascript`; on another
-terminal the table still works and those actions fail quietly), `uv`, `jq`,
-Python 3.12 or newer (uv fetches one if missing). `uv` creates the venv on
-first run.
+- `PODBAY_HOME_REPO=<name>`: the repo under `~/Repositories` you launch every
+  session from. A tool call that only reads there then says nothing about
+  where the work is, so that repo counts in the Repos column only when the
+  session edits a file in it.
+- `PODBAY_USER=<name>`: how HAL addresses you. Default: your login name.
+- `PODBAY_NO_SPLASH=1`: same as `--no-splash`.
+- `PODBAY_LOG_LEVEL=DEBUG`: more in `~/.local/state/podbay/podbay.log`.
 
 ## Accounts
 
 Claude Code keeps everything per `CLAUDE_CONFIG_DIR`: sessions, transcripts,
-login, quota. podbay discovers every `~/.claude` and `~/.claude-<label>`
-directory that Claude has used (`podbay/accounts.py`) and labels sessions
-with the suffix: `claude` for the default, `personal` for the
-`claude-personal` alias.
+login, quota. A second subscription is a second config dir, usually through
+an alias such as
+
+```
+alias claude-personal='CLAUDE_CONFIG_DIR="$HOME/.claude-personal" command claude'
+```
+
+podbay discovers every `~/.claude` and `~/.claude-<label>` directory that
+Claude has used (`podbay/accounts.py`) and labels sessions with the suffix:
+`claude` for the default, `personal` for the one above.
 
 - the **Acct** column and the detail pane name the account
 - the header shows one quota group per account, labelled
@@ -64,14 +90,16 @@ with the suffix: `claude` for the default, `personal` for the
 - `o` (open) takes the account as a leading `@label` in the directory
   prompt, pre-filled from the highlighted row: `@personal ~/Repositories/x`
 
-## Keys (TUI)
+With one config dir nothing changes: no label, no Acct value.
+
+## Keys
 
 - `Enter` focuses the selected session's iTerm2 tab. This is the only action
   that switches to iTerm2; `o` and `R` start Claude in a tab and leave you
   in podbay
 - `p` parks (snoozes) the selected session: `+2h`, `+3d`, `today 14`,
   `tomorrow`, `tomorrow 9`, `fri 14`, `2026-09-12`, `2026-09-12 09:00`,
-  `14:30`, `14`
+  `14:30`, `14`. A parked session sorts to the bottom until it is due
 - `u` unparks
 - `n` edits the note
 - `t` toggles keyboard focus between the table and the transcript pane
@@ -130,8 +158,7 @@ working and watching, then empty, then shells, then parked (soonest first).
 
 The **Repos** column lists the repos under `~/Repositories` a session has
 touched with a tool call, starred when it edited a file there, with a leading
-`⇄` when another live session works in the same repo. jeeves counts only
-when edited, because every session starts there.
+`⇄` when another live session works in the same repo.
 
 ## Header
 
@@ -153,11 +180,19 @@ hours of the window have passed.
 - `~/.local/state/podbay/podbay.log`: the application log (rotating, 1 MB x 3):
   start, exit, every crash traceback and every error podbay recovers from.
   Textual's own crash output scrolls away with the next run, so read this
-  first. `PODBAY_LOG_LEVEL=DEBUG` raises the level.
+  first.
 - `~/.local/state/podbay/notifications.log`: the toasts behind `h`.
 
-## Tests
+## Development
 
 ```
-make podbay-test
+make test
 ```
+
+`podbay/voice.py` holds every string HAL says. `podbay/model.py` is the
+status derivation, `podbay/sources.py` the file reads, `podbay/iterm.py` the
+AppleScript, `podbay/app.py` the Textual TUI.
+
+## License
+
+MIT, see `LICENSE`.

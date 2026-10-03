@@ -1,7 +1,7 @@
 [project]
-name = "jeeves-podbay"
+name = "podbay"
 version = "0.1.0"
-description = "Terminal pod bay for Vesa's local Claude Code sessions"
+description = "One terminal console over every local Claude Code session, across accounts"
 requires-python = ">=3.12"
 dependencies = [
     "textual>=0.80",

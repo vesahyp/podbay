@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 from rich.text import Text
@@ -422,7 +423,7 @@ def test_open_claude_elsewhere_prompts_and_opens_window(monkeypatch, tmp_path):
 
     now = datetime.now()
     session = _selection_session("a", now)
-    session.cwd = "/Users/vesa/Repositories/kafka-infra"
+    session.cwd = f"{os.path.expanduser('~')}/Repositories/kafka-infra"
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [session])
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
 
@@ -445,13 +446,13 @@ def test_open_claude_elsewhere_prompts_and_opens_window(monkeypatch, tmp_path):
             await pilot.pause()
             assert isinstance(application.screen, PromptScreen)
             input_widget = application.screen.query_one("#prompt-input", Input)
-            assert input_widget.value == "/Users/vesa/Repositories/kafka-infra"
+            assert input_widget.value == f"{os.path.expanduser('~')}/Repositories/kafka-infra"
             await pilot.press("enter")
             await pilot.pause()
 
     asyncio.run(run())
     assert open_calls == [1]
-    assert write_calls == [("win-1", f"cd {shlex.quote('/Users/vesa/Repositories/kafka-infra')} && claude")]
+    assert write_calls == [("win-1", f"cd {shlex.quote(os.path.expanduser('~/Repositories/kafka-infra'))} && claude")]
 
 
 def test_open_claude_prompts_defaulting_to_home_when_nothing_selected(monkeypatch, tmp_path):
@@ -1220,7 +1221,7 @@ def test_resume_uses_a_free_terminal_before_opening_a_window(monkeypatch, tmp_pa
             await pilot.pause()
             entry = {
                 "session_id": "old-1",
-                "cwd": "/Users/vesa/jeeves",
+                "cwd": "/Users/me/jeeves",
                 "title": "t",
                 "sort_ts": now - timedelta(hours=2),
             }
@@ -1229,7 +1230,7 @@ def test_resume_uses_a_free_terminal_before_opening_a_window(monkeypatch, tmp_pa
 
     asyncio.run(run())
     assert windows == []  # the free terminal was used instead of a new window
-    assert sent == [("/dev/ttys004", "cd /Users/vesa/jeeves && claude --resume old-1")]
+    assert sent == [("/dev/ttys004", "cd /Users/me/jeeves && claude --resume old-1")]
 
 
 def test_table_filter_narrows_rows_including_a_fuzzy_non_substring_hit(monkeypatch, tmp_path):

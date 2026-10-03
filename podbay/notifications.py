@@ -1,6 +1,6 @@
 """Notification history: every toast podbay shows and every warning the
 collision watch types into a session, one line each, so a toast that
-vanished while Vesa looked elsewhere can be read back with `h`.
+vanished while you looked elsewhere can be read back with `h`.
 
 Line format: `<iso seconds>\t<kind>\t<text>`, text on one line. The file
 rolls over to `.1` past MAX_BYTES. A write or read that fails never

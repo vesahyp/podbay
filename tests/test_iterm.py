@@ -1,4 +1,7 @@
 from podbay.iterm import busy_from_title, strip_title
+from pathlib import Path
+
+REPOS = str(Path.home() / "Repositories")
 
 
 def test_strip_title_removes_idle_glyph_and_python_suffix():
@@ -41,8 +44,8 @@ def test_parse_listing_marks_current_tab_selected():
     out = (
         "CURRENT | /dev/ttys002\n"
         "W | w1 | 0 | 0 | 800 | 600 | 2\n"
-        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
-        "S | /dev/ttys002 | B | w1 | 2 | /Users/vesa/jeeves | ✳ two (python)\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/me/jeeves | ✳ one (python)\n"
+        "S | /dev/ttys002 | B | w1 | 2 | /Users/me/jeeves | ✳ two (python)\n"
     )
     tabs = parse_listing(out)
     assert tabs["/dev/ttys001"].selected is False
@@ -53,7 +56,7 @@ def test_parse_listing_marks_current_tab_selected():
 def test_parse_listing_without_current_line():
     from podbay.iterm import parse_listing
 
-    tabs = parse_listing("W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n")
+    tabs = parse_listing("W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /Users/me/jeeves | ✳ one (python)\n")
     assert list(tabs) == ["/dev/ttys001"]
     assert tabs["/dev/ttys001"].selected is False
 
@@ -61,7 +64,7 @@ def test_parse_listing_without_current_line():
 def test_parse_listing_carries_window_id_and_tab_index():
     from podbay.iterm import parse_listing
 
-    out = "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 3 | /Users/vesa/jeeves | ✳ one (python)\n"
+    out = "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 3 | /Users/me/jeeves | ✳ one (python)\n"
     tabs = parse_listing(out)
     assert tabs["/dev/ttys001"].window_id == "w1"
     assert tabs["/dev/ttys001"].tab_index == 3
@@ -72,10 +75,10 @@ def test_parse_windows_multi_window_multi_tab():
 
     out = (
         "W | w1 | 0 | 0 | 800 | 600 | 2\n"
-        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
-        "S | /dev/ttys002 | B | w1 | 2 | /Users/vesa/jeeves | ✳ two (python)\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/me/jeeves | ✳ one (python)\n"
+        "S | /dev/ttys002 | B | w1 | 2 | /Users/me/jeeves | ✳ two (python)\n"
         "W | w2 | 100 | 100 | 900 | 700 | 1\n"
-        "S | /dev/ttys003 | C | w2 | 1 | /Users/vesa/jeeves | ✳ three (python)\n"
+        "S | /dev/ttys003 | C | w2 | 1 | /Users/me/jeeves | ✳ three (python)\n"
     )
     windows = parse_windows(out)
     assert set(windows) == {"w1", "w2"}
@@ -98,7 +101,7 @@ def test_parse_all_skips_malformed_lines():
 
     out = (
         "W | w1 | 0 | 0 | 800 | 600 | 1\n"
-        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
+        "S | /dev/ttys001 | A | w1 | 1 | /Users/me/jeeves | ✳ one (python)\n"
         "garbage line with no delimiter\n"
         "W | broken | not-a-number | 0 | 800 | 600 | 1\n"
         "S | /dev/ttys002 | onlythree\n"
@@ -259,7 +262,7 @@ def test_itermlister_shares_one_applescript_call_for_tabs_and_windows(monkeypatc
 
     def fake_run_applescript(script, timeout=3.0):
         calls.append(script)
-        return "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /Users/vesa/jeeves | ✳ one (python)\n"
+        return "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /Users/me/jeeves | ✳ one (python)\n"
 
     monkeypatch.setattr(iterm, "_run_applescript", fake_run_applescript)
     lister = iterm.ItermLister()
@@ -275,10 +278,10 @@ def test_parse_all_keeps_the_session_path():
 
     tabs = parse_listing(
         "W | w1 | 0 | 0 | 800 | 600 | 1\n"
-        "S | /dev/ttys001 | A | w1 | 1 | /Users/vesa/Repositories/kafka-infra | ✳ one (python)\n"
+        f"S | /dev/ttys001 | A | w1 | 1 | {REPOS}/kafka-infra | ✳ one (python)\n"
         "S | /dev/ttys002 | B | w1 | 2 |  | ✳ two (python)\n"
     )
-    assert tabs["/dev/ttys001"].path == "/Users/vesa/Repositories/kafka-infra"
+    assert tabs["/dev/ttys001"].path == f"{REPOS}/kafka-infra"
     assert tabs["/dev/ttys002"].path is None
 
 

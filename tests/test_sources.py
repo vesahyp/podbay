@@ -18,6 +18,9 @@ from podbay.sources import (
     transcript_path_for,
 )
 from podbay.state import StateStore
+from pathlib import Path
+
+REPOS = str(Path.home() / "Repositories")
 
 
 def _line(record: dict) -> str:
@@ -83,12 +86,12 @@ def test_tail_read_drops_partial_first_line_when_truncated(tmp_path):
 
 def test_transcript_path_for_direct_hit(tmp_path):
     projects_dir = tmp_path / "projects"
-    slug_dir = projects_dir / "-Users-vesa-jeeves"
+    slug_dir = projects_dir / "-Users-me-jeeves"
     slug_dir.mkdir(parents=True)
     session_file = slug_dir / "abc-123.jsonl"
     session_file.write_text("{}\n")
 
-    found = transcript_path_for("/Users/vesa/Repositories/jeeves", "abc-123", projects_dir)
+    found = transcript_path_for(f"{REPOS}/jeeves", "abc-123", projects_dir)
 
     assert found == session_file
 
@@ -102,7 +105,7 @@ def test_transcript_path_for_falls_back_to_glob(tmp_path):
 
     # cwd doesn't match where the file actually lives; glob fallback should
     # still find it by session id.
-    found = transcript_path_for("/Users/vesa/Repositories/jeeves", "xyz-789", projects_dir)
+    found = transcript_path_for(f"{REPOS}/jeeves", "xyz-789", projects_dir)
 
     assert found == session_file
 
@@ -111,7 +114,7 @@ def test_transcript_path_for_no_match_returns_none(tmp_path):
     projects_dir = tmp_path / "projects"
     projects_dir.mkdir()
 
-    found = transcript_path_for("/Users/vesa/Repositories/jeeves", "nope", projects_dir)
+    found = transcript_path_for(f"{REPOS}/jeeves", "nope", projects_dir)
 
     assert found is None
 
@@ -527,7 +530,7 @@ def test_gather_sessions_unmatched_pane_becomes_shell_row(tmp_path):
         projects_dir=projects_dir,
         status_snapshots={},
         pid_by_tty=lambda: {"/dev/ttys001": 4242},
-        cwd_by_pids=lambda pids: {4242: "/Users/vesa/project"} if 4242 in pids else {},
+        cwd_by_pids=lambda pids: {4242: "/Users/me/project"} if 4242 in pids else {},
     )
 
     assert len(sessions) == 1
@@ -535,7 +538,7 @@ def test_gather_sessions_unmatched_pane_becomes_shell_row(tmp_path):
     assert s.is_shell is True
     assert s.session_id == "tty:/dev/ttys001"
     assert s.pid == 4242
-    assert s.cwd == "/Users/vesa/project"
+    assert s.cwd == "/Users/me/project"
     assert s.tty == "/dev/ttys001"
     assert s.has_transcript is False
     assert s.name == "zsh"
@@ -617,7 +620,7 @@ def test_shell_session_carries_the_window_number(monkeypatch, tmp_path):
     from podbay.state import StateStore
 
     tab = iterm_mod.TabInfo(
-        tty="/dev/ttys004", tab_id="A", title="(-zsh)", window_id="281", tab_index=1, path="/Users/vesa/Repositories/jeeves"
+        tty="/dev/ttys004", tab_id="A", title="(-zsh)", window_id="281", tab_index=1, path=f"{REPOS}/jeeves"
     )
     windows = {"281": iterm_mod.WindowInfo(window_id="281", bounds=(0, 0, 100, 100), tab_count=1, number=12)}
     lister = _FakeLister({"/dev/ttys004": tab}, windows=windows)
@@ -633,7 +636,7 @@ def test_shell_session_carries_the_window_number(monkeypatch, tmp_path):
     )
 
     assert [s.window_number for s in sessions] == [12]
-    assert sessions[0].cwd == "/Users/vesa/Repositories/jeeves"
+    assert sessions[0].cwd == f"{REPOS}/jeeves"
 
 
 # -- repos touched/edited and waiting_on (ported from the coordinator inventory) --
@@ -648,11 +651,11 @@ def test_tail_read_transcript_collects_repos_and_waiting_on(tmp_path):
                 "content": [
                     {
                         "type": "tool_use", "id": "tu1", "name": "Bash",
-                        "input": {"command": "ls /Users/vesa/Repositories/data-platform/x"},
+                        "input": {"command": f"ls {REPOS}/data-platform/x"},
                     },
                     {
                         "type": "tool_use", "id": "tu2", "name": "Edit",
-                        "input": {"file_path": "/Users/vesa/Repositories/jeeves/TODO.md", "old_string": "a", "new_string": "b"},
+                        "input": {"file_path": f"{REPOS}/jeeves/TODO.md", "old_string": "a", "new_string": "b"},
                     },
                     {
                         "type": "tool_use", "id": "tu3", "name": "AskUserQuestion",
@@ -726,15 +729,15 @@ def test_gather_sessions_sets_repos_and_waiting_on(tmp_path):
     sessions_dir = tmp_path / "sessions"
     projects_dir = tmp_path / "projects"
     pid = os.getpid()
-    _write_registry_entry(sessions_dir, "s1", pid, cwd="/Users/vesa/Repositories/jeeves")
+    _write_registry_entry(sessions_dir, "s1", pid, cwd=f"{REPOS}/jeeves")
 
-    slug_dir = projects_dir / "-Users-vesa-jeeves"
+    slug_dir = projects_dir / "-Users-me-jeeves"
     slug_dir.mkdir(parents=True)
     records = [
         {
             "type": "assistant",
             "timestamp": "2026-09-18T09:00:00Z",
-            "cwd": "/Users/vesa/Repositories/jeeves",
+            "cwd": f"{REPOS}/jeeves",
             "message": {
                 "content": [
                     {

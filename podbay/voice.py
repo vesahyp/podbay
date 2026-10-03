@@ -1,4 +1,4 @@
-"""HAL 9000 voice: every string podbay says out loud to Vesa, in one place.
+"""HAL 9000 voice: every string podbay says out loud to you, in one place.
 
 Keep the wording here, not scattered through app.py, so the tone can be
 tuned in one spot without touching behaviour.
@@ -6,9 +6,26 @@ tuned in one spot without touching behaviour.
 
 from __future__ import annotations
 
+import getpass
+import os
 from datetime import datetime, timedelta
 
 SHIP_NAME = "HAL 9000"
+
+
+def _user_name() -> str:
+    """How HAL addresses you: PODBAY_USER when set, else your login name
+    with a capital letter, as a crew member would be addressed."""
+    name = os.environ.get("PODBAY_USER") or ""
+    if not name:
+        try:
+            name = getpass.getuser()
+        except Exception:  # noqa: BLE001 -- no login name is not an error worth a crash
+            name = "Dave"
+    return name[:1].upper() + name[1:]
+
+
+USER_NAME = _user_name()
 
 
 def scan_status(scanning: bool, last_scan: datetime | None) -> str:
@@ -61,7 +78,7 @@ def _next_midnight(moment: datetime) -> datetime:
 
 def _weekday_seconds(start: float, end: float) -> float:
     """Seconds between two moments that fall on a Monday to Friday (local
-    clock). Vesa does not spend quota at the weekend, so a projection on
+    clock). No quota is spent at the weekend, so a projection on
     the calendar clock overstates the week whenever a weekend lies ahead."""
     if end <= start:
         return 0.0
@@ -106,7 +123,7 @@ def _seven_day_projection(pct: float, resets_at: float | None, now: datetime) ->
     kept over the window's weekday time so far: '~88% at reset' when it
     lasts, 'out 1d 13h early' (the margin in calendar time before the reset)
     when it runs out first, toned by _projection_tone.
-    The percentage alone never answers the question Vesa asks the bar,
+    The percentage alone never answers the question you ask the bar,
     which is whether the week's quota reaches the reset."""
     if resets_at is None:
         return None
@@ -240,23 +257,23 @@ def header_segments(
 
 
 def park_ok(when: datetime) -> str:
-    return f"Affirmative, Vesa. Parked until {when:%a %d.%m %H:%M}."
+    return f"Affirmative, {USER_NAME}. Parked until {when:%a %d.%m %H:%M}."
 
 
 def parse_error() -> str:
-    return "I'm sorry, Vesa. I'm afraid I can't parse that."
+    return f"I'm sorry, {USER_NAME}. I'm afraid I can't parse that."
 
 
 def no_tab() -> str:
-    return "I'm sorry, Vesa. I cannot find that tab."
+    return f"I'm sorry, {USER_NAME}. I cannot find that tab."
 
 
 def message_sent(title: str) -> str:
-    return f"Message relayed to {title}, Vesa."
+    return f"Message relayed to {title}, {USER_NAME}."
 
 
 def bad_open_target(labels: list[str]) -> str:
-    return f"I'm sorry, Vesa. That is not an account I know: @{' or @'.join(labels)}, then the directory."
+    return f"I'm sorry, {USER_NAME}. That is not an account I know: @{' or @'.join(labels)}, then the directory."
 
 
 # The startup splash: a two-line HAL 9000 dialog, typed out one line at a
