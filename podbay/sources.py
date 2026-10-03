@@ -9,7 +9,7 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -269,6 +269,7 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
         "interrupted": False,
         "newest_assistant": None,
         "background_tasks": {},  # id -> {"id", "ts", "timeout_ms", "ended"}
+        "resumed_agents": {},  # agent id -> when a SendMessage resumed it, until its notification
     }
     newest_assistant_ts = None
 
@@ -284,8 +285,11 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
         rtype = record.get("type")
         if rtype == "user" and not record.get("isSidechain"):
             _note_background_task(record, result["background_tasks"])
+            _note_resumed_agent(record, result["resumed_agents"])
         if "<task-notification>" in line:
             _end_notified_tasks(line, result["background_tasks"])
+            for task_id in _TASK_ID_RE.findall(line):
+                result["resumed_agents"].pop(task_id, None)
         branch = record.get("gitBranch")
         if branch:
             result["git_branch"] = branch
@@ -371,6 +375,14 @@ def _note_background_task(record: dict, tasks: dict) -> None:
         stopped = result.get("task_id")
         if stopped and stopped in tasks:
             tasks[stopped]["ended"] = True
+
+
+def _note_resumed_agent(record: dict, resumed: dict) -> None:
+    """A SendMessage to a finished subagent answers at once with
+    `resumedAgentId`; the agent writes to its transcript only later."""
+    result = record.get("toolUseResult")
+    if isinstance(result, dict) and result.get("success") and result.get("resumedAgentId"):
+        resumed[result["resumedAgentId"]] = _iso_to_local_dt(record.get("timestamp"))
 
 
 def _end_notified_tasks(line: str, tasks: dict) -> None:
@@ -593,17 +605,41 @@ def compute_waiting_on(
     return None
 
 
-def count_running_subagents(slug_dir: Path, session_id: str, last_activity_at: datetime | None) -> int:
+# How long a resumed agent may take to write its first record before the
+# resume no longer counts as work in flight.
+RESUME_GRACE = timedelta(minutes=10)
+
+
+def count_running_subagents(
+    slug_dir: Path,
+    session_id: str,
+    last_activity_at: datetime | None,
+    resumed_agents: dict | None = None,
+    now: datetime | None = None,
+) -> int:
+    """Subagent transcripts modified since the main turn ended, plus agents
+    a SendMessage resumed that have not written since: between the resume
+    and the agent's first record the main turn has ended and nothing else
+    says work is under way."""
     subagents_dir = slug_dir / session_id / "subagents"
-    if not subagents_dir.is_dir():
-        return 0
     cutoff = last_activity_at.timestamp() if last_activity_at is not None else 0.0
     count = 0
-    for path in subagents_dir.glob("*.jsonl"):
-        try:
-            count += path.stat().st_mtime > cutoff
-        except OSError:
+    if subagents_dir.is_dir():
+        for path in subagents_dir.glob("*.jsonl"):
+            try:
+                count += path.stat().st_mtime > cutoff
+            except OSError:
+                continue
+    now = now or datetime.now()
+    for agent_id, resumed_at in (resumed_agents or {}).items():
+        if resumed_at is None or now - resumed_at > RESUME_GRACE:
             continue
+        try:
+            written = (subagents_dir / f"agent-{agent_id}.jsonl").stat().st_mtime
+        except OSError:
+            written = 0.0
+        if written <= resumed_at.timestamp():
+            count += 1
     return count
 
 
@@ -822,7 +858,8 @@ def gather_sessions(
                 round((datetime.now() - main_last_turn_ts).total_seconds() / 60, 1)
                 if main_last_turn_ts is not None else None
             )
-            subagents_running = count_running_subagents(path.parent, session_id, main_last_turn_ts)
+            subagents_running = count_running_subagents(
+                path.parent, session_id, main_last_turn_ts, transcript.get("resumed_agents"))
             waiting_on = compute_waiting_on(transcript, entry.get("status", "idle"), idle_minutes, subagents_running)
             if transcript.get("last_turn") != "in_progress":
                 sub = subagent_activity(path, session_id, transcript.get("last_turn_ts"))

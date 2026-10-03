@@ -725,6 +725,63 @@ def test_count_running_subagents_counts_files_newer_than_cutoff(tmp_path):
     assert count == 1
 
 
+def _resume_records(agent_id: str, notified: bool = False) -> list[dict]:
+    records = [
+        {"type": "assistant", "timestamp": "2026-09-10T07:00:00Z",
+         "message": {"content": [{"type": "tool_use", "id": "tu9", "name": "SendMessage",
+                                  "input": {"to": agent_id, "message": "one more thing"}}],
+                     "stop_reason": "tool_use"}},
+        {"type": "user", "timestamp": "2026-09-10T07:00:01Z",
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "tu9", "content": "ok"}]},
+         "toolUseResult": {"success": True, "message": f"Resuming agent {agent_id[:7]}", "resumedAgentId": agent_id}},
+        {"type": "assistant", "timestamp": "2026-09-10T07:00:05Z",
+         "message": {"content": [{"type": "text", "text": "Sent."}], "stop_reason": "end_turn"}},
+    ]
+    if notified:
+        records.append({"type": "user", "timestamp": "2026-09-10T07:05:00Z",
+                        "message": {"content": f"<task-notification>\n<task-id>{agent_id}</task-id>\n"
+                                               "<status>completed</status></task-notification>"}})
+    return records
+
+
+def test_tail_read_notes_an_agent_resumed_by_send_message(tmp_path):
+    path = tmp_path / "s1.jsonl"
+    path.write_text("\n".join(_line(r) for r in _resume_records("a1b2c3d4e5")) + "\n")
+    assert set(tail_read_transcript(path)["resumed_agents"]) == {"a1b2c3d4e5"}
+
+
+def test_tail_read_forgets_a_resumed_agent_once_it_reports(tmp_path):
+    path = tmp_path / "s1.jsonl"
+    path.write_text("\n".join(_line(r) for r in _resume_records("a1b2c3d4e5", notified=True)) + "\n")
+    assert tail_read_transcript(path)["resumed_agents"] == {}
+
+
+def test_count_running_subagents_counts_a_resumed_agent_not_yet_writing(tmp_path):
+    sub_dir = tmp_path / "s1" / "subagents"
+    sub_dir.mkdir(parents=True)
+    agent = sub_dir / "agent-a1.jsonl"
+    agent.write_text("{}\n")
+    resumed_at = datetime.now()
+    os.utime(agent, (resumed_at.timestamp() - 600, resumed_at.timestamp() - 600))
+    main_turn_ended = resumed_at + timedelta(seconds=5)
+
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}) == 1
+    # Long past the grace, a resume that never started is not work.
+    later = resumed_at + timedelta(hours=1)
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}, now=later) == 0
+
+
+def test_count_running_subagents_counts_a_resumed_agent_once(tmp_path):
+    sub_dir = tmp_path / "s1" / "subagents"
+    sub_dir.mkdir(parents=True)
+    agent = sub_dir / "agent-a1.jsonl"
+    agent.write_text("{}\n")
+    resumed_at = datetime.now() - timedelta(seconds=30)
+    main_turn_ended = resumed_at + timedelta(seconds=5)
+
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}) == 1
+
+
 def test_gather_sessions_sets_repos_and_waiting_on(tmp_path):
     sessions_dir = tmp_path / "sessions"
     projects_dir = tmp_path / "projects"
