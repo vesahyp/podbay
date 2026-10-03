@@ -406,7 +406,9 @@ SEND_SCRIPT_LINES = [
 # profile (never the `command` param of `create window`, which replaces the
 # login shell so the window closes the moment the command exits) then
 # writes the command into the new session as a separate step. Returns the
-# window id and the new session's tty, tab-separated.
+# window id and the new session's tty, tab-separated. The separator is
+# `character id 9`: inside `tell application "iTerm2"` a bare `tab` is
+# iTerm2's tab class and comes out as the word "tab".
 OPEN_WINDOW_SCRIPT_LINES = [
     "on run argv",
     '  tell application "iTerm2"',
@@ -420,7 +422,7 @@ OPEN_WINDOW_SCRIPT_LINES = [
     "    if targetCommand is not \"\" then",
     "      tell current session of w to write text targetCommand",
     "    end if",
-    "    return ((id of w) as text) & tab & (tty of current session of w)",
+    "    return ((id of w) as text) & (character id 9) & (tty of current session of w)",
     "  end tell",
     "end run",
 ]

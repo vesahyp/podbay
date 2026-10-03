@@ -172,6 +172,25 @@ def test_open_window_passes_command_and_profile_as_argv(monkeypatch):
     assert "with command" not in script
 
 
+def test_open_window_with_tty_splits_on_a_real_tab(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeCompletedProcess(stdout="17067\t/dev/ttys013\n")
+
+    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
+    assert iterm.open_window_with_tty() == ("17067", "/dev/ttys013")
+    # a bare `tab` inside the iTerm2 tell block is its tab class, not a
+    # tab character: the output read "17067tab/dev/ttys013" and every
+    # podbay open into a new window failed
+    script = "\n".join(cmd for flag, cmd in zip(calls[0], calls[0][1:]) if flag == "-e")
+    assert "& tab &" not in script
+    assert "character id 9" in script
+
+
 def test_open_window_returns_none_on_nonzero_exit(monkeypatch):
     import podbay.iterm as iterm
 
