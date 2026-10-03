@@ -136,10 +136,13 @@ SHELL_TEXT_TTL = 3.0
 
 # Every column but Recap is fixed; Recap takes what is left so the window
 # number stays on screen at the right edge (None = sized here, not fixed).
-# Order: " ", State, Age, CTX, Model, Acct, Dir, Repos, Wait, Title, Recap, Parked, #.
-COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 14, 18, 4, 38, None, 11, 3]
-TITLE_COLUMN = 9
-RECAP_COLUMN = 10  # index into COLUMN_WIDTHS of the one sized at runtime
+# Order: " ", State, Age, CTX, Model, Acct, RC, Dir, Repos, Wait, Title, Recap, Parked, #.
+COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 2, 14, 18, 4, 38, None, 11, 3]
+TITLE_COLUMN = 10
+RECAP_COLUMN = 11  # index into COLUMN_WIDTHS of the one sized at runtime
+# Remote Control on: the session can be driven from the phone or the web.
+REMOTE_GLYPH = "⇅"
+REMOTE_STYLE = "bold #5fd7ff"
 # The account label in the header, in front of each account's quota group.
 ACCOUNT_TONE = "label"
 ACCOUNT_STYLE = f"bold {HAL_AMBER}"
@@ -172,6 +175,7 @@ ACTIONS = [
     ("o", "open_claude", "Open claude"),
     ("R", "resume", "Resume"),
     ("h", "history", "History"),
+    ("x", "remote", "Remote"),
     ("r", "refresh", "Refresh"),
     ("q", "quit", "Quit"),
 ]
@@ -383,6 +387,7 @@ def build_rows(sessions: list[Session], now: datetime, selected: set[str] | None
                 "ctx": _ctx_cell(s.context_pct),
                 "model": _cell(_model_label(s.model), row_style),
                 "account": _cell("" if s.is_shell else s.account, row_style),
+                "remote": _cell(REMOTE_GLYPH, REMOTE_STYLE) if s.remote_session_id else "",
                 "dir": _cell(_dir_label(s.cwd), row_style),
                 "repos": _cell(_repos_label(s, groups), row_style),
                 "wait": _cell(_wait_label(s), row_style),
@@ -433,6 +438,9 @@ def _detail_text(session: Session, now: datetime) -> Text:
         spec.append(f"ctx {session.context_pct:.0f}%")
     if spec:
         text.append(" · ".join(x for x in spec if x) + "\n", style="dim")
+    if session.remote_url:
+        text.append(f"{REMOTE_GLYPH} remote control on · ", style=REMOTE_STYLE)
+        text.append(session.remote_url + "\n", style="dim")
 
     if session.parked_until is not None:
         text.append(f"\nparked until {_parked_str(session)}\n", style=HAL_AMBER)
@@ -1242,7 +1250,7 @@ class PodbayApp(App):
         self.console.push_theme(HAL_MARKDOWN_THEME)
         table = self.query_one("#table", DataTable)
         self._col_keys = table.add_columns(
-            " ", "State", "Age", "CTX", "Model", "Acct", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
+            " ", "State", "Age", "CTX", "Model", "Acct", "RC", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
         )
         for key, width in zip(self._col_keys, COLUMN_WIDTHS):
             if width:
@@ -1374,6 +1382,9 @@ class PodbayApp(App):
         a background gather to the table and header. Must stay fast."""
         if self._own_tty is not None:
             sessions = [s for s in sessions if getattr(s, "tty", None) != self._own_tty]
+        # Tabs beyond a window's first are that session's helper terminals
+        # (a login, a log tail), not sessions of their own.
+        sessions = [s for s in sessions if getattr(s, "tab_index", None) in (None, 1)]
 
         self.state_store.prune({s.session_id for s in sessions}, now)
         self._live_sessions = {s.session_id: s for s in sessions if not getattr(s, "is_shell", False)}
@@ -1520,7 +1531,7 @@ class PodbayApp(App):
         for r in self._visible_rows:
             recap = self._mark_conv_hit(r) if r["session_id"] in self._conv_hit_ids else r["recap"]
             table.add_row(
-                r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["dir"], r["repos"], r["wait"],
+                r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["remote"], r["dir"], r["repos"], r["wait"],
                 r["title"], recap, r["parked"], r["win"],
                 key=r["session_id"],
             )
@@ -1939,6 +1950,23 @@ class PodbayApp(App):
         if not tty or not iterm_mod.focus_tty(tty):
             self.notify(voice.no_tab(), severity="warning")
 
+    def action_remote(self) -> None:
+        """Toggle Remote Control for the highlighted session by typing
+        /remote-control into its tab (the command itself toggles). On, the
+        session shows up in the Claude app and on claude.ai/code; the
+        registry reports the bridge within a few seconds and the RC column
+        follows."""
+        session = self._selected_session()
+        if session is None:
+            return
+        if not self._require_claude_session(session, "Remote"):
+            return
+        if not self._send_to_session(session, REMOTE_CONTROL_COMMAND):
+            self.notify(voice.no_tab(), severity="warning")
+            return
+        self.notify(voice.remote_toggled(session.title, turning_on=not session.remote_session_id))
+        self.trigger_refresh()
+
     def action_refresh(self) -> None:
         self.trigger_refresh()
 
@@ -2183,6 +2211,11 @@ class PodbayApp(App):
         self.trigger_refresh()
 
 
+# Typed into a session's tab to toggle its bridge; the registry then adds or
+# drops bridgeSessionId within a few seconds.
+REMOTE_CONTROL_COMMAND = "/remote-control"
+
+
 def _plain(value: Text | str) -> str:
     """build_rows may hand back Rich Text cells (HAL row styling); the CLI
     just wants their plain text."""
@@ -2198,7 +2231,7 @@ def cmd_list() -> None:
     rows = build_rows(sessions, now)
 
     header = (
-        f"  {'STATE':<12} {'AGE':>5} {'CTX':>4}  {'MODEL':<10} {'ACCT':<8} {'DIR':<22} {'TITLE':<40} "
+        f"  {'STATE':<12} {'AGE':>5} {'CTX':>4}  {'MODEL':<10} {'ACCT':<8} RC {'DIR':<22} {'TITLE':<40} "
         f"{'PARKED':<12} {'#':>4} RECAP"
     )
     print(header)
@@ -2209,13 +2242,14 @@ def cmd_list() -> None:
         ctx = _plain(r["ctx"])
         model = _plain(r["model"])[:10]
         account = _plain(r["account"])[:8]
+        remote = _plain(r["remote"]) or " "
         directory = _plain(r["dir"])[:22]
         title = _plain(r["title"])[:40]
         parked = _plain(r["parked"])
         recap = _plain(r["recap"])
         win = _plain(r["win"])
         print(
-            f"{new} {state:<12} {age:>5} {ctx:>4}  {model:<10} {account:<8} {directory:<22} {title:<40} "
+            f"{new} {state:<12} {age:>5} {ctx:>4}  {model:<10} {account:<8} {remote}  {directory:<22} {title:<40} "
             f"{parked:<12} {win:>4} {recap}"
         )
 

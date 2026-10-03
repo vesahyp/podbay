@@ -351,3 +351,82 @@ def test_open_default_dir_is_the_home_base_when_set(tmp_path, monkeypatch):
     (tmp_path / "jeeves").mkdir()
     assert app_mod.PodbayApp._open_default_dir(session) == str(tmp_path / "jeeves")
     assert app_mod.PodbayApp._open_default_dir(None) == str(tmp_path / "jeeves")
+
+
+# -- Remote Control --------------------------------------------------------------
+
+
+def test_remote_session_comes_from_the_registry_bridge_id(tmp_path):
+    accounts = _accounts(tmp_path)
+    pid = os.getpid()
+    _write_registry_entry(accounts[0].sessions_dir, "bridged", pid)
+    path = accounts[0].sessions_dir / f"{pid}.json"
+    data = json.loads(path.read_text())
+    data["bridgeSessionId"] = "session_01ABC"
+    path.write_text(json.dumps(data))
+    _write_registry_entry(accounts[1].sessions_dir, "local", pid)
+
+    sessions = gather_sessions(
+        StateStore(tmp_path / "state.json"), _FakeLister({}), status_snapshots={},
+        pid_by_tty=lambda: {}, cwd_by_pids=lambda pids: {}, accounts=accounts,
+    )
+    by_id = {s.session_id: s for s in sessions}
+
+    assert by_id["bridged"].remote_url == "https://claude.ai/code/session_01ABC"
+    assert by_id["local"].remote_url is None
+    rows = {r["session_id"]: r for r in app_mod.build_rows(sessions, datetime.now())}
+    assert str(rows["bridged"]["remote"]) == app_mod.REMOTE_GLYPH
+    assert rows["local"]["remote"] == ""
+
+
+@pytest.mark.asyncio
+async def test_remote_key_toggles_remote_control_in_the_sessions_tab(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from tests.test_app import _selection_session
+
+    now = datetime.now()
+    local = _selection_session("a", now)
+    bridged = _selection_session("b", now, remote_session_id="session_01XYZ")
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [local, bridged])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    sent, toasts = [], []
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
+    app = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=_accounts(tmp_path))
+    monkeypatch.setattr(app, "notify", lambda message, *a, **k: toasts.append(str(message)))
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        table = app.query_one("#table")
+        keys = app._visible_row_keys
+        table.move_cursor(row=keys.index("a"))
+        app.action_remote()
+        table.move_cursor(row=keys.index("b"))
+        app.action_remote()
+
+    assert sent == [("/dev/ttys009", "/remote-control")] * 2  # the command toggles
+    assert "requested" in toasts[0] and "switched off" in toasts[1]
+
+
+@pytest.mark.asyncio
+async def test_helper_tabs_are_not_listed(tmp_path, monkeypatch):
+    """A session's second and later iTerm2 tabs are its helper terminals."""
+    from datetime import datetime
+
+    from tests.test_app import _selection_session
+
+    now = datetime.now()
+    first = _selection_session("first", now, tab_index=1)
+    unknown = _selection_session("unknown", now, tab_index=None)
+    helper = _selection_session("helper", now, tab_index=2)
+    shell_helper = _selection_session("sh", now, last_turn=None, has_transcript=False, is_shell=True, tty="/dev/ttys007", tab_index=3)
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [first, unknown, helper, shell_helper])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    app = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=_accounts(tmp_path))
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert sorted(app._visible_row_keys) == ["first", "unknown"]

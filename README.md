@@ -116,6 +116,9 @@ With one config dir nothing changes: no label, no Acct value.
   account it asks which one first
 - `R` resumes a past session: the ones live before the last restart first,
   then older history, searchable; `space` ticks several, `Enter` opens them
+- `x` toggles Remote Control for the highlighted session by typing
+  `/remote-control` into it; on, the session appears in the Claude mobile
+  app and on claude.ai/code, and the RC column shows `⇅`
 - `h` shows today's notification history
 - `r` refreshes now
 - `q` quits through the shutdown eye (again to skip it). When a background
@@ -151,6 +154,12 @@ on a tool call) or `end_turn`.
 - no transcript file at all: **empty** (`-`), opened and never typed into
 - an iTerm2 pane with no Claude session: **shell** (`$`), with its screen text
   in the right pane
+
+Only a window's first tab is listed. Tabs after it count as that session's
+helper terminals (a login, a log tail) and stay out of the table.
+
+The **RC** column shows `⇅` while Remote Control is on for a session (the
+registry reports its claude.ai session id); the detail pane shows the link.
 
 A `●` in the first column marks a finished answer you have not looked at yet.
 It clears when you focus the tab or move into the transcript pane.

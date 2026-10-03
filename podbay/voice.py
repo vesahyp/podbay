@@ -272,6 +272,12 @@ def message_sent(title: str) -> str:
     return f"Message relayed to {title}, {USER_NAME}."
 
 
+def remote_toggled(title: str, turning_on: bool) -> str:
+    if turning_on:
+        return f"Remote Control requested for {title}. It appears in the Claude app shortly."
+    return f"Remote Control is being switched off for {title}."
+
+
 # The startup splash: a two-line HAL 9000 dialog, typed out one line at a
 # time. Speaker labels are padded to the same width so the " > " separators
 # line up ("DAVE > " / "HAL  > ").

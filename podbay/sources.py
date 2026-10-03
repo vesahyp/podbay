@@ -834,6 +834,7 @@ def gather_sessions(
                 pid=pid,
                 cwd=cwd,
                 account=account_label,
+                remote_session_id=entry.get("bridgeSessionId") or None,
                 name=entry.get("name", ""),
                 name_source=entry.get("nameSource", ""),
                 status=entry.get("status", "idle"),

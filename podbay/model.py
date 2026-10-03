@@ -24,6 +24,8 @@ EMPTY = "empty"
 # which means something else: a Claude Code session whose tool is a shell.
 SHELL = "shell_pane"
 
+REMOTE_URL_BASE = "https://claude.ai/code/"
+
 STALLED_THRESHOLD = timedelta(minutes=10)
 # A background Bash command has no timeout of its own; past this age a start
 # with no end record is taken as lost (the notification fell outside the tail).
@@ -57,6 +59,11 @@ class Session:
     # Which Claude Code account (config dir) the session runs under; the
     # label from accounts.py, "claude" for the default ~/.claude.
     account: str = "claude"
+
+    # Remote Control: the claude.ai session id the registry reports while the
+    # session is bridged to the web and phone apps (`bridgeSessionId`), None
+    # when it is not. See remote_url.
+    remote_session_id: str | None = None
 
     git_branch: str | None = None
     recap: str | None = None
@@ -135,6 +142,13 @@ class Session:
     @property
     def title(self) -> str:
         return self.iterm_title or self.name
+
+    @property
+    def remote_url(self) -> str | None:
+        """Where this session is on claude.ai while Remote Control is on."""
+        if not self.remote_session_id:
+            return None
+        return f"{REMOTE_URL_BASE}{self.remote_session_id}"
 
     @property
     def awaiting_prompt(self) -> bool:

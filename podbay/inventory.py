@@ -37,6 +37,7 @@ def _session_dict(s: Session, now: datetime) -> dict:
     return {
         "name": s.name,
         "account": s.account,
+        "remote_url": s.remote_url,
         "tab": s.terminal,
         "short_id": s.session_id[:6],
         "session_id": s.session_id,
