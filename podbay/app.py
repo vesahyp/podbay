@@ -1264,6 +1264,9 @@ class PodbayApp(App):
         self._head_jeeves_account_label = head_jeeves_account
         # {"follow_up": <command to send once he is up>, "launched_at": datetime}
         self._head_jeeves_pending: dict | None = None
+        # The session podbay primed as Head Jeeves: his /rename takes a few
+        # scans to show in the registry, and he is him in the meantime.
+        self._head_jeeves_id: str | None = None
         self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
@@ -1524,7 +1527,7 @@ class PodbayApp(App):
         """The live Head Jeeves session, searched across the full row set so
         an active filter never hides him."""
         for r in self.rows:
-            if is_head_jeeves(r["session"]):
+            if is_head_jeeves(r["session"]) or r["session"].session_id == self._head_jeeves_id:
                 return r["session"]
         return None
 
@@ -1584,6 +1587,7 @@ class PodbayApp(App):
         if candidate is None:
             return
         self._head_jeeves_pending = None
+        self._head_jeeves_id = candidate.session_id
         if not is_head_jeeves(candidate):
             self._send_to_session(candidate, f"/rename {HEAD_JEEVES_NAME}")
         self._send_to_session(candidate, "/head-jeeves")
