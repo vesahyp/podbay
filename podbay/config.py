@@ -6,6 +6,9 @@ Keys:
               `o` offers it as the directory, and a tool call that only reads
               there says nothing about where the work is, so it counts in the
               Repos column only when edited. Empty when no repo plays that role.
+  voice       on | off: whether HAL remarks on what changed (a session
+              finished, asked, stalled, came due, a quota ran hot) as
+              toasts. Default on.
 
 PODBAY_HOME_REPO in the environment overrides the file, for a one-off run.
 """
@@ -20,6 +23,7 @@ from pathlib import Path
 CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "podbay" / "config.json"
 KEYS = {
     "home-repo": "home_repo",
+    "voice": "voice",
 }
 
 
@@ -60,6 +64,10 @@ def set_value(key: str, value: str | None, path: Path | None = None) -> dict:
         data[field] = value
     write(data, path)
     return data
+
+
+def voice_mode(path: Path | None = None) -> str:
+    return "off" if str(read(path).get("voice") or "on") == "off" else "on"
 
 
 def home_repo(path: Path | None = None) -> str:

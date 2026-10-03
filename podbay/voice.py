@@ -281,6 +281,35 @@ def message_sent(title: str) -> str:
     return f"Message relayed to {title}, {USER_NAME}."
 
 
+# HAL's remarks (see hal.py): one line each, said when something changed.
+
+
+def hal_finished(title: str) -> str:
+    return f"{title} has finished, {USER_NAME}. It is waiting for you."
+
+
+def hal_question(title: str) -> str:
+    return f"{title} has a question for you, {USER_NAME}."
+
+
+def hal_stalled(title: str, minutes: int) -> str:
+    return f"I'm afraid {title} has been silent for {minutes} minutes, {USER_NAME}."
+
+
+def hal_due(title: str) -> str:
+    return f"{title} is due, {USER_NAME}. You asked me to remind you."
+
+
+def hal_quota_hot(account: str, window: str, pct: float, several_accounts: bool) -> str:
+    whose = f"The {account} account's" if several_accounts else "The"
+    name = "five-hour window" if window == "5H" else "week"
+    return f"{whose} {name} is at {pct:.0f} percent, {USER_NAME}. I would not take on anything heavy."
+
+
+def hal_quiet() -> str:
+    return f"All systems are functioning normally, {USER_NAME}. Nothing needs you."
+
+
 def remote_toggled(title: str, turning_on: bool) -> str:
     if turning_on:
         return f"Remote Control requested for {title}. It appears in the Claude app shortly."

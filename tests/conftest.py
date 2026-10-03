@@ -14,6 +14,7 @@ def _no_real_claude_cli(monkeypatch):
         raise FileNotFoundError("claude")
 
     monkeypatch.setattr(usage_mod.subprocess, "run", _missing_binary)
+    monkeypatch.setenv("PODBAY_USER", "Vesa")
 
 
 @pytest.fixture(autouse=True)

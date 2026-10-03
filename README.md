@@ -65,6 +65,7 @@ and read at the next start:
 
 ```
 podbay config home-repo jeeves   # the repo under ~/Repositories you launch every session from
+podbay config voice off          # HAL stops remarking on what changed (on | off; default on)
 podbay config                    # show every setting
 ```
 
@@ -179,6 +180,15 @@ working and watching, then empty, then shells, then parked (soonest first).
 The **Repos** column lists the repos under `~/Repositories` a session has
 touched with a tool call, starred when it edited a file there, with a leading
 `⇄` when another live session works in the same repo.
+
+## HAL speaks
+
+HAL remarks when something changed, never at random: a session finished and
+waits for you, asked a question, stalled, or a park came due; an account's
+five-hour window or week passed 85%. One remark per event, none for a
+session whose answer you have already seen. When nothing has needed you for
+two hours he says so once. Remarks are toasts and go into the `h` history.
+`podbay config voice off` silences him. He never speaks aloud.
 
 ## Header
 

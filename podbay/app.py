@@ -35,6 +35,7 @@ from textual.widgets import DataTable, Footer, Input, Label, Static
 
 from . import config
 from . import glyphs
+from . import hal
 from . import iterm as iterm_mod
 from .accounts import Account, by_label, discover
 from . import layout
@@ -1179,8 +1180,13 @@ class PodbayApp(App):
         backdrop: list[str] | None = None,
         notifications_path: Path | None = None,
         accounts: list[Account] | None = None,
+        voice_mode: str = hal.VOICE_OFF,
     ):
         super().__init__()
+        # HAL's remarks (hal.py). Off unless asked: a test or a script that
+        # mounts the app must not toast about the real sessions.
+        self._voice_mode = voice_mode
+        self._hal = hal.Memory()
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
         # Every Claude Code config dir on the machine (see accounts.py); the
@@ -1397,6 +1403,7 @@ class PodbayApp(App):
 
         self._limits = limits or {}
         self._limits_now = now
+        self._hal_remarks(sessions, now)
 
         try:
             self._fit_recap_column()
@@ -1410,6 +1417,17 @@ class PodbayApp(App):
         self._scanning = False
         self._last_scan_at = now
         self._update_header()
+
+    def _hal_remarks(self, sessions: list[Session], now: datetime) -> None:
+        if self._voice_mode == hal.VOICE_OFF:
+            return
+        try:
+            lines = hal.remarks(self._hal, sessions, self._limits, now)
+        except Exception:  # noqa: BLE001 -- a remark must never take the TUI down
+            log.warning("HAL remarks failed", exc_info=True)
+            return
+        for line in lines:
+            self.notify(line, title=voice.SHIP_NAME, timeout=12)
 
     def _write_snapshot(self, now: datetime) -> None:
         """Persist the live Claude sessions (not shells -- nothing to resume)
@@ -1622,7 +1640,10 @@ class PodbayApp(App):
         return self._visible_rows[table.cursor_row]["session"]
 
     def _update_detail(self) -> None:
-        detail = self.query_one("#detail", Static)
+        try:
+            detail = self.query_one("#detail", Static)
+        except NoMatches:
+            return  # the screen is already gone
         session = self._selected_session()
         if session is None:
             detail.update("(no sessions)")
@@ -1633,7 +1654,10 @@ class PodbayApp(App):
         """Redraw the transcript pane for the highlighted session, re-parsing
         its transcript only when the file's mtime/size changed since the
         last read (or the selection moved to a different session)."""
-        body = self.query_one("#transcript-body", Static)
+        try:
+            body = self.query_one("#transcript-body", Static)
+        except NoMatches:
+            return  # the screen is already gone
         session = self._selected_session()
         if session is None:
             self._last_transcript_session = None
@@ -2376,7 +2400,12 @@ def main() -> None:
         # Captured before Textual takes the alternate screen, so the splash
         # can draw the eye over what the terminal was showing.
         backdrop = None if no_splash else iterm_mod.capture_own_screen()
-        app = PodbayApp(no_splash=no_splash, backdrop=backdrop, notifications_path=notifications.LOG_PATH)
+        app = PodbayApp(
+            no_splash=no_splash,
+            backdrop=backdrop,
+            notifications_path=notifications.LOG_PATH,
+            voice_mode=config.voice_mode(),
+        )
         app.run()
         log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")
         if app._force_quit:
