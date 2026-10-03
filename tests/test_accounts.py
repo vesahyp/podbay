@@ -304,3 +304,30 @@ async def test_resume_command_runs_claude_as_the_session_account(tmp_path, monke
         "cd /x/two && CLAUDE_CONFIG_DIR=~/.claude-personal claude --resume p1",
         "cd /x/one && claude --resume d1",
     ]
+
+
+@pytest.mark.asyncio
+async def test_transcript_pane_reads_the_sessions_own_account(tmp_path, monkeypatch):
+    """A personal session's transcript lives under ~/.claude-personal/projects;
+    the pane must look there, not under the default account."""
+    from datetime import datetime
+
+    from textual.widgets import Static
+
+    from tests.test_app import _selection_session
+
+    accounts = _accounts(tmp_path)
+    cwd = "/x/two"
+    _transcript(accounts[1].projects_dir, "p1", cwd, "hello from the personal side")
+    now = datetime.now()
+    session = _selection_session("p1", now, account="personal", cwd=cwd)
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [session])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    app = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        entries = app._transcript_cache["p1"][2]
+        assert [e["text"] for e in entries] == ["hello from the personal side"]
+        assert app.query_one("#transcript-body", Static).content is not None

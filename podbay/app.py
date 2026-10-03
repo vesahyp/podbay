@@ -1628,7 +1628,8 @@ class PodbayApp(App):
             self._refresh_shell_pane(session, body)
             return
 
-        path = sources.transcript_path_for(session.cwd, session.session_id)
+        account = by_label(self._accounts, session.account) or self._accounts[0]
+        path = sources.transcript_path_for(session.cwd, session.session_id, account.projects_dir)
         if path is None:
             self._last_transcript_session = session.session_id
             body.update("(no transcript)")
