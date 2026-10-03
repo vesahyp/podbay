@@ -532,7 +532,7 @@ async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started
         await app.workers.wait_for_complete()
         await pilot.pause()
         # first scan: a watch round is due and no Head Jeeves is live, so one is started in the free shell
-        assert sent == [("/dev/ttys005", f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves --model sonnet")]
+        assert sent == [("/dev/ttys005", f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves")]  # default account, default model
         app.trigger_refresh()  # the session turns hot: the checkup replaces the queued watch
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -543,3 +543,53 @@ async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started
 
     assert [t for _tty, t in sent[1:]] == ["/rename head-jeeves", "/head-jeeves", "/head-jeeves checkup worker d1"]
     assert app._head_jeeves_pending is None
+
+
+@pytest.mark.asyncio
+async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from tests.test_app import _selection_session
+
+    accounts = _accounts(Path.home())
+    now = datetime.now()
+    working = _selection_session("w1", now, cwd="/x/one", last_turn="in_progress")
+    working.name = "worker"
+    finished = _selection_session("w1", now, cwd="/x/one")
+    finished.name = "worker"
+    shell = _selection_session("sh", now, last_turn=None, has_transcript=False, is_shell=True, tty="/dev/ttys005")
+    head = _head(now + timedelta(seconds=5), status="idle", account="personal")
+    head.started_at = now + timedelta(seconds=5)
+    monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
+    (tmp_path / "jeeves").mkdir()
+    monkeypatch.setattr(app_mod, "HOME_BASE", "jeeves")
+    head.cwd = str(tmp_path / "jeeves")
+    wrong_account = _head(now + timedelta(seconds=5), status="idle", account="claude")
+    wrong_account.session_id = "hj2"
+    wrong_account.name = "jeeves-99"
+    wrong_account.cwd = head.cwd
+    wrong_account.started_at = head.started_at
+    batches = [[working, shell], [working, shell, wrong_account], [working, shell, wrong_account, head], [finished, shell, wrong_account, head]]
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: batches.pop(0) if batches else batches)
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda: set())
+    sent = []
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append(text) or True)
+    app = app_mod.PodbayApp(
+        state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts,
+        voice_mode=app_mod.hal.VOICE_ON, head_jeeves=True, head_jeeves_account="personal", reviews_dir=tmp_path / "reviews",
+    )
+    monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert sent == [f"cd {tmp_path / 'jeeves'} && CLAUDE_CONFIG_DIR=~/.claude-personal claude -n head-jeeves"]
+        for _ in range(3):
+            app.trigger_refresh()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+    # the claude-account newcomer was not taken for him; the personal one was, and the finish was relayed
+    assert sent[1:] == ["/head-jeeves", "/head-jeeves watch", "/head-jeeves event worker: worker has finished, Vesa. It is waiting for you."]

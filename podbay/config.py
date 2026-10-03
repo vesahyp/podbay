@@ -14,7 +14,12 @@ Keys:
               repo, see skills/head-jeeves) and sends it work: a checkup when
               a session turns heated, a watch round every half hour, an exit
               interview on E. Default off: it is a session that spends tokens.
-  review_model  the model Head Jeeves runs on. Default sonnet.
+  review_model  the model Head Jeeves runs on (`claude --model`). Empty, the
+              default, means the account's own default model: he carries
+              every conversation with you, so he gets the brains.
+  head_jeeves_account  the account label he runs as (see accounts.py), so
+              he is the session your phone shows when that account bridges
+              at startup. Default: the default account.
 
 PODBAY_HOME_REPO in the environment overrides the file, for a one-off run.
 """
@@ -31,6 +36,7 @@ KEYS = {
     "home-repo": "home_repo",
     "voice": "voice",
     "head-jeeves": "head_jeeves",
+    "head-jeeves-account": "head_jeeves_account",
     "review-model": "review_model",
 }
 
@@ -82,8 +88,12 @@ def head_jeeves_on(path: Path | None = None) -> bool:
     return str(read(path).get("head_jeeves") or "off") == "on"
 
 
-def review_model(path: Path | None = None) -> str:
-    return str(read(path).get("review_model") or "sonnet")
+def review_model(path: Path | None = None) -> str | None:
+    return str(read(path).get("review_model") or "") or None
+
+
+def head_jeeves_account(path: Path | None = None) -> str | None:
+    return str(read(path).get("head_jeeves_account") or "") or None
 
 
 def home_repo(path: Path | None = None) -> str:

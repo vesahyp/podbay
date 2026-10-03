@@ -58,6 +58,8 @@ podbay list
 podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
+podbay excerpt <sessionName|pid|id> [--turns N]
+podbay open <dir> [--account LABEL] [--name NAME] [first prompt...]
 ```
 
 Settings live in `~/.config/podbay/config.json`, set from the command line
@@ -67,7 +69,8 @@ and read at the next start:
 podbay config home-repo jeeves   # the repo under ~/Repositories you launch every session from
 podbay config voice off          # HAL stops remarking on what changed (on | off; default on)
 podbay config head-jeeves on     # keep a Head Jeeves session running and send it work (default off)
-podbay config review-model opus  # the model Head Jeeves runs on (default sonnet)
+podbay config head-jeeves-account personal   # the account he runs as (default: the default account)
+podbay config review-model sonnet   # the model Head Jeeves runs on (default: the account's own)
 podbay config                    # show every setting
 ```
 
@@ -206,8 +209,9 @@ two hours he says so once. Remarks are toasts and go into the `h` history.
 When a session goes south, the agent in it is the wrong one to ask why. Head
 Jeeves is a standing Claude Code session of his own, named `head-jeeves`,
 that reads the other sessions and says what he sees. podbay starts him from
-the home repo when none is live (`podbay config head-jeeves on`, Sonnet by
-default, `podbay config review-model`) and sends him work as prompts:
+the home repo when none is live (`podbay config head-jeeves on`, on the
+account's default model unless `podbay config review-model` says otherwise)
+and sends him work as prompts:
 
 - the moment a session's prompts turn heated: `/head-jeeves checkup`, at
   most 150 words on what the friction is and the one sentence that gets the
@@ -219,6 +223,15 @@ default, `podbay config review-model`) and sends him work as prompts:
   an agent: what was asked, where and when it went south, which of your
   prompts were ambiguous or short of a fact the agent needed (quoted), the
   agent's own failures, and a handover prompt for the next agent
+
+He is also the operator you talk to from elsewhere. Run him as the account
+that bridges at startup (`podbay config head-jeeves-account personal` with
+`remoteControlAtStartup` on for that account) and his session is the one
+the Claude app shows on your phone. podbay forwards him every event it
+toasts (a session finished, asked, stalled, came due) and he reports it to
+you in one line there; you can ask him what is going on, tell him to start
+a session somewhere with a task (`podbay open`), or to pass a message to a
+session (`podbay send`), and he does it and reports back.
 
 His instructions are the skill in `skills/head-jeeves/`; `make install-skill
 HOME_REPO=~/Repositories/jeeves` links it into the home repo's

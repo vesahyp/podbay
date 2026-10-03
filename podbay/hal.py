@@ -29,6 +29,9 @@ class Memory:
     hot_windows: set[str] = field(default_factory=set)  # "<account>:5H" etc. already warned
     heated: set[str] = field(default_factory=set)  # sessions whose prompts read heated last time
     newly_heated: list[str] = field(default_factory=list)  # ids that turned hot this refresh (for a checkup)
+    # (session name, line) for each session event this refresh: finished,
+    # question, stalled, due. What podbay forwards to Head Jeeves.
+    events: list[tuple[str, str]] = field(default_factory=list)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
 
@@ -36,6 +39,7 @@ class Memory:
 def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], now: datetime) -> list[str]:
     """The lines HAL says this refresh, updating `memory` in place."""
     lines: list[str] = []
+    memory.events = []
     current: dict[str, str] = {}
     attention = False
     for s in sessions:
@@ -46,19 +50,23 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         if derived in (NEEDS_YOU, STALLED, DUE):
             attention = True
         previous = memory.statuses.get(s.session_id)
-        if not memory.primed or previous == derived:
-            continue
+        if not memory.primed or previous is None or previous == derived:
+            continue  # a session seen for the first time has no change to report
+        line = None
         if derived == NEEDS_YOU and s.unread:
             kind = (s.waiting_on or {}).get("kind")
             if kind in ("ask_user_question", "prompt", "question_text"):
-                lines.append(voice.hal_question(s.title))
+                line = voice.hal_question(s.title)
             else:
-                lines.append(voice.hal_finished(s.title))
+                line = voice.hal_finished(s.title)
         elif derived == STALLED:
             minutes = int((now - s.last_turn_ts).total_seconds() // 60) if s.last_turn_ts else 0
-            lines.append(voice.hal_stalled(s.title, minutes))
+            line = voice.hal_stalled(s.title, minutes)
         elif derived == DUE:
-            lines.append(voice.hal_due(s.title))
+            line = voice.hal_due(s.title)
+        if line:
+            lines.append(line)
+            memory.events.append((s.name, line))
     memory.statuses = current
 
     heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}

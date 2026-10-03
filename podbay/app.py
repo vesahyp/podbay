@@ -1245,8 +1245,9 @@ class PodbayApp(App):
         accounts: list[Account] | None = None,
         voice_mode: str = hal.VOICE_OFF,
         head_jeeves: bool = False,
-        review_model: str = "sonnet",
+        review_model: str | None = None,
         reviews_dir: Path | None = None,
+        head_jeeves_account: str | None = None,
     ):
         super().__init__()
         # HAL's remarks (hal.py). Off unless asked: a test or a script that
@@ -1259,6 +1260,7 @@ class PodbayApp(App):
         self._head_jeeves = head_jeeves
         self._review_model = review_model
         self._reviews_dir = reviews_dir
+        self._head_jeeves_account_label = head_jeeves_account
         # {"follow_up": <command to send once he is up>, "launched_at": datetime}
         self._head_jeeves_pending: dict | None = None
         self._head_jeeves_last_watch: datetime | None = None
@@ -1512,6 +1514,9 @@ class PodbayApp(App):
                 session = self._live_sessions.get(session_id)
                 if session is not None:
                     self._send_to_head_jeeves(f"/head-jeeves checkup {session.name} {session.session_id}")
+            # what HAL just told the screen, Head Jeeves tells the phone
+            for name, line in self._hal.events:
+                self._send_to_head_jeeves(f"/head-jeeves event {name}: {line}")
 
     # ---- Head Jeeves ---------------------------------------------------------
 
@@ -1541,8 +1546,9 @@ class PodbayApp(App):
         if self._head_jeeves_pending is not None:
             self._head_jeeves_pending["follow_up"] = follow_up
             return
-        account = self._accounts[0]
-        command = self._claude_command(account, self._open_default_dir(None), f"-n {HEAD_JEEVES_NAME} --model {shlex.quote(self._review_model)}")
+        account = self._head_jeeves_account()
+        args = f"-n {HEAD_JEEVES_NAME}" + (f" --model {shlex.quote(self._review_model)}" if self._review_model else "")
+        command = self._claude_command(account, self._open_default_dir(None), args)
         launched_at = datetime.now()
         ok, _used_pane = self._dispatch_command(self._free_shell_sessions(), command)
         if not ok:
@@ -1550,6 +1556,9 @@ class PodbayApp(App):
             return
         self._head_jeeves_pending = {"follow_up": follow_up, "launched_at": launched_at}
         self.notify(voice.head_jeeves_starting(), title=voice.SHIP_NAME)
+
+    def _head_jeeves_account(self) -> Account:
+        return by_label(self._accounts, self._head_jeeves_account_label) or self._accounts[0]
 
     def _check_head_jeeves_pending(self, sessions: list[Session], now: datetime) -> None:
         """While a launch is pending: look for a session that appeared after
@@ -1563,8 +1572,13 @@ class PodbayApp(App):
             self.notify(voice.head_jeeves_late(), severity="warning")
             return
         home = self._open_default_dir(None)
+        label = self._head_jeeves_account().label
         candidate = next(
-            (s for s in sessions if not s.is_shell and s.started_at > pending["launched_at"] and s.cwd == home and s.status == "idle"),
+            (
+                s for s in sessions
+                if not s.is_shell and s.account == label and s.started_at > pending["launched_at"]
+                and s.cwd == home and s.status == "idle"
+            ),
             None,
         )
         if candidate is None:
@@ -2493,6 +2507,43 @@ def _find_session(target: str) -> Session | None:
     return None
 
 
+def cmd_open(directory: str, account_label: str | None, name: str | None, prompt: str) -> None:
+    """Start claude in the first terminal sitting at a shell prompt, or in a
+    new window; prints where. The prompt goes as claude's first argument."""
+    accounts = discover()
+    account = by_label(accounts, account_label)
+    if account is None:
+        print(f"no account {account_label!r}; known: {', '.join(a.label for a in accounts)}", file=sys.stderr)
+        sys.exit(1)
+    args = []
+    if name:
+        args.append(f"-n {shlex.quote(name)}")
+    if prompt:
+        args.append(shlex.quote(prompt))
+    prefix = account.command_prefix()
+    tail = f" {' '.join(args)}" if args else ""
+    command = f"cd {shlex.quote(os.path.expanduser(directory))} && {prefix}claude{tail}"
+    sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
+    busy = sources.busy_ttys()
+    own = None
+    try:
+        own = os.ttyname(0)
+    except OSError:
+        pass
+    free = [s for s in sessions if s.is_shell and s.tty and s.tty not in busy and s.tty != own]
+    if free:
+        target = free[0]
+        if not iterm_mod.send_text(target.tty, command):
+            print("could not type into the free terminal", file=sys.stderr)
+            sys.exit(1)
+        print(f"started in terminal #{target.terminal or '?'} ({target.tty}) as {account.label}: {directory}")
+        return
+    if not iterm_mod.open_window(command=command):
+        print("could not open a new iTerm2 window", file=sys.stderr)
+        sys.exit(1)
+    print(f"started in a new window as {account.label}: {directory}")
+
+
 def cmd_excerpt(target: str, turns: int) -> None:
     match = _find_session(target)
     if match is None or match.is_shell:
@@ -2588,6 +2639,12 @@ def main() -> None:
     excerpt_parser.add_argument("target", help="session name, pid or session id")
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
 
+    open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window)")
+    open_parser.add_argument("directory", help="where it starts")
+    open_parser.add_argument("--account", default=None, metavar="LABEL", help="the account to run as (default: the default account)")
+    open_parser.add_argument("--name", default=None, metavar="NAME", help="the session name (claude -n)")
+    open_parser.add_argument("prompt", nargs="*", help="the first prompt, typed in once claude is up")
+
     inventory_parser = sub.add_parser("inventory", help="print a deterministic session inventory")
     inventory_parser.add_argument("--json", action="store_true", help="print JSON (default)")
     inventory_parser.add_argument("--table", action="store_true", help="print as a plain-text table")
@@ -2612,6 +2669,8 @@ def main() -> None:
         cmd_send(args.target, " ".join(args.text))
     elif args.command == "excerpt":
         cmd_excerpt(args.target, args.turns)
+    elif args.command == "open":
+        cmd_open(args.directory, args.account, args.name, " ".join(args.prompt))
     elif args.command == "inventory":
         cmd_inventory(args.table, args.status, args.exclude)
     else:
@@ -2626,6 +2685,7 @@ def main() -> None:
             voice_mode=config.voice_mode(),
             head_jeeves=config.head_jeeves_on(),
             review_model=config.review_model(),
+            head_jeeves_account=config.head_jeeves_account(),
         )
         app.run()
         log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")

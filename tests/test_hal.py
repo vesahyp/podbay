@@ -102,3 +102,19 @@ def test_a_session_turning_hot_is_announced_once_and_listed_for_a_checkup():
     assert any("frustration in A" in l for l in lines)
     assert memory.newly_heated == ["a"]
     assert hal.remarks(memory, [hot], {}, NOW) == [] and memory.newly_heated == []
+
+
+def test_session_events_are_listed_for_head_jeeves():
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    hal.remarks(memory, [_session("a")], {}, NOW)
+    assert memory.events == [("a", "A has finished, Vesa. It is waiting for you.")]
+    hal.remarks(memory, [_session("a")], {}, NOW)
+    assert memory.events == []
+
+
+def test_a_session_seen_for_the_first_time_is_not_an_event():
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    lines = hal.remarks(memory, [_session("a", last_turn="in_progress"), _session("b")], {}, NOW)
+    assert lines == [] and memory.events == []
