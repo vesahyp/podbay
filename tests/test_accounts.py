@@ -217,7 +217,7 @@ async def test_header_drops_the_label_with_a_single_account(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_open_claude_prompt_carries_the_account_and_runs_claude_as_it(tmp_path, monkeypatch):
+async def test_open_claude_asks_which_account_then_runs_claude_as_it(tmp_path, monkeypatch):
     from textual.widgets import Input
 
     # under the real home, so the command shows the ~ form of the config dir
@@ -230,9 +230,16 @@ async def test_open_claude_prompt_carries_the_account_and_runs_claude_as_it(tmp_
         await app.workers.wait_for_complete()
         app.action_open_claude()
         await pilot.pause()
+        assert isinstance(app.screen, app_mod.AccountScreen)
+        table = app.screen.query_one("#account-table")
+        assert [str(table.get_cell_at((i, 1))) for i in range(table.row_count)] == ["claude", "personal"]
+        assert table.cursor_row == 0  # the default account, nothing highlighted
+        await pilot.press("2")  # the personal row's digit
+        await pilot.pause()
+        assert isinstance(app.screen, app_mod.PromptScreen)
         box = app.screen.query_one("#prompt-input", Input)
-        assert box.value == f"@claude {os.path.expanduser('~')}"
-        box.value = "@personal ~/Repositories/keitos"
+        assert box.value == os.path.expanduser("~")
+        box.value = "~/Repositories/keitos"
         await pilot.press("enter")
         await pilot.pause()
 
@@ -241,26 +248,41 @@ async def test_open_claude_prompt_carries_the_account_and_runs_claude_as_it(tmp_
 
 
 @pytest.mark.asyncio
-async def test_open_claude_rejects_an_unknown_account(tmp_path, monkeypatch):
-    from textual.widgets import Input
+async def test_open_claude_pick_list_preselects_the_highlighted_sessions_account(tmp_path, monkeypatch):
+    from datetime import datetime
 
-    app = _app(tmp_path, monkeypatch, _accounts(tmp_path))
-    writes = []
-    monkeypatch.setattr(app_mod.iterm_mod, "open_window", lambda *_a, **_k: "win-1", raising=False)
-    monkeypatch.setattr(app_mod.iterm_mod, "write_text_to_window", lambda w, t: writes.append(t) or True, raising=False)
-    toasts = []
-    monkeypatch.setattr(app, "notify", lambda message, *a, **k: toasts.append(str(message)))
+    from tests.test_app import _selection_session
 
+    accounts = _accounts(Path.home())
+    now = datetime.now()
+    session = _selection_session("p", now, account="personal")
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [session])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    app = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts)
+
+    async with app.run_test(size=(140, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        app.action_open_claude()
+        await pilot.pause()
+        table = app.screen.query_one("#account-table")
+        assert table.cursor_row == 1
+        assert str(table.get_cell_at((1, 3))) == "1"  # one live personal session
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, app_mod.AccountScreen)
+
+
+@pytest.mark.asyncio
+async def test_open_claude_skips_the_pick_list_with_one_account(tmp_path, monkeypatch):
+    app = _app(tmp_path, monkeypatch, _accounts(Path.home())[:1])
     async with app.run_test(size=(140, 40)) as pilot:
         await app.workers.wait_for_complete()
         app.action_open_claude()
         await pilot.pause()
-        app.screen.query_one("#prompt-input", Input).value = "@work /tmp"
-        await pilot.press("enter")
+        assert isinstance(app.screen, app_mod.PromptScreen)
+        await pilot.press("escape")
         await pilot.pause()
-
-    assert writes == []
-    assert toasts and "@claude or @personal" in toasts[-1]
 
 
 @pytest.mark.asyncio

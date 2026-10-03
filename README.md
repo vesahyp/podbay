@@ -87,8 +87,9 @@ Claude has used (`podbay/accounts.py`) and labels sessions with the suffix:
 - the **Acct** column and the detail pane name the account
 - the header shows one quota group per account, labelled
 - `R` (resume) runs `claude --resume` as the account whose transcript it is
-- `o` (open) takes the account as a leading `@label` in the directory
-  prompt, pre-filled from the highlighted row: `@personal ~/Repositories/x`
+- `o` (open) first asks which account, one row per config dir with its
+  live session count, pre-selected to the highlighted row's account; Enter
+  or the row's digit picks, then the directory prompt follows
 
 With one config dir nothing changes: no label, no Acct value.
 
@@ -111,7 +112,8 @@ With one config dir nothing changes: no label, no Acct value.
 - `space` selects a row, `c` clears the selection, `A` arranges the selected
   windows side by side on the external display (or this screen)
 - `o` starts Claude: in the highlighted terminal when it is a plain shell,
-  else in the next free terminal, else in a new window
+  else in the next free terminal, else in a new window. With more than one
+  account it asks which one first
 - `R` resumes a past session: the ones live before the last restart first,
   then older history, searchable; `space` ticks several, `Enter` opens them
 - `h` shows today's notification history

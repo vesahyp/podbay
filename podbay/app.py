@@ -144,8 +144,9 @@ RECAP_COLUMN = 10  # index into COLUMN_WIDTHS of the one sized at runtime
 ACCOUNT_TONE = "label"
 ACCOUNT_STYLE = f"bold {HAL_AMBER}"
 ACCOUNT_SEPARATOR = "   │   "
-# The Open prompt takes the account as a leading token: "@personal ~/x".
-ACCOUNT_PREFIX = "@"
+# Enter on the account pick list is "take this one"; the digits are the
+# shortcut shown in front of each row.
+ACCOUNT_PICK_KEYS = "123456789"
 RECAP_MIN_WIDTH = 12
 
 SEL_GLYPH = "✓"
@@ -463,6 +464,92 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
             blocks.append(Text(text, style="dim"))
         blocks.append(Text(""))
     return Group(*blocks[:-1])
+
+
+class AccountScreen(ModalScreen["Account | None"]):
+    """Which account to start claude as: one row per config dir Claude has
+    been run from, the highlighted session's account pre-selected. Enter or
+    the row's digit picks, Escape cancels. Only shown when there is more
+    than one account."""
+
+    DEFAULT_CSS = """
+    AccountScreen {
+        align: center middle;
+        background: transparent 60%;
+    }
+    #account-box {
+        width: 60;
+        height: auto;
+        border: round #e0201f;
+        padding: 1 2;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    #account-box Label {
+        color: #d9c9a0;
+        margin-bottom: 1;
+    }
+    #account-table {
+        height: auto;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, accounts: list[Account], current: Account | None, live_counts: dict[str, int] | None = None):
+        super().__init__()
+        self._accounts = accounts
+        self._current = current
+        self._live_counts = live_counts or {}
+        self._done = False
+
+    def _finish(self, value) -> None:
+        if self._done:
+            return
+        self._done = True
+        self.dismiss(value)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="account-box"):
+            yield Label("Start claude as which account?  enter or digit picks, esc cancels")
+            yield DataTable(id="account-table", cursor_type="row")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#account-table", DataTable)
+        table.add_columns(" ", "Account", "Config dir", "Live")
+        home = os.path.expanduser("~")
+        for i, account in enumerate(self._accounts):
+            shown = str(account.config_dir)
+            if shown.startswith(home + "/"):
+                shown = "~" + shown[len(home):]
+            live = self._live_counts.get(account.label, 0)
+            table.add_row(
+                ACCOUNT_PICK_KEYS[i] if i < len(ACCOUNT_PICK_KEYS) else "",
+                Text(account.label, style=ACCOUNT_STYLE),
+                shown,
+                str(live) if live else "",
+                key=account.label,
+            )
+        if self._current is not None and self._current in self._accounts:
+            table.move_cursor(row=self._accounts.index(self._current))
+        table.focus()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        event.stop()
+        if 0 <= event.cursor_row < len(self._accounts):
+            self._finish(self._accounts[event.cursor_row])
+
+    def on_key(self, event) -> None:
+        if event.character and event.character in ACCOUNT_PICK_KEYS:
+            index = ACCOUNT_PICK_KEYS.index(event.character)
+            if index < len(self._accounts):
+                event.stop()
+                self._finish(self._accounts[index])
+
+    def action_cancel(self) -> None:
+        self._finish(None)
 
 
 class PromptScreen(ModalScreen[str | None]):
@@ -1961,15 +2048,11 @@ class PodbayApp(App):
             return iterm_mod.send_text(target.tty, command), True
         return bool(iterm_mod.open_window(command=command)), False
 
-    def _parse_open_target(self, value: str) -> tuple[Account | None, str]:
-        """"@personal ~/Repositories/x" -> (that account, the directory);
-        no @ token means the default account. The account is None when the
-        label names no account on this machine."""
-        value = value.strip()
-        if not value.startswith(ACCOUNT_PREFIX):
-            return self._accounts[0], value
-        label, _, directory = value[len(ACCOUNT_PREFIX):].partition(" ")
-        return by_label(self._accounts, label), directory.strip()
+    def _live_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for session in self._live_sessions.values():
+            counts[session.account] = counts.get(session.account, 0) + 1
+        return counts
 
     def _claude_command(self, account: Account, directory: str, args: str = "") -> str:
         prefix = account.command_prefix()
@@ -1979,21 +2062,28 @@ class PodbayApp(App):
     def action_open_claude(self) -> None:
         """Starts Claude in the highlighted terminal when that one is a plain
         shell, otherwise in the next free terminal, and only opens a new
-        window when every terminal is busy. The prompt holds the directory
-        with the account in front as "@label": the highlighted session's
-        account, or the default one on a shell row."""
+        window when every terminal is busy. With more than one account the
+        pick list comes first, pre-selected to the highlighted session's
+        account (the default one on a shell row); then the directory prompt."""
         session = self._selected_session()
         is_shell = session is not None and getattr(session, "is_shell", False)
         default_dir = session.cwd if session is not None and session.cwd else os.path.expanduser("~")
         account = self._accounts[0] if session is None or is_shell else (by_label(self._accounts, session.account) or self._accounts[0])
         free = session if is_shell else self._free_shell_session()
 
+        def handle_account(chosen: Account | None) -> None:
+            if chosen is not None:
+                self._prompt_open_directory(chosen, default_dir, free)
+
+        if len(self._accounts) > 1:
+            self.push_screen(AccountScreen(self._accounts, account, self._live_counts()), handle_account)
+        else:
+            self._prompt_open_directory(account, default_dir, free)
+
+    def _prompt_open_directory(self, chosen: Account, default_dir: str, free: Session | None) -> None:
         def handle_result(value: str | None) -> None:
-            if not value:
-                return
-            chosen, directory = self._parse_open_target(value)
-            if chosen is None or not directory:
-                self.notify(voice.bad_open_target(sorted(a.label for a in self._accounts)), severity="error")
+            directory = (value or "").strip()
+            if not directory:
                 return
             command = self._claude_command(chosen, directory)
             if free is not None and free.tty:
@@ -2021,8 +2111,8 @@ class PodbayApp(App):
             self.trigger_refresh()
 
         target = f"in {free.title}" if free is not None else "in a new window"
-        initial = f"{ACCOUNT_PREFIX}{account.label} {default_dir}" if len(self._accounts) > 1 else default_dir
-        self.push_screen(PromptScreen(f"Start claude {target} (@account directory):", initial=initial), handle_result)
+        who = f" as {chosen.label}" if len(self._accounts) > 1 else ""
+        self.push_screen(PromptScreen(f"Start claude {target}{who}, directory:", initial=default_dir), handle_result)
 
     def action_resume(self) -> None:
         """Offer sessions to resume: ones from the last snapshot that are no

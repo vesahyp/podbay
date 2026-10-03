@@ -272,10 +272,6 @@ def message_sent(title: str) -> str:
     return f"Message relayed to {title}, {USER_NAME}."
 
 
-def bad_open_target(labels: list[str]) -> str:
-    return f"I'm sorry, {USER_NAME}. That is not an account I know: @{' or @'.join(labels)}, then the directory."
-
-
 # The startup splash: a two-line HAL 9000 dialog, typed out one line at a
 # time. Speaker labels are padded to the same width so the " > " separators
 # line up ("DAVE > " / "HAL  > ").
