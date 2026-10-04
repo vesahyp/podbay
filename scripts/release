@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Moves the installed copy of podbay to origin/main, after its tests pass.
+#
+# The installed podbay runs from .release/, a git worktree of this repo
+# checked out detached at a commit from origin/main. Edits in the working
+# tree, uncommitted or on another branch, never reach it, so a session
+# editing podbay cannot break the podbay that other sessions call.
+#
+# The path is derived from the git common dir, so `make install` from any
+# worktree updates the same copy. If the tests fail at the new commit, the
+# copy goes back to the commit it was at and this exits non-zero.
+set -euo pipefail
+
+repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+release="$repo/.release"
+
+git -C "$repo" fetch -q origin main
+target=$(git -C "$repo" rev-parse origin/main)
+
+if [ ! -e "$release/.git" ]; then
+  git -C "$repo" worktree add -q --detach "$release" "$target"
+  previous=""
+else
+  previous=$(git -C "$release" rev-parse HEAD)
+  git -C "$release" checkout -q --detach "$target"
+fi
+
+if ! (cd "$release" && uv run --project . pytest -q); then
+  echo "✗ tests failed at $(git -C "$release" rev-parse --short HEAD)" >&2
+  if [ -n "$previous" ]; then
+    git -C "$release" checkout -q --detach "$previous"
+    echo "  installed copy stays at $(git -C "$release" rev-parse --short HEAD)" >&2
+  else
+    git -C "$repo" worktree remove --force "$release"
+  fi
+  exit 1
+fi
+echo "→ $release at $(git -C "$release" log --oneline -1)"

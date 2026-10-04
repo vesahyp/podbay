@@ -1,6 +1,8 @@
 .PHONY: help run list test check install install-skill shots plan apply outputs deploy analytics
 
 PODBAY := uv run --project .
+# The installed copy: a worktree at origin/main that scripts/release moves.
+RELEASE := $(dir $(shell git rev-parse --path-format=absolute --git-common-dir)).release
 
 # The site at podbay.tienoo.com: site/ is the page, infra/ its Terraform,
 # analytics/ the nightly traffic rollup. AWS profile personal by default.
@@ -16,7 +18,7 @@ help:
 	@echo "make list      the same rows as plain text"
 	@echo "make test      run the tests"
 	@echo "make check     fail if a public doc quotes or names the user (scripts/check-quotes)"
-	@echo "make install   ~/.local/bin/podbay symlink + status line in every Claude account"
+	@echo "make install   test origin/main into .release/, link ~/.local/bin/podbay + status line to it"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
@@ -38,15 +40,18 @@ test:
 check:
 	@scripts/check-quotes
 
+# The installed podbay and status line run from .release/, never from this
+# working tree, so an edit in progress cannot break them (scripts/release).
 # The status line is the source of podbay's context and quota columns, so
 # every Claude Code config dir (~/.claude and ~/.claude-<label>) points at
 # the one script. An existing statusLine setting is replaced; see README.
 install:
+	@scripts/release
 	@mkdir -p "$$HOME/.local/bin"
-	@ln -sfn "$(CURDIR)/bin/podbay" "$$HOME/.local/bin/podbay" && echo "→ ~/.local/bin/podbay"
+	@ln -sfn "$(RELEASE)/bin/podbay" "$$HOME/.local/bin/podbay" && echo "→ ~/.local/bin/podbay"
 	@for d in "$$HOME/.claude" "$$HOME"/.claude-*; do \
 	  [ -f "$$d/settings.json" ] || continue; \
-	  jq '.statusLine = {"type":"command","command":"sh $(CURDIR)/statusline.sh"}' \
+	  jq '.statusLine = {"type":"command","command":"sh $(RELEASE)/statusline.sh"}' \
 	    "$$d/settings.json" > "$$d/settings.json.tmp" && mv "$$d/settings.json.tmp" "$$d/settings.json" \
 	    && echo "→ $$d/settings.json statusLine"; \
 	done

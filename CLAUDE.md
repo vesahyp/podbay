@@ -13,8 +13,9 @@ make test       pytest, about a minute; the app tests mount the real TUI
                 headless and read the real session registry read-only
 make check      this repo is public: fails if a doc, the skill, a page or
                 a test quotes or names the user (scripts/check-quotes)
-make install    ~/.local/bin/podbay symlink + statusLine in every
-                ~/.claude*/settings.json
+make install    test origin/main in .release/, then point
+                ~/.local/bin/podbay and the statusLine in every
+                ~/.claude*/settings.json at that copy
 
 make shots      the site's screenshots into site/img/ (Playwright)
 make plan       terraform plan for infra/, saved to infra/tfplan
@@ -27,6 +28,8 @@ make analytics  the traffic rollup now; cron runs it nightly at 07:30
 
 ```
 bin/podbay          launcher: execs uv run from its own location
+scripts/release     moves .release/ (a worktree at origin/main) to a
+                      new commit after its tests pass
 statusline.sh       the Claude Code status line for every account; saves
                       the status JSON as a snapshot podbay reads
 podbay/
@@ -95,3 +98,7 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
   names from one machine. Tests build paths from `Path.home()` and set
   the home base in `conftest.py`.
 - Commit messages in English.
+- The `podbay` on the PATH and the status line run from `.release/`, never
+  from your working tree. To test a change, use `make run` or
+  `uv run --project . podbay`. A change reaches the installed copy only
+  after it is pushed and `make install` runs.

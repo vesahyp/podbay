@@ -35,19 +35,25 @@ cd podbay
 make install
 ```
 
-`make install` does two things:
+`make install` does three things:
 
-1. Symlinks `bin/podbay` into `~/.local/bin/podbay`. The launcher execs
-   `uv run --project <checkout> podbay`, so uv creates the venv on first run.
-2. Sets `statusLine` in `~/.claude/settings.json` and every
-   `~/.claude-*/settings.json` to `sh <checkout>/statusline.sh`. The status
+1. Checks out `origin/main` into `.release/`, a git worktree of this repo,
+   and runs the tests there. If they fail, `.release/` stays at the commit
+   it was at and the install stops. The installed podbay runs from this
+   copy, never from your working tree, so an edit in progress cannot break
+   a running podbay. Run `make install` again after each push to update it.
+2. Symlinks `.release/bin/podbay` into `~/.local/bin/podbay`. The launcher
+   execs `uv run --project <checkout>/.release podbay`, so uv creates the
+   venv on first run.
+3. Sets `statusLine` in `~/.claude/settings.json` and every
+   `~/.claude-*/settings.json` to `sh <checkout>/.release/statusline.sh`. The status
    line is the only place Claude Code exposes the context window and
    rate-limit figures, so this script renders a status line (directory, git
    branch, context, 5h and 7d usage) and first saves the status JSON as a
    snapshot under `~/.local/state/podbay/status/`, which is where podbay's
    CTX column and header quotas come from. If you want to keep your own
    status line, paste the snapshot block from the top of `statusline.sh`
-   into it instead, and skip step 2.
+   into it instead, and skip step 3.
 
 Then `podbay` opens the TUI; `podbay list` prints the same rows as text.
 
