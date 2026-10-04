@@ -144,6 +144,7 @@ def patch_sources(tmp: Path) -> None:
     sources.read_conversation = lambda *a, **k: list(TRANSCRIPT)
     usage.read_cache = lambda *a, **k: {"entries": []}
     usage.fetch = lambda *a, **k: None
+    iterm.focus_tty = lambda *a, **k: False
     iterm.send_text = lambda *a, **k: False
 
 

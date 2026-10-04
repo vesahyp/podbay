@@ -1,9 +1,10 @@
 """Textual podbay app + CLI entry point.
 
-`podbay` launches the TUI, a read-only status screen that also keeps Head
-Jeeves running and fed; `podbay list` prints the same rows as plain text.
-The other subcommands are Head Jeeves' instrument: inventory, excerpt,
-send, open, close, board, notify, config.
+`podbay` launches the TUI, a status screen that also keeps Head Jeeves
+running and fed; `podbay list` prints the same rows as plain text. `podbay
+focus <sessionName|pid>` jumps straight to a tab. The other subcommands are
+Head Jeeves' instrument: inventory, excerpt, send, open, close, board,
+notify, config.
 """
 
 from __future__ import annotations
@@ -699,6 +700,7 @@ class PodbayHeader(Widget):
 class PodbayApp(App):
     TITLE = "podbay"
     BINDINGS = [
+        Binding("enter", "focus_selected", "Focus"),
         Binding("escape", "escape_pressed", "", show=False),
         *[Binding(key, action, label) for key, action, label in ACTIONS],
     ]
@@ -1390,9 +1392,12 @@ class PodbayApp(App):
         self._update_detail()
         self._refresh_transcript()
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_focus_selected()
+
     def _mark_seen(self, session: Session) -> None:
-        """You are reading this session's transcript pane: clear its unread
-        marker in the table at once, and persist so the next scan agrees."""
+        """You are looking at this session now: clear its unread marker in
+        the table at once, and persist so the next scan agrees."""
         now = datetime.now()
         session.seen_at = now
         self.state_store.set_seen(session.session_id, now)
@@ -1401,6 +1406,17 @@ class PodbayApp(App):
             table.update_cell(session.session_id, self._col_keys[0], "")
         except Exception:
             pass  # row vanished between selection and click; the next scan redraws
+
+    def action_focus_selected(self) -> None:
+        # The only place podbay switches to iTerm2, and only on an explicit
+        # Enter. Nothing else (open, resume, refresh) may call focus_tty.
+        session = self._selected_session()
+        if session is None:
+            return
+        self._mark_seen(session)
+        tty = iterm_mod.get_tty_for_pid(session.pid)
+        if not tty or not iterm_mod.focus_tty(tty):
+            self.notify(voice.no_tab(), severity="warning")
 
     def _require_claude_session(self, session: Session | None, action_label: str) -> bool:
         """A plain-shell row has no Claude session state. False means the
@@ -1836,6 +1852,18 @@ def cmd_excerpt(target: str, turns: int) -> None:
     print(reviewer.excerpt(path, turns))
 
 
+def cmd_focus(target: str) -> None:
+    match = _find_session(target)
+    if match is None:
+        print(f"no live session matches {target!r}", file=sys.stderr)
+        sys.exit(1)
+
+    tty = iterm_mod.get_tty_for_pid(match.pid)
+    if not tty or not iterm_mod.focus_tty(tty):
+        print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid})", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_send(target: str, text: str) -> None:
     """Type `text` into a session's tab. Run from inside a Claude session
     (Head Jeeves passing an order on), the text is recorded as the agent's,
@@ -2001,6 +2029,9 @@ def main() -> None:
 
     target_help = "session name, pid, id, terminal number (#6), repo, or a fragment of its title"
 
+    focus_parser = sub.add_parser("focus", help="focus a session's iTerm2 tab")
+    focus_parser.add_argument("target", help=target_help)
+
     send_parser = sub.add_parser("send", help="send a message to a session's iTerm2 tab")
     send_parser.add_argument("target", help=target_help)
     send_parser.add_argument("text", nargs="+", help="message text")
@@ -2053,6 +2084,8 @@ def main() -> None:
         cmd_config(args.key, args.value)
     elif args.command == "list":
         cmd_list()
+    elif args.command == "focus":
+        cmd_focus(args.target)
     elif args.command == "send":
         cmd_send(args.target, " ".join(args.text))
     elif args.command == "notify":

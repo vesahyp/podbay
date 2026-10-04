@@ -62,6 +62,30 @@ end tell
 # collapses to an unparseable run of digits (verified), so each coordinate is
 # pulled out with "item N of b" and joined with the record's own " | " delimiter.
 
+# Only selects/activates when a matching tty is found, so running this
+# against a tty that matches nothing is a safe no-op (no focus stolen).
+FOCUS_SCRIPT_TEMPLATE = """
+tell application "iTerm2"
+	set found to false
+	repeat with w in windows
+		repeat with t in tabs of w
+			repeat with s in sessions of t
+				if (tty of s) is "{tty}" then
+					select w
+					select t
+					select s
+					set found to true
+				end if
+			end repeat
+		end repeat
+	end repeat
+	if found then
+		activate
+	end if
+	return found
+end tell
+"""
+
 @dataclass
 class TabInfo:
     tty: str
@@ -328,6 +352,17 @@ class ItermLister:
         ttys = get_ttys_for_pids(pids)
         tabs = self.tabs()
         return {pid: tabs.get(ttys[pid]) if pid in ttys else None for pid in pids}
+
+
+def focus_tty(tty: str) -> bool:
+    """Select and activate the iTerm2 tab whose session has this tty.
+    Returns True if a matching tab was found (and focused)."""
+    script = FOCUS_SCRIPT_TEMPLATE.format(tty=tty)
+    try:
+        out = _run_applescript(script)
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return out.strip().lower() == "true"
 
 
 # A tty's input queue holds 1024 bytes (TTYHOG, the same number as
