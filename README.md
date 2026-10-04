@@ -154,12 +154,16 @@ With one config dir nothing changes: no label, no Acct value.
 
 ## Keys
 
-The screen shows; it never changes a session. The keys:
+The screen shows; the only thing it sends is a message you type. The keys:
 
 - arrow keys move the highlight; the lower half follows it: the session's
   details on the left, its last turns on the right
 - `t` toggles keyboard focus between the table and the transcript pane
   (arrow keys and PageUp/PageDown scroll it); `Escape` returns to the table
+- `m` opens a one-line input and types the text into the highlighted
+  session's tab, the same way as `podbay send` (any length). Enter sends,
+  `Escape` cancels
+- `j` does the same for Head Jeeves, whichever row is highlighted
 - `v` shows the newest file Head Jeeves wrote about the highlighted session
   (a checkup or a handover, see Head Jeeves)
 - `h` shows today's notification history

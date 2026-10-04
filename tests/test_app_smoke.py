@@ -254,3 +254,65 @@ async def test_quit_waits_for_running_poll_then_exits(monkeypatch):
     assert app._exit and not app._force_quit
 
 
+
+
+def _session_row(app, tmp_name="s1"):
+    from podbay.model import Session
+
+    now = datetime.now()
+    return Session(
+        session_id=tmp_name, pid=4242, cwd="/tmp", name=tmp_name, name_source="derived",
+        status="idle", status_updated_at=now, updated_at=now, started_at=now, last_turn="end_turn",
+    )
+
+
+@pytest.mark.asyncio
+async def test_m_sends_typed_text_to_highlighted_session_with_send_text(tmp_path, monkeypatch):
+    from textual.widgets import Input
+
+    sent = []
+    monkeypatch.setattr(iterm_mod, "get_tty_for_pid", lambda pid: f"/dev/ttys{pid}")
+    monkeypatch.setattr(iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
+
+    app = PodbayApp(state_store=StateStore(path=tmp_path / "state.json"), no_splash=True)
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        session = _session_row(app)
+        monkeypatch.setattr(app, "_selected_session", lambda: session)
+        await pilot.press("m")
+        await pilot.pause()
+        long_text = "x" * 3000
+        app.screen.query_one("#prompt-input", Input).value = long_text
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert sent == [("/dev/ttys4242", long_text)]
+
+
+@pytest.mark.asyncio
+async def test_j_sends_to_head_jeeves_and_escape_sends_nothing(tmp_path, monkeypatch):
+    from textual.widgets import Input
+
+    sent = []
+    monkeypatch.setattr(iterm_mod, "get_tty_for_pid", lambda pid: f"/dev/ttys{pid}")
+    monkeypatch.setattr(iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
+
+    app = PodbayApp(state_store=StateStore(path=tmp_path / "state.json"), no_splash=True)
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        head = _session_row(app, "head")
+        head.pid = 777
+        monkeypatch.setattr(app, "_head_jeeves_session", lambda: head)
+        await pilot.press("j")
+        await pilot.pause()
+        app.screen.query_one("#prompt-input", Input).value = "status?"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert sent == []
+        await pilot.press("j")
+        await pilot.pause()
+        app.screen.query_one("#prompt-input", Input).value = "status?"
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert sent == [("/dev/ttys777", "status?")]

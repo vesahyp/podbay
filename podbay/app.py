@@ -28,11 +28,11 @@ from rich.theme import Theme
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import DataTable, Footer, Static
+from textual.widgets import DataTable, Footer, Input, Label, Static
 
 from . import config
 from . import board
@@ -177,6 +177,8 @@ RECAP_MIN_WIDTH = 12
 # session. New actions are added here only.
 ACTIONS = [
     ("t", "toggle_transcript", "Transcript"),
+    ("m", "message", "Message"),
+    ("j", "message_head_jeeves", "Message Head Jeeves"),
     ("h", "history", "History"),
     ("v", "view_review", "Review"),
     ("r", "refresh", "Refresh"),
@@ -491,6 +493,61 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
             blocks.append(Text(text, style="dim"))
         blocks.append(Text(""))
     return Group(*blocks[:-1])
+
+
+class PromptScreen(ModalScreen[str | None]):
+    """A single-line input modal. Enter submits, Escape cancels."""
+
+    DEFAULT_CSS = """
+    PromptScreen {
+        align: center middle;
+        background: transparent 60%;
+    }
+    #prompt-box {
+        width: 80%;
+        height: auto;
+        border: round #e0201f;
+        padding: 1 2;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    #prompt-box Label {
+        color: #d9c9a0;
+    }
+    #prompt-box Input {
+        background: #000000;
+        color: #d9c9a0;
+        border: solid #e0201f;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, prompt: str):
+        super().__init__()
+        self._prompt = prompt
+        self._done = False
+
+    def _finish(self, value: str | None) -> None:
+        # Enter and Escape can race; dismissing twice raises in Textual.
+        if self._done:
+            return
+        self._done = True
+        self.dismiss(value)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="prompt-box"):
+            yield Label(self._prompt)
+            yield Input(id="prompt-input")
+
+    def on_mount(self) -> None:
+        self.query_one("#prompt-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._finish(event.value)
+
+    def action_cancel(self) -> None:
+        self._finish(None)
 
 
 class ReviewScreen(ModalScreen[None]):
@@ -1368,6 +1425,33 @@ class PodbayApp(App):
         is_shell = getattr(session, "is_shell", False)
         tty = session.tty if is_shell else iterm_mod.get_tty_for_pid(session.pid)
         return bool(tty) and iterm_mod.send_text(tty, text)
+
+    def _message_prompt(self, session: Session, label: str) -> None:
+        """Ask for one line and type it into `session`'s tab: the code path
+        of `podbay send`, so any length arrives whole."""
+
+        def handle_result(value: str | None) -> None:
+            text = (value or "").strip()
+            if not text:
+                return
+            if not self._send_to_session(session, text):
+                self.notify(voice.no_tab(), severity="warning")
+                return
+            self.notify(voice.message_sent(label))
+
+        self.push_screen(PromptScreen(f"Message to {label}:"), handle_result)
+
+    def action_message(self) -> None:
+        session = self._selected_session()
+        if session is not None:
+            self._message_prompt(session, session.title)
+
+    def action_message_head_jeeves(self) -> None:
+        head = self._head_jeeves_session()
+        if head is None:
+            self.notify("Head Jeeves is not running.", severity="warning")
+            return
+        self._message_prompt(head, "Head Jeeves")
 
     def notify(self, message, *args, **kwargs) -> None:
         self._record_notification(kwargs.get("severity") or "information", str(message))

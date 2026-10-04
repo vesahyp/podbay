@@ -340,6 +340,10 @@ def hal_heated(title: str) -> str:
     return f"I sense some frustration in {title}, {USER_NAME}. It may be the moment to step back and say what you want in one sentence."
 
 
+def message_sent(title: str) -> str:
+    return f"Message relayed to {title}, {USER_NAME}."
+
+
 def head_jeeves_sent(command: str) -> str:
     return f"→ head-jeeves: {command}"
 
