@@ -4,7 +4,6 @@ right account when it opens or resumes a session."""
 
 import json
 import os
-import shlex
 from datetime import datetime
 from pathlib import Path
 
@@ -200,75 +199,6 @@ async def test_header_drops_the_label_with_a_single_account(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_open_claude_asks_which_account_then_runs_claude_as_it(tmp_path, monkeypatch):
-    from textual.widgets import Input
-
-    # under the real home, so the command shows the ~ form of the config dir
-    app = _app(tmp_path, monkeypatch, _accounts(Path.home()))
-    writes = []
-    monkeypatch.setattr(app_mod.iterm_mod, "open_window", lambda *_a, **_k: "win-1", raising=False)
-    monkeypatch.setattr(app_mod.iterm_mod, "write_text_to_window", lambda w, t: writes.append(t) or True, raising=False)
-
-    async with app.run_test(size=(140, 40)) as pilot:
-        await app.workers.wait_for_complete()
-        app.action_open_claude()
-        await pilot.pause()
-        assert isinstance(app.screen, app_mod.AccountScreen)
-        table = app.screen.query_one("#account-table")
-        assert [str(table.get_cell_at((i, 1))) for i in range(table.row_count)] == ["claude", "personal"]
-        assert table.cursor_row == 0  # the default account, nothing highlighted
-        await pilot.press("2")  # the personal row's digit
-        await pilot.pause()
-        assert isinstance(app.screen, app_mod.PromptScreen)
-        box = app.screen.query_one("#prompt-input", Input)
-        assert box.value == os.path.expanduser("~")
-        box.value = "~/Repositories/keitos"
-        await pilot.press("enter")
-        await pilot.pause()
-
-    expected_dir = shlex.quote(os.path.expanduser("~/Repositories/keitos"))
-    assert writes == [f"cd {expected_dir} && CLAUDE_CONFIG_DIR=~/.claude-personal claude"]
-
-
-@pytest.mark.asyncio
-async def test_open_claude_pick_list_preselects_the_highlighted_sessions_account(tmp_path, monkeypatch):
-    from datetime import datetime
-
-    from tests.test_app import _selection_session
-
-    accounts = _accounts(Path.home())
-    now = datetime.now()
-    session = _selection_session("p", now, account="personal")
-    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [session])
-    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
-    app = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts)
-
-    async with app.run_test(size=(140, 40)) as pilot:
-        await app.workers.wait_for_complete()
-        await pilot.pause()
-        app.action_open_claude()
-        await pilot.pause()
-        table = app.screen.query_one("#account-table")
-        assert table.cursor_row == 1
-        assert str(table.get_cell_at((1, 3))) == "1"  # one live personal session
-        await pilot.press("escape")
-        await pilot.pause()
-        assert not isinstance(app.screen, app_mod.AccountScreen)
-
-
-@pytest.mark.asyncio
-async def test_open_claude_skips_the_pick_list_with_one_account(tmp_path, monkeypatch):
-    app = _app(tmp_path, monkeypatch, _accounts(Path.home())[:1])
-    async with app.run_test(size=(140, 40)) as pilot:
-        await app.workers.wait_for_complete()
-        app.action_open_claude()
-        await pilot.pause()
-        assert isinstance(app.screen, app_mod.PromptScreen)
-        await pilot.press("escape")
-        await pilot.pause()
-
-
-@pytest.mark.asyncio
 async def test_transcript_pane_reads_the_sessions_own_account(tmp_path, monkeypatch):
     """A personal session's transcript lives under ~/.claude-personal/projects;
     the pane must look there, not under the default account."""
@@ -339,37 +269,6 @@ def test_remote_session_comes_from_the_registry_bridge_id(tmp_path):
     rows = {r["session_id"]: r for r in app_mod.build_rows(sessions, datetime.now())}
     assert str(rows["bridged"]["remote"]) == app_mod.REMOTE_GLYPH
     assert rows["local"]["remote"] == ""
-
-
-@pytest.mark.asyncio
-async def test_remote_key_toggles_remote_control_in_the_sessions_tab(tmp_path, monkeypatch):
-    from datetime import datetime
-
-    from tests.test_app import _selection_session
-
-    now = datetime.now()
-    local = _selection_session("a", now)
-    bridged = _selection_session("b", now, remote_session_id="session_01XYZ")
-    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [local, bridged])
-    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
-    sent, toasts = [], []
-    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
-    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
-    app = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=_accounts(tmp_path))
-    monkeypatch.setattr(app, "notify", lambda message, *a, **k: toasts.append(str(message)))
-
-    async with app.run_test(size=(160, 40)) as pilot:
-        await app.workers.wait_for_complete()
-        await pilot.pause()
-        table = app.query_one("#table")
-        keys = app._row_keys
-        table.move_cursor(row=keys.index("a"))
-        app.action_remote()
-        table.move_cursor(row=keys.index("b"))
-        app.action_remote()
-
-    assert sent == [("/dev/ttys009", "/remote-control")] * 2  # the command toggles
-    assert "requested" in toasts[0] and "switched off" in toasts[1]
 
 
 @pytest.mark.asyncio

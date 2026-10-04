@@ -61,7 +61,6 @@ Then `podbay` opens the TUI; `podbay list` prints the same rows as text.
 podbay                 # the TUI
 podbay --no-splash     # without the HAL startup and shutdown sequences
 podbay list
-podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>
 podbay notify <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
@@ -126,17 +125,11 @@ Claude has used (`podbay/accounts.py`) and labels sessions with the suffix:
 
 - the **Acct** column and the detail pane name the account
 - the header shows one quota group per account, labelled
-- `o` (open) first asks which account, one row per config dir with its
-  live session count, pre-selected to the highlighted row's account; Enter
-  or the row's digit picks, then the directory prompt follows
 
 With one config dir nothing changes: no label, no Acct value.
 
 ## Keys
 
-- `Enter` focuses the selected session's iTerm2 tab. This is the only action
-  that switches to iTerm2; `o` and `R` start Claude in a tab and leave you
-  in podbay
 - `p` parks (snoozes) the selected session: `+2h`, `+3d`, `today 14`,
   `tomorrow`, `tomorrow 9`, `fri 14`, `2026-09-12`, `2026-09-12 09:00`,
   `14:30`, `14`. A parked session sorts to the bottom until it is due
@@ -144,14 +137,6 @@ With one config dir nothing changes: no label, no Acct value.
 - `n` edits the note
 - `t` toggles keyboard focus between the table and the transcript pane
   (arrow keys and PageUp/PageDown scroll it); `Escape` returns to the table
-- `m` composes a message and types it into the selected session's tab
-  without switching tabs (it queues behind Claude Code when busy)
-- `o` starts Claude: in the highlighted terminal when it is a plain shell,
-  else in the next free terminal, else in a new window. With more than one
-  account it asks which one first
-- `x` toggles Remote Control for the highlighted session by typing
-  `/remote-control` into it; on, the session appears in the Claude mobile
-  app and on claude.ai/code, and the RC column shows `⇅`
 - `E` sends the highlighted session to Head Jeeves for its exit interview
   (see Head Jeeves); `v` shows the newest review of it
 - `h` shows today's notification history

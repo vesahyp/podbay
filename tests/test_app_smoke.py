@@ -34,10 +34,9 @@ async def test_refresh_key_does_not_raise():
 
 
 @pytest.mark.asyncio
-async def test_toggle_transcript_and_message_keys_do_not_raise(tmp_path, monkeypatch):
-    # Never park or send anything against real sessions from this test.
+async def test_toggle_transcript_and_escape_keys_do_not_raise(tmp_path, monkeypatch):
+    # Never send anything against real sessions from this test.
     monkeypatch.setattr(iterm_mod, "get_tty_for_pid", lambda pid: None)
-    monkeypatch.setattr(iterm_mod, "focus_tty", lambda tty: False)
     monkeypatch.setattr(iterm_mod, "send_text", lambda tty, text: False)
 
     state_store = StateStore(path=tmp_path / "state.json")
@@ -45,8 +44,6 @@ async def test_toggle_transcript_and_message_keys_do_not_raise(tmp_path, monkeyp
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
         await pilot.press("t")
-        await pilot.pause()
-        await pilot.press("m")
         await pilot.pause()
         await pilot.press("escape")
         await pilot.pause()

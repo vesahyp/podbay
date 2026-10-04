@@ -210,38 +210,6 @@ def test_open_window_returns_none_when_iterm_unreachable(monkeypatch):
     assert iterm.open_window() is None
 
 
-def test_write_text_to_window_true_on_match(monkeypatch):
-    import podbay.iterm as iterm
-
-    calls = []
-
-    def fake_run(cmd, **kwargs):
-        calls.append(cmd)
-        return _FakeCompletedProcess(stdout="true\n")
-
-    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
-    assert iterm.write_text_to_window("w1", "hello \"world\"") is True
-    assert calls[0][-2:] == ["w1", 'hello "world"']
-
-
-def test_write_text_to_window_false_on_no_match(monkeypatch):
-    import podbay.iterm as iterm
-
-    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess(stdout="false\n"))
-    assert iterm.write_text_to_window("nope", "hello") is False
-
-
-def test_write_text_to_window_false_when_iterm_unreachable(monkeypatch):
-    import podbay.iterm as iterm
-    import subprocess as real_subprocess
-
-    def boom(cmd, **kwargs):
-        raise real_subprocess.SubprocessError("no iTerm2")
-
-    monkeypatch.setattr(iterm.subprocess, "run", boom)
-    assert iterm.write_text_to_window("w1", "hello") is False
-
-
 def test_read_session_text_trims_to_last_n_lines(monkeypatch):
     import podbay.iterm as iterm
 

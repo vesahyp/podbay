@@ -1,9 +1,9 @@
 """Textual podbay app + CLI entry point.
 
-`podbay` launches the TUI, `podbay list` prints the same rows as plain
-text, `podbay focus <sessionName|pid>` jumps straight to a tab, `podbay
-send <sessionName|pid> <text...>` writes a message into a tab without
-switching to it.
+`podbay` launches the TUI, a read-only status screen that also keeps Head
+Jeeves running and fed; `podbay list` prints the same rows as plain text.
+The other subcommands are Head Jeeves' instrument: inventory, excerpt,
+send, open, close, board, notify, config.
 """
 
 from __future__ import annotations
@@ -161,9 +161,6 @@ REMOTE_STYLE = "bold #5fd7ff"
 ACCOUNT_TONE = "label"
 ACCOUNT_STYLE = f"bold {HAL_AMBER}"
 ACCOUNT_SEPARATOR = "  │  "
-# Enter on the account pick list is "take this one"; the digits are the
-# shortcut shown in front of each row.
-ACCOUNT_PICK_KEYS = "123456789"
 RECAP_MIN_WIDTH = 12
 
 # One row per user-facing action: (key, textual action name, footer label).
@@ -173,10 +170,7 @@ ACTIONS = [
     ("u", "unpark", "Unpark"),
     ("n", "note", "Note"),
     ("t", "toggle_transcript", "Transcript"),
-    ("m", "message", "Message"),
-    ("o", "open_claude", "Open claude"),
     ("h", "history", "History"),
-    ("x", "remote", "Remote"),
     ("E", "exit_interview", "Exit interview"),
     ("v", "view_review", "Review"),
     ("r", "refresh", "Refresh"),
@@ -478,92 +472,6 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
     return Group(*blocks[:-1])
 
 
-class AccountScreen(ModalScreen["Account | None"]):
-    """Which account to start claude as: one row per config dir Claude has
-    been run from, the highlighted session's account pre-selected. Enter or
-    the row's digit picks, Escape cancels. Only shown when there is more
-    than one account."""
-
-    DEFAULT_CSS = """
-    AccountScreen {
-        align: center middle;
-        background: transparent 60%;
-    }
-    #account-box {
-        width: 60;
-        height: auto;
-        border: round #e0201f;
-        padding: 1 2;
-        background: #000000;
-        color: #d9c9a0;
-    }
-    #account-box Label {
-        color: #d9c9a0;
-        margin-bottom: 1;
-    }
-    #account-table {
-        height: auto;
-        background: #000000;
-        color: #d9c9a0;
-    }
-    """
-
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
-
-    def __init__(self, accounts: list[Account], current: Account | None, live_counts: dict[str, int] | None = None):
-        super().__init__()
-        self._accounts = accounts
-        self._current = current
-        self._live_counts = live_counts or {}
-        self._done = False
-
-    def _finish(self, value) -> None:
-        if self._done:
-            return
-        self._done = True
-        self.dismiss(value)
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="account-box"):
-            yield Label("Start claude as which account?  enter or digit picks, esc cancels")
-            yield DataTable(id="account-table", cursor_type="row")
-
-    def on_mount(self) -> None:
-        table = self.query_one("#account-table", DataTable)
-        table.add_columns(" ", "Account", "Config dir", "Live")
-        home = os.path.expanduser("~")
-        for i, account in enumerate(self._accounts):
-            shown = str(account.config_dir)
-            if shown.startswith(home + "/"):
-                shown = "~" + shown[len(home):]
-            live = self._live_counts.get(account.label, 0)
-            table.add_row(
-                ACCOUNT_PICK_KEYS[i] if i < len(ACCOUNT_PICK_KEYS) else "",
-                Text(account.label, style=ACCOUNT_STYLE),
-                shown,
-                str(live) if live else "",
-                key=account.label,
-            )
-        if self._current is not None and self._current in self._accounts:
-            table.move_cursor(row=self._accounts.index(self._current))
-        table.focus()
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        event.stop()
-        if 0 <= event.cursor_row < len(self._accounts):
-            self._finish(self._accounts[event.cursor_row])
-
-    def on_key(self, event) -> None:
-        if event.character and event.character in ACCOUNT_PICK_KEYS:
-            index = ACCOUNT_PICK_KEYS.index(event.character)
-            if index < len(self._accounts):
-                event.stop()
-                self._finish(self._accounts[index])
-
-    def action_cancel(self) -> None:
-        self._finish(None)
-
-
 class PromptScreen(ModalScreen[str | None]):
     """A single-line input modal. Enter submits, Escape cancels."""
 
@@ -773,7 +681,6 @@ class PodbayHeader(Widget):
 class PodbayApp(App):
     TITLE = "podbay"
     BINDINGS = [
-        Binding("enter", "focus_selected", "Focus"),
         Binding("escape", "escape_pressed", "", show=False),
         *[Binding(key, action, label) for key, action, label in ACTIONS],
     ]
@@ -899,11 +806,6 @@ class PodbayApp(App):
         self._limits_now: datetime = datetime.now()
         self._shell_text_cache: dict[str, tuple[float, str]] = {}
         self._shell_read_timer = None
-        # Terminal that `o` just started Claude in: its shell row is about to
-        # be replaced by a Claude row with a new session id, and the cursor
-        # should follow the terminal across that change (see _redraw_table).
-        self._follow_tty: str | None = None
-        self._follow_until: float = 0.0
         # Notification history for `h`. Only main() passes a file path, so a
         # test never appends to the real history; without one it stays in memory.
         self._notifications_path = notifications_path
@@ -1236,28 +1138,10 @@ class PodbayApp(App):
         self.push_screen(ReviewScreen(text, path))
 
 
-    # Claude registers itself within a few seconds of starting; past this the
-    # start most likely failed and the cursor is released.
-    FOLLOW_TTY_SECONDS = 60
-
-    def _follow(self, tty: str | None) -> None:
-        self._follow_tty = tty
-        self._follow_until = time.time() + self.FOLLOW_TTY_SECONDS
-
     def _cursor_row_after_redraw(self, previous_key: str | None, previous_index: int | None) -> int | None:
-        """Where the cursor goes once the rows have been rebuilt: the row the
-        followed terminal now shows (a shell row turning into a Claude row
-        keeps the highlight), else the same session id, else the same index
-        (clamped) so a vanished row never throws the cursor back to the top."""
-        if self._follow_tty and time.time() > self._follow_until:
-            self._follow_tty = None  # Claude never showed up there: stop pinning the cursor to that shell
-        if self._follow_tty:
-            for i, row in enumerate(self.rows):
-                session = row["session"]
-                if getattr(session, "tty", None) == self._follow_tty:
-                    if not getattr(session, "is_shell", False):
-                        self._follow_tty = None  # Claude is up in that terminal: the follow is done
-                    return i
+        """Where the cursor goes once the rows have been rebuilt: the same
+        session id, else the same index (clamped) so a vanished row never
+        throws the cursor back to the top."""
         if previous_key and previous_key in self._row_keys:
             return self._row_keys.index(previous_key)
         if previous_index is not None and self._row_keys:
@@ -1468,12 +1352,9 @@ class PodbayApp(App):
         self._update_detail()
         self._refresh_transcript()
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self.action_focus_selected()
-
     def _mark_seen(self, session: Session) -> None:
-        """You are looking at this session now: clear its unread marker in
-        the table at once, and persist so the next scan agrees."""
+        """You are reading this session's transcript pane: clear its unread
+        marker in the table at once, and persist so the next scan agrees."""
         now = datetime.now()
         session.seen_at = now
         self.state_store.set_seen(session.session_id, now)
@@ -1483,20 +1364,9 @@ class PodbayApp(App):
         except Exception:
             pass  # row vanished between selection and click; the next scan redraws
 
-    def action_focus_selected(self) -> None:
-        # The only place podbay switches to iTerm2, and only on an explicit
-        # Enter. Nothing else (open, resume, refresh) may call focus_tty.
-        session = self._selected_session()
-        if session is None:
-            return
-        self._mark_seen(session)
-        tty = iterm_mod.get_tty_for_pid(session.pid)
-        if not tty or not iterm_mod.focus_tty(tty):
-            self.notify(voice.no_tab(), severity="warning")
-
     def _require_claude_session(self, session: Session | None, action_label: str) -> bool:
-        """park/unpark/note store per-Claude-session state; a plain-shell
-        row has none. False means the caller already notified."""
+        """A plain-shell row has no Claude session state. False means the
+        caller already notified."""
         if session is not None and getattr(session, "is_shell", False):
             self.notify(f"{action_label}: no Claude session on this row", severity="warning")
             return False
@@ -1572,31 +1442,13 @@ class PodbayApp(App):
         self.push_screen(PromptScreen("Note:", initial=session.note or ""), handle_result)
 
     def _send_to_session(self, session: Session, text: str) -> bool:
-        """Resolve the target tty exactly as action_message does (a shell
-        row already carries its own tty from the iTerm2 join; a Claude row's
-        tty comes from its pid) and write text into it via iTerm2."""
+        """Write text into the session's tab via iTerm2: a shell row already
+        carries its own tty from the iTerm2 join, a Claude row's tty comes
+        from its pid. What podbay types into Head Jeeves and into the
+        session it primes as him."""
         is_shell = getattr(session, "is_shell", False)
         tty = session.tty if is_shell else iterm_mod.get_tty_for_pid(session.pid)
         return bool(tty) and iterm_mod.send_text(tty, text)
-
-    def action_message(self) -> None:
-        """A Claude row goes through get_tty_for_pid (session.pid); a plain
-        shell already carries its own tty from the iTerm2 join."""
-        session = self._selected_session()
-        if session is None:
-            return
-        is_shell = getattr(session, "is_shell", False)
-
-        def handle_result(value: str | None) -> None:
-            if not value:
-                return
-            if not self._send_to_session(session, value):
-                self.notify(voice.no_tab(), severity="warning")
-                return
-            self.notify(voice.message_sent(session.title))
-
-        target = f"shell {session.title} ({session.cwd or session.tty})" if is_shell else session.title
-        self.push_screen(PromptScreen(f"Message to {target}:", glyph=glyphs.MESSAGE), handle_result)
 
     def notify(self, message, *args, **kwargs) -> None:
         self._record_notification(kwargs.get("severity") or "information", str(message))
@@ -1616,30 +1468,6 @@ class PodbayApp(App):
 
     def action_history(self) -> None:
         self.push_screen(HistoryScreen(self._notification_history(datetime.now())))
-
-    def _focus_session(self, session: Session) -> None:
-        """Switch to the session's iTerm2 tab from a list screen (g, j)."""
-        self._mark_seen(session)
-        tty = iterm_mod.get_tty_for_pid(session.pid)
-        if not tty or not iterm_mod.focus_tty(tty):
-            self.notify(voice.no_tab(), severity="warning")
-
-    def action_remote(self) -> None:
-        """Toggle Remote Control for the highlighted session by typing
-        /remote-control into its tab (the command itself toggles). On, the
-        session shows up in the Claude app and on claude.ai/code; the
-        registry reports the bridge within a few seconds and the RC column
-        follows."""
-        session = self._selected_session()
-        if session is None:
-            return
-        if not self._require_claude_session(session, "Remote"):
-            return
-        if not self._send_to_session(session, REMOTE_CONTROL_COMMAND):
-            self.notify(voice.no_tab(), severity="warning")
-            return
-        self.notify(voice.remote_toggled(session.title, turning_on=not session.remote_session_id))
-        self.trigger_refresh()
 
     def action_refresh(self) -> None:
         self.trigger_refresh()
@@ -1663,10 +1491,6 @@ class PodbayApp(App):
             free.insert(0, highlighted)
         return free
 
-    def _free_shell_session(self) -> Session | None:
-        free = self._free_shell_sessions()
-        return free[0] if free else None
-
     def _dispatch_command(self, pool: list[Session], command: str) -> tuple[bool, bool]:
         """Run `command` in the next free shell pane in `pool` (popped, so
         repeated calls advance through it), or open a new iTerm2 window when
@@ -1677,37 +1501,10 @@ class PodbayApp(App):
             return iterm_mod.send_text(target.tty, command), True
         return bool(iterm_mod.open_window(command=command)), False
 
-    def _live_counts(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for session in self._live_sessions.values():
-            counts[session.account] = counts.get(session.account, 0) + 1
-        return counts
-
     def _claude_command(self, account: Account, directory: str, args: str = "") -> str:
         prefix = account.command_prefix()
         tail = f" {args}" if args else ""
         return f"cd {shlex.quote(os.path.expanduser(directory))} && {prefix}claude{tail}"
-
-    def action_open_claude(self) -> None:
-        """Starts Claude in the highlighted terminal when that one is a plain
-        shell, otherwise in the next free terminal, and only opens a new
-        window when every terminal is busy. With more than one account the
-        pick list comes first, pre-selected to the highlighted session's
-        account (the default one on a shell row); then the directory prompt."""
-        session = self._selected_session()
-        is_shell = session is not None and getattr(session, "is_shell", False)
-        default_dir = self._open_default_dir(session)
-        account = self._accounts[0] if session is None or is_shell else (by_label(self._accounts, session.account) or self._accounts[0])
-        free = session if is_shell else self._free_shell_session()
-
-        def handle_account(chosen: Account | None) -> None:
-            if chosen is not None:
-                self._prompt_open_directory(chosen, default_dir, free)
-
-        if len(self._accounts) > 1:
-            self.push_screen(AccountScreen(self._accounts, account, self._live_counts()), handle_account)
-        else:
-            self._prompt_open_directory(account, default_dir, free)
 
     @staticmethod
     def _open_default_dir(session: Session | None) -> str:
@@ -1722,45 +1519,6 @@ class PodbayApp(App):
         if session is not None and session.cwd:
             return session.cwd
         return os.path.expanduser("~")
-
-    def _prompt_open_directory(self, chosen: Account, default_dir: str, free: Session | None) -> None:
-        def handle_result(value: str | None) -> None:
-            directory = (value or "").strip()
-            if not directory:
-                return
-            command = self._claude_command(chosen, directory)
-            if free is not None and free.tty:
-                if not iterm_mod.send_text(free.tty, command):
-                    self.notify(voice.no_tab(), severity="warning")
-                    return
-                self.notify(f"claude started in {free.title} ({directory})")
-                self._follow(free.tty)
-                self.trigger_refresh()
-                return
-
-            open_window = getattr(iterm_mod, "open_window", None)
-            write_text = getattr(iterm_mod, "write_text_to_window", None)
-            if open_window is None or write_text is None:
-                self.notify("open claude: not available yet", severity="warning")
-                return
-            window_id = open_window()
-            if not window_id:
-                self.notify("could not open a new window", severity="warning")
-                return
-            if not write_text(window_id, command):
-                self.notify("opened a window but could not start claude", severity="warning")
-                return
-            self.notify(f"claude started in a new window ({directory})")
-            self.trigger_refresh()
-
-        target = f"in {free.title}" if free is not None else "in a new window"
-        who = f" as {chosen.label}" if len(self._accounts) > 1 else ""
-        self.push_screen(PromptScreen(f"Start claude {target}{who}, directory:", initial=default_dir), handle_result)
-
-
-# Typed into a session's tab to toggle its bridge; the registry then adds or
-# drops bridgeSessionId within a few seconds.
-REMOTE_CONTROL_COMMAND = "/remote-control"
 
 
 def _plain(value: Text | str) -> str:
@@ -1992,18 +1750,6 @@ def cmd_excerpt(target: str, turns: int) -> None:
     print(reviewer.excerpt(path, turns))
 
 
-def cmd_focus(target: str) -> None:
-    match = _find_session(target)
-    if match is None:
-        print(f"no live session matches {target!r}", file=sys.stderr)
-        sys.exit(1)
-
-    tty = iterm_mod.get_tty_for_pid(match.pid)
-    if not tty or not iterm_mod.focus_tty(tty):
-        print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid})", file=sys.stderr)
-        sys.exit(1)
-
-
 def cmd_send(target: str, text: str) -> None:
     """Type `text` into a session's tab. Run from inside a Claude session
     (Head Jeeves passing an order on), the text is recorded as the agent's,
@@ -2134,8 +1880,6 @@ def main() -> None:
     sub.add_parser("list", help="print sessions as plain text")
 
     target_help = "session name, pid, id, terminal number (#6), repo, or a fragment of its title"
-    focus_parser = sub.add_parser("focus", help="focus a session's iTerm2 tab")
-    focus_parser.add_argument("target", help=target_help)
 
     send_parser = sub.add_parser("send", help="send a message to a session's iTerm2 tab")
     send_parser.add_argument("target", help=target_help)
@@ -2184,8 +1928,6 @@ def main() -> None:
         cmd_config(args.key, args.value)
     elif args.command == "list":
         cmd_list()
-    elif args.command == "focus":
-        cmd_focus(args.target)
     elif args.command == "send":
         cmd_send(args.target, " ".join(args.text))
     elif args.command == "notify":

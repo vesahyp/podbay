@@ -1,4 +1,5 @@
-"""iTerm2 tab mapping and focus.
+"""iTerm2 tab mapping, and the AppleScript that types into, opens, reads
+and closes tabs.
 
 Maps a session's pid to its controlling tty, and the tty to an iTerm2 tab
 via AppleScript. The tab listing is cached and refreshed on a TTL so we
@@ -60,30 +61,6 @@ end tell
 # bounds of w is a 4-item list {x1, y1, x2, y2}; concatenating it "as string"
 # collapses to an unparseable run of digits (verified), so each coordinate is
 # pulled out with "item N of b" and joined with the record's own " | " delimiter.
-
-# Only selects/activates when a matching tty is found, so running this
-# against a tty that matches nothing is a safe no-op (no focus stolen).
-FOCUS_SCRIPT_TEMPLATE = """
-tell application "iTerm2"
-	set found to false
-	repeat with w in windows
-		repeat with t in tabs of w
-			repeat with s in sessions of t
-				if (tty of s) is "{tty}" then
-					select w
-					select t
-					select s
-					set found to true
-				end if
-			end repeat
-		end repeat
-	end repeat
-	if found then
-		activate
-	end if
-	return found
-end tell
-"""
 
 @dataclass
 class TabInfo:
@@ -353,17 +330,6 @@ class ItermLister:
         return {pid: tabs.get(ttys[pid]) if pid in ttys else None for pid in pids}
 
 
-def focus_tty(tty: str) -> bool:
-    """Select and activate the iTerm2 tab whose session has this tty.
-    Returns True if a matching tab was found (and focused)."""
-    script = FOCUS_SCRIPT_TEMPLATE.format(tty=tty)
-    try:
-        out = _run_applescript(script)
-    except (subprocess.SubprocessError, OSError):
-        return False
-    return out.strip().lower() == "true"
-
-
 # argv-based (never string-interpolated) so quotes/unicode in the message
 # survive; also never select/activate the target tab.
 SEND_SCRIPT_LINES = [
@@ -447,44 +413,8 @@ def open_window(command: str | None = None, profile: str | None = None) -> str |
     return opened[0] if opened else None
 
 
-# argv-based, same reason as SEND_SCRIPT_LINES. `write text` submits the
-# line (unlike SEND_SCRIPT_LINES's split write -- this targets a plain
-# shell, not Claude Code's prompt box, so there's no paste-vs-submit issue).
-WRITE_WINDOW_SCRIPT_LINES = [
-    "on run argv",
-    '  tell application "iTerm2"',
-    "    set targetId to item 1 of argv",
-    "    set targetText to item 2 of argv",
-    "    set found to false",
-    "    repeat with w in windows",
-    "      if ((id of w) as text) is targetId then",
-    "        tell current session of w to write text targetText",
-    "        set found to true",
-    "      end if",
-    "    end repeat",
-    "    return found",
-    "  end tell",
-    "end run",
-]
-
-
-def write_text_to_window(window_id: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
-    """Write `text` into the current session of the window with this id.
-    Returns True iff a matching window was found; False (never raises) on
-    no match or when iTerm2 couldn't be reached."""
-    cmd = ["osascript"]
-    for line in WRITE_WINDOW_SCRIPT_LINES:
-        cmd += ["-e", line]
-    cmd += [window_id, text]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except (subprocess.SubprocessError, OSError):
-        return False
-    return result.stdout.strip().lower() == "true"
-
-
-# Guarded the same way FOCUS_SCRIPT_TEMPLATE is: a tty that matches nothing
-# returns "" (no marker needed -- an empty session also returns "").
+# A tty that matches nothing returns "" (no marker needed -- an empty
+# session also returns "").
 READ_SESSION_SCRIPT_TEMPLATE = """
 tell application "iTerm2"
 	repeat with w in windows

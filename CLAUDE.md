@@ -38,7 +38,7 @@ podbay/
   sources.py        every read of Claude Code's files: registry,
                       transcripts, snapshots; the iTerm2 join
   model.py          Session and the status derivation; repo groups
-  iterm.py          AppleScript: list tabs, focus, send text, open window
+  iterm.py          AppleScript: list tabs, send text, open and close windows
   state.py          park/note/seen state; parse_when for park expressions
   opened.py         the sessions `podbay open` started and who ran it, and
                       what agents typed into sessions through podbay, so
@@ -87,8 +87,9 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 - Read-only against Claude Code's files. podbay writes only under
   `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
   `podbay close` is the one command that ends a session and closes a tab.
-- `Enter` is the only action that switches to iTerm2. Open and resume start
-  Claude in a tab and leave the user in podbay.
+- Nothing in the TUI switches to iTerm2 or types into a session. The
+  background loop types only into Head Jeeves (and the session it primes
+  as him); `podbay send` and `podbay open` are the CLI, run by him.
 - Every user-facing string lives in `voice.py`.
 - Nothing personal in the repo: no login names, no home paths, no repo
   names from one machine. Tests build paths from `Path.home()` and set
