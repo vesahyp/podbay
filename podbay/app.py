@@ -147,6 +147,19 @@ HEAD_JEEVES_GLYPH = "◉"
 # How long a just-started Head Jeeves may take to show up idle before the
 # queued command is dropped.
 HEAD_JEEVES_LAUNCH_TIMEOUT = timedelta(seconds=90)
+# Head Jeeves is the session the phone is bridged to, so a full context is
+# compacted in place, never replaced (config head-jeeves-compact-at). The
+# focus names what the summary must carry; everything else he needs is in
+# files (see "What survives a compact" in skills/head-jeeves/SKILL.md).
+# One line: a slash command's arguments end at the first newline.
+HEAD_JEEVES_COMPACT = (
+    "/compact Keep, each with its exact value: the board artifact URL; every open decision "
+    "waiting on the user; shipped work the user has not tested yet, with its URL and steps; "
+    "every session you started that is still running and what each is for; pushes held for "
+    "quiet hours; and the standing rules from your skill and memory. "
+    "Drop transcripts, excerpts and tool output."
+)
+HEAD_JEEVES_COMPACT_EVERY = timedelta(minutes=30)
 # A review file that lands within this of a scan is "new": toast it.
 REVIEWS_POLL_SECONDS = 5
 # Remote Control on: the session can be driven from the phone or the web.
@@ -349,6 +362,32 @@ class QuitWaitScreen(ModalScreen[None]):
     def on_key(self, event) -> None:
         event.stop()
         self._on_force()
+
+
+def compact_due(
+    head: Session,
+    now: datetime,
+    threshold: int,
+    last_compact_at: datetime | None,
+    last_sent_at: datetime | None,
+) -> bool:
+    """Whether Head Jeeves should be compacted now: context use at or above
+    `threshold` percent (0 means never), his last turn ended and nothing is
+    open (no question or permission dialog, no subagent, no background task),
+    his newest turn is younger than the last command podbay typed into him
+    (so nothing podbay sent waits unanswered), and the previous compact is at
+    least HEAD_JEEVES_COMPACT_EVERY ago."""
+    if threshold <= 0 or head.context_pct is None or head.context_pct < threshold:
+        return False
+    if head.last_turn != "end_turn" or head.last_turn_ts is None:
+        return False
+    if head.awaiting_prompt or head.derive_status(now) != NEEDS_YOU:
+        return False
+    if last_sent_at is not None and head.last_turn_ts <= last_sent_at:
+        return False
+    if last_compact_at is not None and now - last_compact_at < HEAD_JEEVES_COMPACT_EVERY:
+        return False
+    return True
 
 
 def build_rows(sessions: list[Session], now: datetime) -> list[dict]:
@@ -667,6 +706,7 @@ class PodbayApp(App):
         review_model: str | None = None,
         reviews_dir: Path | None = None,
         head_jeeves_account: str | None = None,
+        head_jeeves_compact_at: int = config.HEAD_JEEVES_COMPACT_AT,
     ):
         super().__init__()
         # HAL's remarks (hal.py). Off unless asked: a test or a script that
@@ -685,6 +725,11 @@ class PodbayApp(App):
         # The session podbay primed as Head Jeeves: his /rename takes a few
         # scans to show in the registry, and he is him in the meantime.
         self._head_jeeves_id: str | None = None
+        # The last command podbay typed into him, and the last /compact: a
+        # compact goes only once he has answered everything podbay sent.
+        self._head_jeeves_sent_at: datetime | None = None
+        self._head_jeeves_compacted_at: datetime | None = None
+        self._head_jeeves_compact_at = head_jeeves_compact_at
         self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
@@ -887,6 +932,7 @@ class PodbayApp(App):
         self._limits_now = now
         self._hal_remarks(sessions, now)
         self._ensure_head_jeeves()
+        self._compact_head_jeeves(now)
         self._watch_reviews()
 
         try:
@@ -936,7 +982,27 @@ class PodbayApp(App):
         if not self._send_to_session(head, command):
             self.notify(voice.no_tab(), severity="warning")
             return
+        self._head_jeeves_sent_at = datetime.now()
         self.notify(voice.head_jeeves_sent(command))
+
+    def _compact_head_jeeves(self, now: datetime) -> None:
+        """Send Head Jeeves `/compact` with HEAD_JEEVES_COMPACT when his
+        context use has reached the threshold and he is idle: never while a
+        turn runs, a launch is pending or a command podbay sent is still
+        unanswered, and at most once per HEAD_JEEVES_COMPACT_EVERY."""
+        if not self._head_jeeves or self._head_jeeves_pending is not None:
+            return
+        head = self._head_jeeves_session()
+        if head is None or not compact_due(
+            head, now, self._head_jeeves_compact_at, self._head_jeeves_compacted_at, self._head_jeeves_sent_at
+        ):
+            return
+        if not self._send_to_session(head, HEAD_JEEVES_COMPACT):
+            self.notify(voice.no_tab(), severity="warning")
+            return
+        self._head_jeeves_compacted_at = now
+        self._head_jeeves_sent_at = datetime.now()
+        self.notify(voice.head_jeeves_compacting(head.context_pct or 0), title=voice.SHIP_NAME)
 
     def _start_head_jeeves(self, follow_up: str) -> None:
         """No Head Jeeves session exists: launch one from the home repo (the
@@ -993,6 +1059,7 @@ class PodbayApp(App):
         if not self._send_to_session(candidate, pending["follow_up"]):
             self.notify(voice.no_tab(), severity="warning")
             return
+        self._head_jeeves_sent_at = datetime.now()
         self.notify(voice.head_jeeves_sent(pending["follow_up"]))
 
     def _ensure_head_jeeves(self) -> None:
@@ -1805,6 +1872,7 @@ def main() -> None:
             head_jeeves=config.head_jeeves_on(),
             review_model=config.review_model(),
             head_jeeves_account=config.head_jeeves_account(),
+            head_jeeves_compact_at=config.head_jeeves_compact_at(),
         )
         app.run()
         log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")

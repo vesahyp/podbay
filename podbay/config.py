@@ -20,6 +20,11 @@ Keys:
   head_jeeves_account  the account label he runs as (see accounts.py), so
               he is the session your phone shows when that account bridges
               at startup. Default: the default account.
+  head_jeeves_compact_at  the context use, in percent, at which podbay sends
+              Head Jeeves `/compact` once he is idle (his turn ended, nothing
+              podbay sent him is unanswered), at most once per 30 minutes, so
+              the session the phone is bridged to never fills up and never
+              has to be replaced. Default 60; 0 or off never compacts.
   notify_command  the command `podbay notify <text>` runs with the text as
               its last argument, to push one line to the user's phone (a
               script with fixed arguments, split like a shell line). Empty,
@@ -41,6 +46,7 @@ KEYS = {
     "voice": "voice",
     "head-jeeves": "head_jeeves",
     "head-jeeves-account": "head_jeeves_account",
+    "head-jeeves-compact-at": "head_jeeves_compact_at",
     "review-model": "review_model",
     "notify-command": "notify_command",
 }
@@ -99,6 +105,23 @@ def review_model(path: Path | None = None) -> str | None:
 
 def head_jeeves_account(path: Path | None = None) -> str | None:
     return str(read(path).get("head_jeeves_account") or "") or None
+
+
+HEAD_JEEVES_COMPACT_AT = 60
+
+
+def head_jeeves_compact_at(path: Path | None = None) -> int:
+    """The percent of context use that triggers a compact; 0 means never.
+    An unreadable value is the default, never a crash at startup."""
+    raw = str(read(path).get("head_jeeves_compact_at", "")).strip().lower()
+    if raw == "":
+        return HEAD_JEEVES_COMPACT_AT
+    if raw == "off":
+        return 0
+    try:
+        return max(0, min(100, int(float(raw))))
+    except ValueError:
+        return HEAD_JEEVES_COMPACT_AT
 
 
 def notify_command(path: Path | None = None) -> str:

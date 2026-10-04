@@ -344,6 +344,10 @@ def head_jeeves_starting() -> str:
     return f"Starting a Head Jeeves session, {USER_NAME}."
 
 
+def head_jeeves_compacting(pct: float) -> str:
+    return f"Head Jeeves is at {pct:.0f}% of his context, {USER_NAME}. Compacting him in place."
+
+
 def head_jeeves_late() -> str:
     return f"I'm sorry, {USER_NAME}. Head Jeeves did not report for duty in time."
 

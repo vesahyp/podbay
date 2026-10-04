@@ -88,6 +88,7 @@ podbay config voice off          # HAL stops remarking on what changed (on | off
 podbay config head-jeeves on     # keep a Head Jeeves session running and send it work (default off)
 podbay config head-jeeves-account personal   # the account he runs as (default: the default account)
 podbay config review-model sonnet   # the model Head Jeeves runs on (default: the account's own)
+podbay config head-jeeves-compact-at 60   # compact Head Jeeves in place at this context use, idle only, once per 30 min (default 60; off never)
 podbay config notify-command "~/bin/push --tag ''"   # what `podbay notify` runs; empty (default) means off
 podbay config                    # show every setting
 ```
