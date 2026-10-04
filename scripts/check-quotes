@@ -12,13 +12,19 @@ cd "$(dirname "$0")/.."
 
 files=$(git ls-files -- '*.md' 'site/*.html' 'site/**/*.html' 'tests/*.py' 'skills/**' | grep -v '^LICENSE$')
 
+# The user's name is not written here either: it is the git author's name
+# and the login, read when the check runs, as one alternation (a|b|c).
+names=$( { git config user.name; id -un; printf '%s\n' "${PODBAY_USER:-}"; } 2>/dev/null \
+  | tr ' ' '\n' | awk 'length($0) > 2 && !seen[tolower($0)]++' | paste -sd '|' - )
+[ -n "$names" ] || names='nobody-at-all'
+
 # One pattern per line. Case-insensitive, extended regex.
-patterns='(user|his|her|their|vesa)'"'"'?s? (own |exact |actual )?words
-\b(he|she|they|vesa|the user) (said|wrote|told|put it|asked)\b
-\bsaid:
-\bquot(e|ed|ing) (the user|him|her|them|vesa)\b
-\bvesa\b
-\(20[0-9]{2}-[0-9]{2}-[0-9]{2}\)'
+patterns="(user|his|her|their|$names)'?s? (own |exact |actual )?words
+\\b(he|she|they|the user|$names) (said|wrote|told|put it|asked)\\b
+\\bsaid:
+\\bquot(e|ed|ing) (the user|him|her|them|$names)\\b
+\\b($names)\\b
+\\(20[0-9]{2}-[0-9]{2}-[0-9]{2}\\)"
 
 rc=0
 printf '%s\n' "$patterns" | while IFS= read -r pat; do
