@@ -54,7 +54,7 @@ FADE_FRAMES = int(FADE_SECONDS * FPS)
 FADE_IN_SECONDS = 0.6
 FADE_OUT_SECONDS = 0.4  # the main screen darkening before the shutdown eye
 
-_DAVE_COLOR = "#d9c9a0"  # dim body text
+_USER_COLOR = "#d9c9a0"  # dim body text
 _HAL_COLOR = "#e0201f"  # HAL red
 _SEPARATOR = " > "
 
@@ -79,13 +79,16 @@ def _full_line(speaker: str, quote: str) -> str:
     return f"{speaker}{_SEPARATOR}{quote}"
 
 
-_DAVE_FULL = _full_line(voice.SPLASH_DAVE_SPEAKER, voice.SPLASH_DAVE_LINE)
-_HAL_FULL = _full_line(voice.SPLASH_HAL_SPEAKER, voice.SPLASH_HAL_LINE)
-_SHUTDOWN_FULL = _full_line(voice.SHUTDOWN_HAL_SPEAKER, voice.SHUTDOWN_HAL_LINE)
+# The lines name you, so the container is laid out for the longest name
+# HAL uses (voice.NAME_MAX): the frames below are built once, at import.
+_LONGEST_NAME = "W" * voice.NAME_MAX
+_USER_FULL = _full_line(_LONGEST_NAME, voice.SPLASH_USER_LINE)
+_HAL_FULL = _full_line("HAL".ljust(voice.NAME_MAX), f"I'm sorry, {_LONGEST_NAME}. I'm afraid I can't do that.")
+_SHUTDOWN_FULL = _full_line(voice.SHUTDOWN_HAL_SPEAKER, f"My mind is going, {_LONGEST_NAME}. I can feel it.")
 
 # The container has to be at least as wide as the eye and at least as wide
 # as any dialog line, so pick the largest.
-CONTAINER_WIDTH = max(_EYE_WIDTH, len(_DAVE_FULL), len(_HAL_FULL), len(_SHUTDOWN_FULL))
+CONTAINER_WIDTH = max(_EYE_WIDTH, len(_USER_FULL), len(_HAL_FULL), len(_SHUTDOWN_FULL))
 _EYE_LEFT_PAD = (CONTAINER_WIDTH - _EYE_WIDTH) // 2
 _EYE_RIGHT_PAD = CONTAINER_WIDTH - _EYE_WIDTH - _EYE_LEFT_PAD
 
@@ -289,11 +292,18 @@ class DialogLine:
         return _full_line(self.speaker, self.quote)
 
 
-SPLASH_LINES = (
-    DialogLine(voice.SPLASH_DAVE_SPEAKER, voice.SPLASH_DAVE_LINE, _DAVE_COLOR, pulse=False),
-    DialogLine(voice.SPLASH_HAL_SPEAKER, voice.SPLASH_HAL_LINE, _HAL_COLOR, pulse=True),
-)
-SHUTDOWN_LINES = (DialogLine(voice.SHUTDOWN_HAL_SPEAKER, voice.SHUTDOWN_HAL_LINE, _HAL_COLOR, pulse=True),)
+def splash_lines() -> tuple[DialogLine, ...]:
+    """Built when a screen starts, so a name given at the first start is in
+    the lines."""
+    user, hal = voice.splash_speakers()
+    return (
+        DialogLine(user, voice.SPLASH_USER_LINE, _USER_COLOR, pulse=False),
+        DialogLine(hal, voice.splash_hal_line(), _HAL_COLOR, pulse=True),
+    )
+
+
+def shutdown_lines() -> tuple[DialogLine, ...]:
+    return (DialogLine(voice.SHUTDOWN_HAL_SPEAKER, voice.shutdown_hal_line(), _HAL_COLOR, pulse=True),)
 
 
 class EyeScreen(Screen[None]):
@@ -302,8 +312,11 @@ class EyeScreen(Screen[None]):
     press does. The whole frame is composited into one Static (see the
     module docstring for why)."""
 
-    LINES: tuple[DialogLine, ...] = SPLASH_LINES
+    LINES: tuple[DialogLine, ...] = ()
     HOLD: float = HOLD_SECONDS
+
+    def _lines(self) -> tuple[DialogLine, ...]:
+        return splash_lines()
 
     DEFAULT_CSS = """
     EyeScreen {
@@ -319,6 +332,7 @@ class EyeScreen(Screen[None]):
         super().__init__()
         self._on_complete = on_complete
         self._backdrop = backdrop
+        self.LINES = self._lines()
         self._backdrop_t = 0.0  # dissolve progress of the backdrop, 1 = gone
         self._eye = MATERIALISE_FRAMES_ART[0]
         self._keep = 1.0  # colour brightness of the dialog during the dissolve
@@ -455,11 +469,10 @@ class EyeScreen(Screen[None]):
 
 
 class SplashScreen(EyeScreen):
-    """Startup: the eye comes up through the captured terminal text, Dave
-    asks, HAL refuses, the eye dissolves and the screen dismisses so app.py
+    """Startup: the eye comes up through the captured terminal text, you ask,
+    HAL refuses, the eye dissolves and the screen dismisses so app.py
     can fade the main screen in. Any key skips to the dissolve."""
 
-    LINES = SPLASH_LINES
     HOLD = HOLD_SECONDS
 
     def _finish(self) -> None:
@@ -473,8 +486,10 @@ class ShutdownScreen(EyeScreen):
     """Quit: the eye comes back up, HAL's mind goes, the eye dissolves and
     on_complete (app.exit) runs. Any key exits at once."""
 
-    LINES = SHUTDOWN_LINES
     HOLD = SHUTDOWN_HOLD_SECONDS
+
+    def _lines(self) -> tuple[DialogLine, ...]:
+        return shutdown_lines()
 
     def on_key(self, event: Key) -> None:
         event.stop()

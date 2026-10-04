@@ -4,7 +4,7 @@ import os
 # imported, and otherwise by the login name of whoever runs the tests. The
 # suite addresses the crew member of the film, so the expected strings are
 # the same on every machine and name nobody.
-os.environ["PODBAY_USER"] = "Dave"
+os.environ["PODBAY_USER"] = "Frank"
 
 import pytest  # noqa: E402
 
@@ -23,7 +23,7 @@ def _no_real_claude_cli(monkeypatch):
         raise FileNotFoundError("claude")
 
     monkeypatch.setattr(usage_mod.subprocess, "run", _missing_binary)
-    monkeypatch.setattr(voice_mod, "USER_NAME", "Dave")
+    monkeypatch.setattr(voice_mod, "USER_NAME", "Frank")
 
 
 @pytest.fixture(autouse=True)
@@ -126,3 +126,12 @@ def _isolated_board_url(monkeypatch, tmp_path):
     from podbay import board as board_mod
 
     monkeypatch.setattr(board_mod, "URL_PATH", tmp_path / "board-url")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(monkeypatch, tmp_path):
+    """A test that saves a setting (the name the first start asks for)
+    never writes the real ~/.config/podbay/config.json."""
+    from podbay import config as config_mod
+
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")

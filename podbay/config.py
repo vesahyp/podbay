@@ -30,6 +30,11 @@ Keys:
               script with fixed arguments, split like a shell line). Empty,
               the default, means off: nothing is sent.
 
+  user_name   how HAL addresses you, in the splash, the shutdown and every
+              remark. The screen asks for it at the first start and saves
+              it here; set it again to change it, clear it ("") to be asked
+              again. PODBAY_USER in the environment overrides it.
+
 PODBAY_HOME_REPO in the environment overrides the file, for a one-off run.
 """
 
@@ -49,6 +54,7 @@ KEYS = {
     "head-jeeves-compact-at": "head_jeeves_compact_at",
     "review-model": "review_model",
     "notify-command": "notify_command",
+    "user-name": "user_name",
 }
 
 
@@ -133,3 +139,7 @@ def home_repo(path: Path | None = None) -> str:
     if env is not None:
         return env
     return str(read(path).get("home_repo") or "")
+
+
+def user_name(path: Path | None = None) -> str:
+    return str(read(path).get("user_name") or "").strip()

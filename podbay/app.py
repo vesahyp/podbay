@@ -896,8 +896,12 @@ class PodbayApp(App):
         reviews_dir: Path | None = None,
         head_jeeves_account: str | None = None,
         head_jeeves_compact_at: int = config.HEAD_JEEVES_COMPACT_AT,
+        ask_name: bool = False,
     ):
         super().__init__()
+        # The first start asks how HAL should address you (voice.USER_NAME)
+        # before the splash, which says the name. Only main() asks.
+        self._ask_name = ask_name
         # HAL's remarks (hal.py). Off unless asked: a test or a script that
         # mounts the app must not toast about the real sessions.
         self._voice_mode = voice_mode
@@ -989,15 +993,33 @@ class PodbayApp(App):
         self.set_interval(TABLE_REFRESH_SECONDS, self.trigger_refresh)
         self._refresh_usage()
         self.set_interval(USAGE_REFRESH_SECONDS, self._refresh_usage)
-        if not self.no_splash:
-            # The main screen starts fully dark and fades in once the splash
-            # has dissolved to black, so splash -> app is one continuous fade.
-            main = self.screen
-            main.styles.opacity = 0.0
-            self.push_screen(
-                SplashScreen(backdrop=self.backdrop),
-                lambda _result: main.styles.animate("opacity", 1.0, duration=FADE_IN_SECONDS),
-            )
+        if self._ask_name:
+            self.screen.styles.opacity = 0.0
+            self.push_screen(PromptScreen(voice.name_question(), glyph=glyphs.MESSAGE), self._name_given)
+        else:
+            self._start_splash()
+
+    def _name_given(self, value: str | None) -> None:
+        """Save the name the first start asked for. Escape or an empty line
+        keeps the login name for now and asks again at the next start."""
+        name = voice.clean_name(value or "")
+        if name:
+            config.set_value("user-name", name)
+            voice.set_user_name(name)
+        self._start_splash()
+
+    def _start_splash(self) -> None:
+        main = self.screen
+        if self.no_splash:
+            main.styles.opacity = 1.0
+            return
+        # The main screen starts fully dark and fades in once the splash
+        # has dissolved to black, so splash -> app is one continuous fade.
+        main.styles.opacity = 0.0
+        self.push_screen(
+            SplashScreen(backdrop=self.backdrop),
+            lambda _result: main.styles.animate("opacity", 1.0, duration=FADE_IN_SECONDS),
+        )
 
     def action_quit(self) -> None:
         """Quit through the eye: the main screen fades to black, HAL's
@@ -2157,6 +2179,8 @@ def cmd_config(key: str | None, value: str | None) -> None:
     if value is None:
         print(config.read().get(config.KEYS[key], ""))
         return
+    if key == "user-name":
+        value = voice.clean_name(value)
     data = config.set_value(key, value)
     print(f"{key} = {data.get(config.KEYS[key], '')}  ({config.CONFIG_PATH}; restart podbay to apply)")
 
@@ -2329,6 +2353,7 @@ def main() -> None:
             review_model=config.review_model(),
             head_jeeves_account=config.head_jeeves_account(),
             head_jeeves_compact_at=config.head_jeeves_compact_at(),
+            ask_name=not os.environ.get("PODBAY_USER") and not config.user_name(),
         )
         run_screen(app)
 

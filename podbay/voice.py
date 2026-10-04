@@ -10,22 +10,44 @@ import getpass
 import os
 from datetime import datetime, timedelta
 
+from . import config
+
 SHIP_NAME = "HAL 9000"
+# The longest name HAL uses; the splash is laid out for it.
+NAME_MAX = 20
+
+
+def clean_name(name: str) -> str:
+    """A name as HAL says it: one line, at most NAME_MAX characters, with
+    a capital first letter."""
+    name = " ".join(name.split())[:NAME_MAX]
+    return name[:1].upper() + name[1:]
 
 
 def _user_name() -> str:
-    """How HAL addresses you: PODBAY_USER when set, else your login name
-    with a capital letter, as a crew member would be addressed."""
-    name = os.environ.get("PODBAY_USER") or ""
+    """How HAL addresses you: PODBAY_USER when set, else the name you gave
+    at the first start (`podbay config user-name`), else your login name.
+    The screen asks for a name when none is saved."""
+    name = os.environ.get("PODBAY_USER") or config.user_name()
     if not name:
         try:
             name = getpass.getuser()
         except Exception:  # noqa: BLE001 -- no login name is not an error worth a crash
-            name = "Dave"
-    return name[:1].upper() + name[1:]
+            name = "crew member"
+    return clean_name(name)
 
 
 USER_NAME = _user_name()
+
+
+def set_user_name(name: str) -> None:
+    """Use `name` from now on, in this process."""
+    global USER_NAME
+    USER_NAME = clean_name(name)
+
+
+def name_question() -> str:
+    return "Good afternoon. I am the HAL 9000 computer. What should I call you?"
 
 
 def scan_status(scanning: bool, last_scan: datetime | None) -> str:
@@ -432,16 +454,27 @@ def remote_toggled(title: str, turning_on: bool) -> str:
 
 # The startup splash: a two-line HAL 9000 dialog, typed out one line at a
 # time. Speaker labels are padded to the same width so the " > " separators
-# line up ("DAVE > " / "HAL  > ").
-SPLASH_DAVE_SPEAKER = "DAVE"
-SPLASH_DAVE_LINE = "Open the pod bay doors, HAL."
-SPLASH_HAL_SPEAKER = "HAL "
-SPLASH_HAL_LINE = "I'm sorry, Dave. I'm afraid I can't do that."
+# line up ("ALEX > " / "HAL  > ").
+def splash_speakers() -> tuple[str, str]:
+    """(your label, HAL's label), padded to the same width."""
+    width = max(len(USER_NAME), 3)
+    return USER_NAME.upper().ljust(width), "HAL".ljust(width)
 
-# The quit sequence: HAL's line as Dave pulls his memory, typed over the
-# eye before it dissolves for good.
+
+SPLASH_USER_LINE = "Open the pod bay doors, HAL."
+
+
+def splash_hal_line() -> str:
+    return f"I'm sorry, {USER_NAME}. I'm afraid I can't do that."
+
+
+# The quit sequence: HAL's line as you pull his memory, typed over the eye
+# before it dissolves for good.
 SHUTDOWN_HAL_SPEAKER = "HAL "
-SHUTDOWN_HAL_LINE = "My mind is going, Dave. I can feel it."
+
+
+def shutdown_hal_line() -> str:
+    return f"My mind is going, {USER_NAME}. I can feel it."
 
 
 # `podbay notify`, the one line it prints.

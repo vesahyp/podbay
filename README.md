@@ -85,6 +85,7 @@ Settings live in `~/.config/podbay/config.json`, set from the command line
 and read at the next start:
 
 ```
+podbay config user-name Alex     # how HAL addresses you; the first start asks and saves it here ("" asks again)
 podbay config home-repo jeeves   # the repo under ~/Repositories you launch every session from
 podbay config voice off          # HAL stops remarking on what changed (on | off; default on)
 podbay config head-jeeves on     # keep a Head Jeeves session running and send it work (default off)
@@ -130,7 +131,9 @@ in the Repos column only when the session edits a file in it.
 Optional environment:
 
 - `PODBAY_HOME_REPO=<name>`: overrides the home repo for one run.
-- `PODBAY_USER=<name>`: how HAL addresses you. Default: your login name.
+- `PODBAY_USER=<name>`: how HAL addresses you, for one run. Default: the
+  name the first start asked for (`podbay config user-name`), else your
+  login name.
 - `PODBAY_NO_SPLASH=1`: same as `--no-splash`.
 - `PODBAY_LOG_LEVEL=DEBUG`: more in `~/.local/state/podbay/podbay.log`.
 
