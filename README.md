@@ -173,10 +173,13 @@ The screen shows. It changes a session in three ways only: the message you type,
 - `j` does the same for Head Jeeves, whichever row is highlighted. Its
   prompt shows a blue bow tie, the `m` prompt HAL's red eye, so you see
   which one you are typing into
-- `o` asks for a repo (a name under the repos directory, or a path) and
-  starts claude for it the same way as `podbay open`: in a free terminal or
-  a new window, on the account and model `podbay accounts` suggests. The
-  result shows as a notification when claude is up
+- `o` asks for a repo (a name under the repos directory, or a path), then,
+  with more than one account, which account: each row shows the strongest
+  model that account has room for and its 5-hour and 7-day use, and the
+  account `podbay accounts` suggests is pre-selected. Enter or the row's
+  digit picks. claude then starts the same way as `podbay open`: in a free
+  terminal or a new window. The result shows as a notification when claude
+  is up
 - `v` shows the newest file Head Jeeves wrote about the highlighted session
   (a checkup or a handover, see Head Jeeves)
 - `h` shows today's notification history

@@ -367,14 +367,20 @@ def test_open_directory_takes_a_repo_name_or_a_path(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_open_key_runs_podbay_open_with_the_suggested_account(tmp_path, monkeypatch):
+async def test_open_key_asks_for_the_account_and_runs_podbay_open(tmp_path, monkeypatch):
     from podbay import app as app_mod
     from podbay import glyphs
-    from podbay.app import PromptScreen
+    from podbay.accounts import Account
+    from podbay.app import AccountScreen, PromptScreen
 
     (tmp_path / "repo").mkdir()
     monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
-    monkeypatch.setattr(app_mod.quota, "suggest", lambda entries, start: {"account": "work", "model": "opus"})
+    accounts = [Account(label="main", config_dir=tmp_path / ".claude"), Account(label="work", config_dir=tmp_path / ".claude-work")]
+    entries = [
+        {"account": "main", "quota_multiplier": 1, "five_hour": None, "seven_day": {"used_pct": 90.0, "left_pct": 10.0}, "models": []},
+        {"account": "work", "quota_multiplier": 1, "five_hour": None, "seven_day": {"used_pct": 10.0, "left_pct": 90.0}, "models": []},
+    ]
+    monkeypatch.setattr(app_mod, "_quota_entries", lambda accounts, fetch=True: entries)
     calls = []
 
     class Done:
@@ -393,6 +399,7 @@ async def test_open_key_runs_podbay_open_with_the_suggested_account(tmp_path, mo
     app = PodbayApp(no_splash=True)
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
+        app._accounts = accounts
         # Never start a real claude from this test.
         monkeypatch.setattr(app_mod.subprocess, "run", fake_run)
         await pilot.press("o")
@@ -403,6 +410,12 @@ async def test_open_key_runs_podbay_open_with_the_suggested_account(tmp_path, mo
         screen.query_one("#prompt-input").value = "repo"
         await pilot.press("enter")
         await pilot.pause()
+        picker = app.screen
+        assert isinstance(picker, AccountScreen)
+        # main is over the limit, so work is pre-selected; 1 picks main anyway.
+        assert picker.query_one("#account-table", DataTable).cursor_row == 1
+        await pilot.press("1")
+        await pilot.pause()
         await app.workers.wait_for_complete()
 
-    assert len(calls) == 1 and calls[0][-6:] == ["open", str((tmp_path / "repo").resolve()), "--account", "work", "--model", "opus"]
+    assert len(calls) == 1 and calls[0][-4:] == ["open", str((tmp_path / "repo").resolve()), "--account", "main"]

@@ -148,6 +148,13 @@ def suggest(entries: list[dict], start: str) -> dict | None:
     return None
 
 
+def best_model(entries: list[dict], account: str) -> str | None:
+    """The strongest model `account` has room for; None when it has room
+    for none."""
+    fits = {o["model"] for o in options(entries) if o["account"] == account}
+    return next((alias for alias in MODELS if alias in fits), None)
+
+
 def payload(entries: list[dict]) -> dict:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),

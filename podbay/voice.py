@@ -291,6 +291,15 @@ def opening(directory: str) -> str:
     return f"Opening the pod bay doors for {directory}, {USER_NAME}."
 
 
+def account_pick_title() -> str:
+    return "Open it as which account?  enter or digit picks, esc cancels"
+
+
+def account_full() -> str:
+    """The Model cell of an account that has room for no model."""
+    return "full"
+
+
 def no_directory(value: str) -> str:
     return f"I'm sorry, {USER_NAME}. {value} is not a directory."
 

@@ -175,6 +175,7 @@ REMOTE_STYLE = "bold #5fd7ff"
 # The account label in the header, in front of each account's quota group.
 ACCOUNT_TONE = "label"
 ACCOUNT_STYLE = f"bold {HAL_AMBER}"
+ACCOUNT_PICK_KEYS = "123456789"
 ACCOUNT_SEPARATOR = "  │  "
 RECAP_MIN_WIDTH = 12
 
@@ -510,6 +511,99 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
             blocks.append(Text(text, style="dim"))
         blocks.append(Text(""))
     return Group(*blocks[:-1])
+
+
+class AccountScreen(ModalScreen["tuple[Account, str | None] | None"]):
+    """Which account a new session runs as: one row per account with the
+    strongest model it has room for and its 5-hour and 7-day use, the
+    suggested account pre-selected. Enter or the row's digit picks, Escape
+    cancels. Returns (account, model); model is None when the account has
+    room for no model, and claude then takes the account's default."""
+
+    DEFAULT_CSS = """
+    AccountScreen {
+        align: center middle;
+        background: transparent 60%;
+    }
+    #account-box {
+        width: 64;
+        height: auto;
+        border: round #c8c8c8;
+        padding: 1 2;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    #account-box Label {
+        color: #d9c9a0;
+        margin-bottom: 1;
+    }
+    #account-table {
+        height: auto;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, accounts: list[Account], entries: list[dict], suggested: str | None, live_counts: dict[str, int]):
+        super().__init__()
+        self._accounts = accounts
+        self._entries = {e["account"]: e for e in entries}
+        self._models = {a.label: quota.best_model(entries, a.label) for a in accounts}
+        self._suggested = suggested
+        self._live_counts = live_counts
+        self._done = False
+
+    def _finish(self, value) -> None:
+        if self._done:
+            return
+        self._done = True
+        self.dismiss(value)
+
+    def _pick(self, index: int) -> None:
+        account = self._accounts[index]
+        self._finish((account, self._models[account.label]))
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="account-box"):
+            yield Label(voice.account_pick_title())
+            yield DataTable(id="account-table", cursor_type="row")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#account-table", DataTable)
+        table.add_columns(" ", "Account", "Model", "5h", "7d", "Live")
+        for i, account in enumerate(self._accounts):
+            entry = self._entries.get(account.label) or {}
+            live = self._live_counts.get(account.label, 0)
+            table.add_row(
+                ACCOUNT_PICK_KEYS[i] if i < len(ACCOUNT_PICK_KEYS) else "",
+                Text(account.label, style=ACCOUNT_STYLE),
+                self._models[account.label] or voice.account_full(),
+                quota._pct(entry.get("five_hour")),
+                quota._pct(entry.get("seven_day")),
+                str(live) if live else "",
+                key=account.label,
+            )
+        labels = [a.label for a in self._accounts]
+        if self._suggested in labels:
+            table.move_cursor(row=labels.index(self._suggested))
+        table.focus()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        event.stop()
+        if 0 <= event.cursor_row < len(self._accounts):
+            self._pick(event.cursor_row)
+
+    def on_key(self, event) -> None:
+        if event.character and event.character in ACCOUNT_PICK_KEYS:
+            index = ACCOUNT_PICK_KEYS.index(event.character)
+            if index < len(self._accounts):
+                event.stop()
+                self._pick(index)
+
+    def action_cancel(self) -> None:
+        self._finish(None)
 
 
 class PromptScreen(ModalScreen[str | None]):
@@ -1546,11 +1640,18 @@ class PodbayApp(App):
         self.push_screen(PromptScreen("Message to Head Jeeves:", glyph=glyphs.HEAD_JEEVES), handle_result)
 
     def action_open_session(self) -> None:
-        """Ask which repo, then start claude for it the way `podbay open`
-        does: in a free terminal or a new window, launched from the home
-        base, on the account and model `podbay accounts` suggests."""
+        """Ask which repo, then which account (with more than one), then
+        start claude for it the way `podbay open` does: in a free terminal
+        or a new window, launched from the home base."""
         session = self._selected_session()
         initial = session.cwd if session is not None and session.cwd else str(sources.REPOS_DIR) + os.sep
+
+        def handle_account(directory: str, picked: tuple[Account, str | None] | None) -> None:
+            if picked is None:
+                return
+            account, model = picked
+            self.notify(voice.opening(directory))
+            self._open_worker(directory, account.label, model)
 
         def handle_result(value: str | None) -> None:
             if not (value or "").strip():
@@ -1559,19 +1660,33 @@ class PodbayApp(App):
             if directory is None:
                 self.notify(voice.no_directory(value.strip()), severity="warning")
                 return
-            self.notify(voice.opening(directory))
-            self._open_worker(directory)
+            entries = _quota_entries(self._accounts, fetch=False)
+            if len(self._accounts) == 1:
+                handle_account(directory, (self._accounts[0], quota.best_model(entries, self._accounts[0].label)))
+                return
+            pick = quota.suggest(entries, quota.MODELS[0])
+            self.push_screen(
+                AccountScreen(self._accounts, entries, pick["account"] if pick else None, self._live_counts()),
+                lambda picked: handle_account(directory, picked),
+            )
 
         self.push_screen(PromptScreen("Open a session for the repo:", initial=initial, glyph=glyphs.OPEN), handle_result)
 
+    def _live_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in self.rows:
+            session = row["session"]
+            if not getattr(session, "is_shell", False):
+                counts[session.account] = counts.get(session.account, 0) + 1
+        return counts
+
     @work(thread=True, group="open")
-    def _open_worker(self, directory: str) -> None:
+    def _open_worker(self, directory: str, account: str, model: str | None) -> None:
         """Runs `podbay open` as a child process: it waits until claude is
         up, which takes far longer than a keypress may block."""
-        args = ["open", directory]
-        pick = quota.suggest(_quota_entries(self._accounts), quota.MODELS[0])
-        if pick is not None:
-            args += ["--account", pick["account"], "--model", pick["model"]]
+        args = ["open", directory, "--account", account]
+        if model:
+            args += ["--model", model]
         with self._polling(f"open {directory}"):
             result = subprocess.run(
                 [sys.executable, "-c", "from podbay.app import main; main()", *args],
@@ -2090,10 +2205,19 @@ def account_usage(account: Account) -> dict | None:
     return usage.read_cache(path)
 
 
-def _quota_entries(accounts: list[Account]) -> list[dict]:
+def _quota_entries(accounts: list[Account], fetch: bool = True) -> list[dict]:
+    """quota.account_entry for every account. fetch=False reads the /usage
+    cache at any age and never runs claude, so the TUI can call it on a
+    keypress."""
     snapshots = sources.read_status_snapshots()
     now = time.time()
-    return [quota.account_entry(a, sources.newest_limits(snapshots, a.label), account_usage(a), now) for a in accounts]
+    return [
+        quota.account_entry(
+            a, sources.newest_limits(snapshots, a.label),
+            account_usage(a) if fetch else usage.read_cache(usage.cache_path_for(a)), now,
+        )
+        for a in accounts
+    ]
 
 
 def cmd_accounts(as_json: bool) -> None:
