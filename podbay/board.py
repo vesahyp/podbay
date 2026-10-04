@@ -51,6 +51,10 @@ BOARD_PATH = STATE_DIR / "board.html"
 # kind keeps that session in the machine room only. A shipped entry whose
 # session has ended stays on the board for the day in `at`, under `repo`.
 HEADLINES_PATH = STATE_DIR / "headlines.json"
+# The artifact URL the board is published at, one line, recorded by
+# `podbay board --url <url>` so it survives a compact of Head Jeeves'
+# context, and printed by every `podbay board` after that.
+URL_PATH = STATE_DIR / "board-url"
 LINE_CHARS = 160
 KINDS = ("decision", "shipped", "progress")
 # The sections in page order: Head Jeeves' kinds, plus the finished sessions
@@ -527,6 +531,32 @@ def write(html_text: str, path: Path | None = None) -> Path:
             pass
         raise
     return path
+
+
+def save_url(url: str, path: Path | None = None) -> Path:
+    """Record the published board's URL; a bare https link, one line."""
+    path = path or URL_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".board-url-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(url.strip() + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def load_url(path: Path | None = None) -> str | None:
+    """The recorded board URL, or None when none was recorded yet."""
+    try:
+        return (path or URL_PATH).read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 def dump_json(payload: dict) -> str:

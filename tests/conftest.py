@@ -81,3 +81,12 @@ def _isolated_opened_file(monkeypatch, tmp_path):
 
     monkeypatch.setattr(opened_mod, "OPENED_PATH", tmp_path / "opened.json")
     monkeypatch.setattr(opened_mod, "SENT_PATH", tmp_path / "sent.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_board_url(monkeypatch, tmp_path):
+    """The board's published URL is recorded by the running Head Jeeves;
+    the suite must neither read nor overwrite this machine's."""
+    from podbay import board as board_mod
+
+    monkeypatch.setattr(board_mod, "URL_PATH", tmp_path / "board-url")

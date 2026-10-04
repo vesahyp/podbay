@@ -1641,8 +1641,12 @@ def cmd_open(directory: str, account_label: str | None, name: str | None, prompt
     sys.exit(1)
 
 
-def cmd_board(out: Path | None) -> None:
-    """Write the board from the live inventory and print its path."""
+def cmd_board(out: Path | None, url: str | None = None) -> None:
+    """Write the board from the live inventory and print its path, then
+    the URL it is published at when one has been recorded (`--url` records
+    it; the file outlives Head Jeeves' context, see board.URL_PATH)."""
+    if url:
+        board.save_url(url)
     snapshots = sources.read_status_snapshots()
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister(), status_snapshots=snapshots)
     payload = inventory_payload(sessions, set())
@@ -1652,6 +1656,9 @@ def cmd_board(out: Path | None) -> None:
         print(f"headlines ignored: {problem}", file=sys.stderr)
     path = board.write(board.render(payload, limits=limits, headlines=headlines), out)
     print(path)
+    published = board.load_url()
+    if published:
+        print(f"published at {published}")
 
 
 def cmd_excerpt(target: str, turns: int) -> None:
@@ -1811,6 +1818,7 @@ def main() -> None:
 
     board_parser = sub.add_parser("board", help="write the status board page (decisions, ready to test, in progress, by project) for Head Jeeves to publish")
     board_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {board.BOARD_PATH})")
+    board_parser.add_argument("--url", default=None, metavar="URL", help="record the URL the board is published at; printed by every later `podbay board`")
 
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
     excerpt_parser.add_argument("target", help=target_help)
@@ -1850,7 +1858,7 @@ def main() -> None:
     elif args.command == "notify":
         sys.exit(cmd_notify(" ".join(args.text)))
     elif args.command == "board":
-        cmd_board(Path(args.out) if args.out else None)
+        cmd_board(Path(args.out) if args.out else None, args.url)
     elif args.command == "excerpt":
         cmd_excerpt(args.target, args.turns)
     elif args.command == "open":

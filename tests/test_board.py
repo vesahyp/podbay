@@ -126,6 +126,21 @@ def test_write_is_atomic_and_cmd_board_prints_the_path(tmp_path, monkeypatch, ca
     assert "No live sessions." in out.read_text()
 
 
+def test_the_published_url_is_recorded_once_and_printed_after_that(tmp_path, monkeypatch, capsys):
+    """The link lives in a file, not only in Head Jeeves' context, so it
+    survives a compact: `--url` records it, every later call prints it."""
+    from podbay import app as app_mod
+
+    out = tmp_path / "board.html"
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [])
+    assert board.load_url() is None
+    app_mod.cmd_board(out, "https://claude.ai/artifact/abc123 ")
+    assert capsys.readouterr().out == f"{out}\npublished at https://claude.ai/artifact/abc123\n"
+    app_mod.cmd_board(out)
+    assert capsys.readouterr().out == f"{out}\npublished at https://claude.ai/artifact/abc123\n"
+    assert board.URL_PATH.read_text() == "https://claude.ai/artifact/abc123\n"
+
+
 def test_a_card_age_never_contradicts_its_state():
     """sora read "working · idle 2h": the age said idle while the state said
     working. Each state words its own age."""
