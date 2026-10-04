@@ -41,7 +41,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import voice
-from .model import DUE, EMPTY, HOME_BASE, NEEDS_YOU, PARKED, SHELL, STALLED, WATCHING, WORKING, humanize_age
+from .model import EMPTY, HOME_BASE, NEEDS_YOU, SHELL, STALLED, WATCHING, WORKING, humanize_age
 
 STATE_DIR = Path.home() / ".local" / "state" / "podbay"
 BOARD_PATH = STATE_DIR / "board.html"
@@ -68,8 +68,8 @@ _ASK_KINDS = {
 # sessions podbay-fix-<what>): plumbing, not the user's work.
 _FIX_PREFIX = "podbay-"
 _PILL = {
-    NEEDS_YOU: "finished", STALLED: "stalled", DUE: "due",
-    WORKING: "working", WATCHING: "watching", PARKED: "parked", EMPTY: "empty", SHELL: "shell",
+    NEEDS_YOU: "finished", STALLED: "stalled",
+    WORKING: "working", WATCHING: "watching", EMPTY: "empty", SHELL: "shell",
 }
 
 _CSS = """
@@ -282,14 +282,6 @@ def _same_day(stamp: object, now: datetime) -> bool:
 def _when(session: dict, now: datetime) -> str:
     """Roughly when, for an In progress line without a headline."""
     state = session.get("state")
-    if state == PARKED and session.get("parked_until"):
-        try:
-            until = datetime.fromisoformat(session["parked_until"])
-        except ValueError:
-            return "parked"
-        return f"parked until {until:%H:%M}" if until.date() == now.date() else f"parked until {until:%a %-d %b}"
-    if state == DUE:
-        return "back on the list now"
     if state == STALLED:
         return f"no output for {humanize_age(session.get('age_seconds') or 0)}"
     if state == WATCHING:
@@ -303,7 +295,7 @@ def _classify(session: dict, headline: dict | None, now: datetime) -> str | None
     state = session.get("state")
     if headline:
         kind = headline.get("kind")
-        if kind == "decision" and state not in (NEEDS_YOU, STALLED, DUE):
+        if kind == "decision" and state not in (NEEDS_YOU, STALLED):
             kind = "progress"  # answered: the session is at work again, so the question is stale
             headline.pop("text", None)
         return kind if kind in KINDS else None
@@ -311,7 +303,7 @@ def _classify(session: dict, headline: dict | None, now: datetime) -> str | None
         return None
     if state == NEEDS_YOU and _ask(session):
         return "decision"
-    if state in (WORKING, WATCHING, STALLED, PARKED, DUE):
+    if state in (WORKING, WATCHING, STALLED):
         return "progress"
     # Done, but only Head Jeeves can say it is ready to test and how.
     if state == NEEDS_YOU and session.get("has_transcript") and _active_today(session, now):
@@ -416,8 +408,6 @@ def _room_row(session: dict, now: datetime) -> str:
     repo = session.get("work_repo") or session.get("repo") or ""
     state = session.get("state") or ""
     pill = _PILL.get(state, state)
-    if state == PARKED and session.get("parked_until"):
-        pill = f"parked until {session['parked_until'][5:16].replace('T', ' ')}"
     if state == EMPTY or not session.get("has_transcript"):
         pill = "never used"
     meta = " · ".join(x for x in (repo, pill, _age(session, now)) if x)
@@ -439,7 +429,7 @@ def render(
     headlines: dict[str, dict] | None = None,
 ) -> str:
     """The whole page from an inventory payload (see inventory_payload;
-    the sessions need `state`, `age_seconds` and `parked_until`), the
+    the sessions need `state` and `age_seconds`), the
     per-account limits (sources.newest_limits) and Head Jeeves' lines
     (load_headlines)."""
     now = now or datetime.now()

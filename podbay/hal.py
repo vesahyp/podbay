@@ -1,5 +1,5 @@
 """HAL remarks when something changed: a session finished and waits, asked a
-question, stalled, came due, a quota window ran hot; and, at long intervals,
+question, stalled, ended, a quota window ran hot; and, at long intervals,
 when the ship is quiet. Never at random, and only on screen: `remarks`
 compares the last refresh with this one and returns the lines, app.py shows
 them as toasts. `podbay config voice off` silences him.
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from . import mood, opened, voice
-from .model import DUE, NEEDS_YOU, STALLED, Session, is_head_jeeves
+from .model import NEEDS_YOU, STALLED, Session, is_head_jeeves
 
 # A quota window at or past this is hot: HAL warns once per window.
 QUOTA_HOT_PCT = 85.0
@@ -32,7 +32,7 @@ class Memory:
     heated: set[str] = field(default_factory=set)  # sessions whose prompts read heated last time
     newly_heated: list[str] = field(default_factory=list)  # ids that turned hot this refresh (for a checkup)
     # (session name, line) for each session event this refresh: finished,
-    # question, stalled, due, ended. What podbay forwards to Head Jeeves.
+    # question, stalled, ended. What podbay forwards to Head Jeeves.
     events: list[tuple[str, str]] = field(default_factory=list)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
@@ -59,7 +59,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
             continue
         derived = s.derive_status(now)
         current[s.session_id] = derived
-        if derived in (NEEDS_YOU, STALLED, DUE):
+        if derived in (NEEDS_YOU, STALLED):
             attention = True
         previous = memory.statuses.get(s.session_id)
         if not memory.primed or previous is None or previous == derived:
@@ -76,8 +76,6 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         elif derived == STALLED:
             minutes = int((now - s.last_turn_ts).total_seconds() // 60) if s.last_turn_ts else 0
             line = voice.hal_stalled(s.title, minutes)
-        elif derived == DUE:
-            line = voice.hal_due(s.title)
         if line:
             lines.append(line)
             memory.events.append((s.name, line))

@@ -243,8 +243,6 @@ def ship_segments() -> list[HeaderSegment]:
     return [(f"● POD BAY  ·  {SHIP_NAME}", None)]
 
 
-
-
 def header_segments(
     five_pct: float | None,
     five_resets_at: float | None,
@@ -263,14 +261,6 @@ def header_segments(
         segments.append(("  ·  ", None))
         segments.extend(limits)
     return segments
-
-
-def park_ok(when: datetime) -> str:
-    return f"Affirmative, {USER_NAME}. Parked until {when:%a %d.%m %H:%M}."
-
-
-def parse_error() -> str:
-    return f"I'm sorry, {USER_NAME}. I'm afraid I can't parse that."
 
 
 def open_target(directory: str) -> str:
@@ -312,10 +302,6 @@ def no_tab() -> str:
     return f"I'm sorry, {USER_NAME}. I cannot find that tab."
 
 
-def message_sent(title: str) -> str:
-    return f"Message relayed to {title}, {USER_NAME}."
-
-
 # HAL's remarks (see hal.py): one line each, said when something changed.
 
 
@@ -338,10 +324,6 @@ def hal_question(title: str) -> str:
 
 def hal_stalled(title: str, minutes: int) -> str:
     return f"I'm afraid {title} has been silent for {minutes} minutes, {USER_NAME}."
-
-
-def hal_due(title: str) -> str:
-    return f"{title} is due, {USER_NAME}. You asked me to remind you."
 
 
 def hal_quota_hot(account: str, window: str, pct: float, several_accounts: bool) -> str:
@@ -377,12 +359,6 @@ def review_none(title: str) -> str:
 
 def hal_quiet() -> str:
     return f"All systems are functioning normally, {USER_NAME}. Nothing needs you."
-
-
-def remote_toggled(title: str, turning_on: bool) -> str:
-    if turning_on:
-        return f"Remote Control requested for {title}. It appears in the Claude app shortly."
-    return f"Remote Control is being switched off for {title}."
 
 
 # The startup splash: a two-line HAL 9000 dialog, typed out one line at a

@@ -130,11 +130,6 @@ With one config dir nothing changes: no label, no Acct value.
 
 ## Keys
 
-- `p` parks (snoozes) the selected session: `+2h`, `+3d`, `today 14`,
-  `tomorrow`, `tomorrow 9`, `fri 14`, `2026-09-12`, `2026-09-12 09:00`,
-  `14:30`, `14`. A parked session sorts to the bottom until it is due
-- `u` unparks
-- `n` edits the note
 - `t` toggles keyboard focus between the table and the transcript pane
   (arrow keys and PageUp/PageDown scroll it); `Escape` returns to the table
 - `E` sends the highlighted session to Head Jeeves for its exit interview
@@ -163,14 +158,12 @@ on a tool call) or `end_turn`.
   answered, so while the dialog is up the registry status is the only signal
 - `in_progress` for more than 10 minutes: **stalled** (`~`)
 - `in_progress`: **working** (`*`)
-- `end_turn`, or no transcript signal: parked / due / needs-you, using park
-  state first, then the iTerm2 tab-title glyph, then the registry status
+- `end_turn`, or no transcript signal: **needs you**, using the iTerm2
+  tab-title glyph, then the registry status
 - a background subagent still `in_progress` (its own transcript under
   `<session-id>/subagents/`) counts as the session working
 - `end_turn` while a subagent it started still runs: **working**; with a
   background Bash command or Monitor still running: **watching** (`o`)
-- a turn after the park's due time clears the park, so a resumed session goes
-  back to needs-you instead of staying **due**
 - no transcript file at all: **empty** (`-`), opened and never typed into
 - an iTerm2 pane with no Claude session: **shell** (`$`), with its screen text
   in the right pane
@@ -193,8 +186,8 @@ left out. HAL remarks once when a session turns hot (see HAL speaks).
 A `●` in the first column marks a finished answer you have not looked at yet.
 It clears when you focus the tab or move into the transcript pane.
 
-Rows sort: due first, then needs-you and stalled (oldest idle first), then
-working and watching, then empty, then shells, then parked (soonest first).
+Rows sort: needs-you and stalled first (oldest idle first), then working and
+watching, then empty, then shells. Head Jeeves' row is always first.
 
 The **Repos** column lists the repos under `~/Repositories` a session has
 touched with a tool call, starred when it edited a file there, with a leading
@@ -203,7 +196,7 @@ touched with a tool call, starred when it edited a file there, with a leading
 ## HAL speaks
 
 HAL remarks when something changed, never at random: a session finished and
-waits for you, asked a question, stalled, or a park came due; an account's
+waits for you, asked a question, stalled, or ended; an account's
 five-hour window or week passed 85%; your prompts in a session turned
 heated. One remark per event, none for a
 session whose answer you have already seen. When nothing has needed you for
@@ -293,7 +286,7 @@ form `claude 5H 36% ↻2h15m  7D 17% ↻1d7h →~17%  Fable 32% →~32%`:
 
 ## State and logs
 
-- `~/.local/state/podbay/state.json`: park, note and seen-at per session.
+- `~/.local/state/podbay/state.json`: seen-at per session.
   Entries for dead sessions are pruned after 14 days. Delete the directory
   to reset.
 - `~/.local/state/podbay/status/*.json`: status-line snapshots.

@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime
 
 import pytest
 from textual.app import App
@@ -51,7 +52,8 @@ def test_save_survives_a_refused_rename(tmp_path, monkeypatch, caplog):
     """The 2026-09-21 crash: os.replace raised EPERM inside a refresh and
     the unhandled error took the TUI down. save() must report and carry on."""
     store = StateStore(tmp_path / "state.json")
-    store.set_note("sid", "first")  # a good save, so the file exists
+    first = datetime(2026, 9, 21, 12, 0)
+    store.set_seen("sid", first)  # a good save, so the file exists
 
     def refuse(src, dst):
         raise PermissionError(1, "Operation not permitted", src)
@@ -62,7 +64,7 @@ def test_save_survives_a_refused_rename(tmp_path, monkeypatch, caplog):
     assert "state save skipped" in caplog.text
     assert "Operation not permitted" in caplog.text
     assert list(tmp_path.glob(".state-*.json.tmp")) == []  # temp file cleaned up
-    assert StateStore(tmp_path / "state.json").get("sid").note == "first"  # old file intact
+    assert StateStore(tmp_path / "state.json").get("sid").seen_at == first  # old file intact
 
 
 def test_textual_still_exposes_the_exception_hook():

@@ -39,7 +39,7 @@ podbay/
                       transcripts, snapshots; the iTerm2 join
   model.py          Session and the status derivation; repo groups
   iterm.py          AppleScript: list tabs, send text, open and close windows
-  state.py          park/note/seen state; parse_when for park expressions
+  state.py          seen-at per session, pruned after 14 days
   opened.py         the sessions `podbay open` started and who ran it, and
                       what agents typed into sessions through podbay, so
                       the mood gauge skips it; its own files, since the
@@ -49,7 +49,6 @@ podbay/
   inventory.py      the JSON/table/status views for other agents
   voice.py          every string HAL says; the header segments
   splash.py         the HAL eye: startup and shutdown sequences
-  glyphs.py         the small eyes on the Park and Message prompts
   logs.py           the rotating application log
   notifications.py  the history behind `h`
   notify.py         `podbay notify`: one line to the user's phone through

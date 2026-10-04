@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 
 from podbay.iterm import TabInfo
 from podbay.sources import (
-    _auto_unpark,
     _cwds_for_pids,
     compute_waiting_on,
     count_running_subagents,
@@ -353,33 +352,6 @@ def test_newest_limits_blank_when_nothing_known():
         "week_pct": None,
         "week_resets_at": None,
     }
-
-
-# -- auto-unpark: a turn after the due time clears the park -------------------
-
-
-def test_auto_unpark_clears_expired_park_after_later_turn(tmp_path):
-    store = StateStore(tmp_path / "state.json")
-    due = datetime(2026, 9, 10, 9, 0)
-    store.set_parked("s1", due)
-    saved = _auto_unpark(store, "s1", due + timedelta(minutes=5))
-    assert saved.parked_until is None
-    assert StateStore(tmp_path / "state.json").get("s1").parked_until is None
-
-
-def test_auto_unpark_keeps_park_when_turn_precedes_due(tmp_path):
-    store = StateStore(tmp_path / "state.json")
-    due = datetime(2026, 9, 12, 9, 0)
-    store.set_parked("s1", due)
-    saved = _auto_unpark(store, "s1", due - timedelta(hours=3))
-    assert saved.parked_until == due
-
-
-def test_auto_unpark_noop_without_park_or_turn(tmp_path):
-    store = StateStore(tmp_path / "state.json")
-    assert _auto_unpark(store, "s1", None).parked_until is None
-    store.set_parked("s2", datetime(2026, 9, 10, 9, 0))
-    assert _auto_unpark(store, "s2", None).parked_until == datetime(2026, 9, 10, 9, 0)
 
 
 # -- subagent activity: a background agent keeps the session working ----------

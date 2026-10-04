@@ -212,56 +212,6 @@ def _selection_session(sid, now, **overrides):
     return Session(**fields)
 
 
-def test_shell_row_rejects_park_without_raising(monkeypatch, tmp_path):
-    import asyncio
-    from datetime import datetime
-    from podbay import app as app_mod
-    from podbay.app import PromptScreen
-    from podbay.state import StateStore
-
-    now = datetime.now()
-    shell_session = _selection_session("sh", now, last_turn=None, last_turn_ts=None, has_transcript=False)
-    shell_session.is_shell = True
-    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [shell_session])
-    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
-
-    async def run():
-        application = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True)
-        async with application.run_test(size=(140, 40)) as pilot:
-            await application.workers.wait_for_complete()
-            await pilot.pause()
-            application.action_park()  # must not raise and must not open the park prompt
-            await pilot.pause()
-            assert not isinstance(application.screen, PromptScreen)
-
-    asyncio.run(run())
-
-
-def test_shell_row_rejects_note_without_raising(monkeypatch, tmp_path):
-    import asyncio
-    from datetime import datetime
-    from podbay import app as app_mod
-    from podbay.app import PromptScreen
-    from podbay.state import StateStore
-
-    now = datetime.now()
-    shell_session = _selection_session("sh", now, last_turn=None, last_turn_ts=None, has_transcript=False)
-    shell_session.is_shell = True
-    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [shell_session])
-    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
-
-    async def run():
-        application = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True)
-        async with application.run_test(size=(140, 40)) as pilot:
-            await application.workers.wait_for_complete()
-            await pilot.pause()
-            application.action_note()  # must not raise and must not open the note prompt
-            await pilot.pause()
-            assert not isinstance(application.screen, PromptScreen)
-
-    asyncio.run(run())
-
-
 def test_build_rows_styles_shell_row_gray():
     from podbay import app as app_mod
 
@@ -270,9 +220,9 @@ def test_build_rows_styles_shell_row_gray():
 
     rows = build_rows([shell], NOW)
     row = rows[0]
-    for key in ("state", "age", "model", "title", "recap", "parked"):
+    for key in ("state", "age", "model", "title", "recap"):
         cell = row[key]
-        # blank cells (e.g. parked) carry no style to render, only non-empty ones do
+        # blank cells carry no style to render, only non-empty ones do
         if isinstance(cell, Text):
             assert cell.style == app_mod.ROW_STYLES[app_mod.SHELL]
 

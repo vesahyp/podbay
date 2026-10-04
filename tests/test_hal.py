@@ -6,13 +6,13 @@ from podbay.model import Session
 NOW = datetime(2026, 10, 3, 12, 0)
 
 
-def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, parked_until=None, shell=False):
+def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, shell=False):
     ts = NOW - timedelta(minutes=minutes_ago)
     return Session(
         session_id=sid, pid=1, cwd="/x", name=sid, name_source="derived", status="idle",
         status_updated_at=ts, updated_at=ts, started_at=NOW - timedelta(hours=2),
         last_turn=last_turn, last_turn_ts=ts, seen_at=NOW if seen else None,
-        waiting_on=waiting_on, parked_until=parked_until, is_shell=shell, iterm_title=sid.upper(),
+        waiting_on=waiting_on, is_shell=shell, iterm_title=sid.upper(),
     )
 
 
@@ -37,18 +37,16 @@ def test_a_session_that_finishes_is_announced_once_and_only_if_unread():
     assert hal.remarks(memory, [seen], {}, NOW) == []
 
 
-def test_question_stall_and_due_have_their_own_lines():
+def test_question_and_stall_have_their_own_lines():
     memory = hal.Memory()
-    hal.remarks(memory, [_session("q", last_turn="in_progress"), _session("s", last_turn="in_progress"), _session("d", last_turn="in_progress")], {}, NOW)
+    hal.remarks(memory, [_session("q", last_turn="in_progress"), _session("s", last_turn="in_progress")], {}, NOW)
     later = NOW + timedelta(minutes=15)
     lines = hal.remarks(memory, [
         _session("q", waiting_on={"kind": "ask_user_question", "detail": "Which?"}),
         _session("s", last_turn="in_progress", minutes_ago=0),  # in progress since NOW: 15 min at `later`
-        _session("d", parked_until=later - timedelta(minutes=1)),
     ], {}, later)
     assert any("Q has a question" in l for l in lines)
     assert any("S has been silent for 15 minutes" in l for l in lines)
-    assert any("D is due" in l for l in lines)
 
 
 def test_hot_quota_warns_once_per_window_and_again_after_a_reset():

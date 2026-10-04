@@ -85,7 +85,6 @@ def demo_sessions() -> list[Session]:
         s(4, "ledger", "Invoice export", account="personal", model="Sonnet 5.5", context_pct=74, state="in_progress",
           idle=timedelta(seconds=30), status="busy", recap="Writing the CSV export for invoices."),
         s(6, "docs", "API reference pass", model="Opus 5.5", context_pct=22, idle=timedelta(hours=2),
-          parked_until=NOW + timedelta(hours=18), note="after the release",
           recap="First half of the API reference is rewritten."),
         s(7, "ledger", "Ledger migration", account="personal", model="Opus 5.5", context_pct=52,
           idle=timedelta(minutes=38), seen_at=ago(hours=5),

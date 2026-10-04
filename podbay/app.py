@@ -28,14 +28,13 @@ from rich.theme import Theme
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import DataTable, Footer, Input, Label, Static
+from textual.widgets import DataTable, Footer, Static
 
 from . import config
-from . import glyphs
 from . import board
 from . import hal
 from . import mood
@@ -51,14 +50,12 @@ from . import usage
 from . import voice
 from .inventory import inventory_payload, render_status, render_table
 from .model import (
-    DUE,
     EMPTY,
     HEAD_JEEVES_NAME,
     HOME_BASE,
     find_session,
     is_head_jeeves,
     NEEDS_YOU,
-    PARKED,
     SHELL,
     STALLED,
     STATUS_LABELS,
@@ -71,7 +68,7 @@ from .model import (
     sort_key,
 )
 from .splash import FADE_IN_SECONDS, FADE_OUT_SECONDS, ShutdownScreen, SplashScreen
-from .state import STATE_PATH, StateStore, ParseError, parse_when
+from .state import STATE_PATH, StateStore
 
 log = logging.getLogger(__name__)
 
@@ -108,13 +105,12 @@ HAL_MARKDOWN_THEME = Theme(
     }
 )
 
-# Row text style by derived status; DUE/NEEDS_YOU/STALLED keep the default
+# Row text style by derived status; NEEDS_YOU/STALLED keep the default
 # body colour and only get their state cell coloured.
 ROW_STYLES = {
     WORKING: "dim green",
     WATCHING: "dim #2e8b57",
     EMPTY: "dim #5f87af",
-    PARKED: "dim #9a9a9a",
     SHELL: "dim #6a6a6a",
 }
 # Red = a finished turn waiting for a prompt; amber = mid-turn and silent,
@@ -122,7 +118,6 @@ ROW_STYLES = {
 UNREAD_GLYPH = "●"
 UNREAD_STYLE = f"bold {HAL_AMBER}"
 STATE_STYLES = {
-    DUE: f"bold {HAL_RED}",
     NEEDS_YOU: f"bold {HAL_RED}",
     STALLED: f"bold {HAL_AMBER}",
 }
@@ -139,8 +134,8 @@ SHELL_TEXT_TTL = 3.0
 
 # Every column but Recap is fixed; Recap takes what is left so the window
 # number stays on screen at the right edge (None = sized here, not fixed).
-# Order: " ", State, Age, CTX, Model, Acct, RC, Mood, Dir, Repos, Wait, Title, Recap, Parked, #.
-COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 2, 2, 14, 18, 4, 38, None, 11, 3]
+# Order: " ", State, Age, CTX, Model, Acct, RC, Mood, Dir, Repos, Wait, Title, Recap, #.
+COLUMN_WIDTHS = [1, 11, 4, 4, 12, 8, 2, 2, 14, 18, 4, 38, None, 3]
 TITLE_COLUMN = 11
 RECAP_COLUMN = 12  # index into COLUMN_WIDTHS of the one sized at runtime
 # The last prompts of this session read heated (see mood.py).
@@ -164,11 +159,9 @@ ACCOUNT_SEPARATOR = "  │  "
 RECAP_MIN_WIDTH = 12
 
 # One row per user-facing action: (key, textual action name, footer label).
-# New actions (snooze rules, filters, ...) are added here only.
+# The screen is read-only: a key here shows something, never changes a
+# session. New actions are added here only.
 ACTIONS = [
-    ("p", "park", "Park"),
-    ("u", "unpark", "Unpark"),
-    ("n", "note", "Note"),
     ("t", "toggle_transcript", "Transcript"),
     ("h", "history", "History"),
     ("E", "exit_interview", "Exit interview"),
@@ -185,12 +178,6 @@ def _short_recap(recap: str | None) -> str:
     if len(single_line) > RECAP_WIDTH:
         return single_line[: RECAP_WIDTH - 1] + "…"
     return single_line
-
-
-def _parked_str(session: Session) -> str:
-    if session.parked_until is None:
-        return ""
-    return session.parked_until.strftime("%m-%d %H:%M")
 
 
 def _cell(value: str, style: str | None) -> Text | str:
@@ -389,7 +376,6 @@ def build_rows(sessions: list[Session], now: datetime) -> list[dict]:
                 "wait": _cell(_wait_label(s), row_style),
                 "title": _cell(f"{HEAD_JEEVES_GLYPH} {s.title}" if head else s.title, row_style),
                 "recap": _cell(_short_recap(s.recap), row_style),
-                "parked": _cell(_parked_str(s), row_style),
                 "win": _cell(f"#{s.terminal}" if s.terminal else "", row_style),
                 "session": s,
             }
@@ -440,10 +426,6 @@ def _detail_text(session: Session, now: datetime) -> Text:
     if mood.is_hot(session.recent_prompts):
         text.append(f"{HOT_GLYPH} the last prompts read heated\n", style=HOT_STYLE)
 
-    if session.parked_until is not None:
-        text.append(f"\nparked until {_parked_str(session)}\n", style=HAL_AMBER)
-    if session.note:
-        text.append("\n" + session.note + "\n", style=HAL_AMBER)
     if session.recap:
         text.append("\n")
         text.append(session.recap.strip() + "\n", style=HAL_TEXT)
@@ -470,80 +452,6 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
             blocks.append(Text(text, style="dim"))
         blocks.append(Text(""))
     return Group(*blocks[:-1])
-
-
-class PromptScreen(ModalScreen[str | None]):
-    """A single-line input modal. Enter submits, Escape cancels."""
-
-    DEFAULT_CSS = """
-    PromptScreen {
-        align: center middle;
-        background: transparent 60%;
-    }
-    #prompt-box {
-        width: 60;
-        height: auto;
-        border: round #e0201f;
-        padding: 1 2;
-        background: #000000;
-        color: #d9c9a0;
-    }
-    #prompt-box Label {
-        color: #d9c9a0;
-    }
-    #prompt-box Input {
-        background: #000000;
-        color: #d9c9a0;
-        border: solid #e0201f;
-    }
-    #prompt-glyph {
-        width: 100%;
-        content-align: center middle;
-    }
-    #prompt-caption {
-        width: 100%;
-        content-align: center middle;
-        margin-bottom: 1;
-    }
-    """
-
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
-
-    def __init__(self, prompt: str, initial: str = "", glyph: glyphs.Glyph | None = None):
-        super().__init__()
-        self._prompt = prompt
-        self._initial = initial
-        self._glyph = glyph
-        self._done = False
-
-    def _finish(self, value: str | None) -> None:
-        # Enter and Escape can race; dismissing twice raises in Textual.
-        if self._done:
-            return
-        self._done = True
-        self.dismiss(value)
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="prompt-box"):
-            if self._glyph is not None:
-                yield Static(self._glyph.art, id="prompt-glyph")
-                yield Static(f"[bold {self._glyph.accent}]{self._glyph.caption}[/]", id="prompt-caption")
-            yield Label(self._prompt)
-            yield Input(value=self._initial, id="prompt-input")
-
-    def on_mount(self) -> None:
-        if self._glyph is not None:
-            # The border and the input frame take the glyph's accent so the
-            # whole modal, not just the art, says which prompt this is.
-            self.query_one("#prompt-box").styles.border = ("round", self._glyph.accent)
-            self.query_one("#prompt-input", Input).styles.border = ("solid", self._glyph.accent)
-        self.query_one("#prompt-input", Input).focus()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self._finish(event.value)
-
-    def action_cancel(self) -> None:
-        self._finish(None)
 
 
 class ReviewScreen(ModalScreen[None]):
@@ -834,7 +742,7 @@ class PodbayApp(App):
         self.console.push_theme(HAL_MARKDOWN_THEME)
         table = self.query_one("#table", DataTable)
         self._col_keys = table.add_columns(
-            " ", "State", "Age", "CTX", "Model", "Acct", "RC", "⚡", "Dir", "Repos", "Wait", "Title", "Recap", "Parked", "#"
+            " ", "State", "Age", "CTX", "Model", "Acct", "RC", "⚡", "Dir", "Repos", "Wait", "Title", "Recap", "#"
         )
         for key, width in zip(self._col_keys, COLUMN_WIDTHS):
             if width:
@@ -1137,7 +1045,6 @@ class PodbayApp(App):
             return
         self.push_screen(ReviewScreen(text, path))
 
-
     def _cursor_row_after_redraw(self, previous_key: str | None, previous_index: int | None) -> int | None:
         """Where the cursor goes once the rows have been rebuilt: the same
         session id, else the same index (clamped) so a vanished row never
@@ -1163,7 +1070,7 @@ class PodbayApp(App):
         for r in self.rows:
             table.add_row(
                 r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["remote"], r["mood"], r["dir"], r["repos"], r["wait"],
-                r["title"], r["recap"], r["parked"], r["win"],
+                r["title"], r["recap"], r["win"],
                 key=r["session_id"],
             )
 
@@ -1394,53 +1301,6 @@ class PodbayApp(App):
     def action_escape_pressed(self) -> None:
         self.action_focus_table()
 
-    def action_park(self) -> None:
-        session = self._selected_session()
-        if session is None:
-            return
-        if not self._require_claude_session(session, "Park"):
-            return
-
-        def handle_result(value: str | None) -> None:
-            if not value:
-                return
-            try:
-                when = parse_when(value)
-            except ParseError:
-                self.notify(voice.parse_error(), severity="error")
-                return
-            self.state_store.set_parked(session.session_id, when)
-            self.notify(voice.park_ok(when))
-            self.trigger_refresh()
-
-        self.push_screen(
-            PromptScreen("Park until (+2h, today 14, tomorrow 9, fri 14, 2026-09-12 09:00, ...):", glyph=glyphs.PARK), handle_result
-        )
-
-    def action_unpark(self) -> None:
-        session = self._selected_session()
-        if session is None:
-            return
-        if not self._require_claude_session(session, "Unpark"):
-            return
-        self.state_store.set_parked(session.session_id, None)
-        self.trigger_refresh()
-
-    def action_note(self) -> None:
-        session = self._selected_session()
-        if session is None:
-            return
-        if not self._require_claude_session(session, "Note"):
-            return
-
-        def handle_result(value: str | None) -> None:
-            if value is None:
-                return
-            self.state_store.set_note(session.session_id, value or None)
-            self.trigger_refresh()
-
-        self.push_screen(PromptScreen("Note:", initial=session.note or ""), handle_result)
-
     def _send_to_session(self, session: Session, text: str) -> bool:
         """Write text into the session's tab via iTerm2: a shell row already
         carries its own tty from the iTerm2 join, a Claude row's tty comes
@@ -1537,7 +1397,7 @@ def cmd_list() -> None:
 
     header = (
         f"  {'STATE':<12} {'AGE':>5} {'CTX':>4}  {'MODEL':<10} {'ACCT':<8} RC {'DIR':<22} {'TITLE':<40} "
-        f"{'PARKED':<12} {'#':>4} RECAP"
+        f"{'#':>4} RECAP"
     )
     print(header)
     for r in rows:
@@ -1550,12 +1410,11 @@ def cmd_list() -> None:
         remote = _plain(r["remote"]) or " "
         directory = _plain(r["dir"])[:22]
         title = _plain(r["title"])[:40]
-        parked = _plain(r["parked"])
         recap = _plain(r["recap"])
         win = _plain(r["win"])
         print(
             f"{new} {state:<12} {age:>5} {ctx:>4}  {model:<10} {account:<8} {remote}  {directory:<22} {title:<40} "
-            f"{parked:<12} {win:>4} {recap}"
+            f"{win:>4} {recap}"
         )
 
 
