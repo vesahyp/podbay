@@ -40,6 +40,7 @@ test:
 # instructions; the user's own wording stays in the private home repo.
 check:
 	@scripts/check-quotes
+	@scripts/check-signals
 
 # The installed podbay and status line run from .release/, never from this
 # working tree, so an edit in progress cannot break them (scripts/release).

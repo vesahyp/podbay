@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Fails when a test, script or make target sends a signal. The live screen
+# and the user's sessions are processes this repo did not start, and a
+# pkill, killall or kill from a test run once looks the same as any other
+# SIGTERM in podbay.log. Only podbay/app.py (podbay close, force quit) signals.
+set -u
+cd "$(dirname "$0")/.."
+hits=$(grep -nE '(^|[^[:alnum:]_])(pkill|killall|kill -[A-Z0-9]+|os\.kill\(|os\.killpg\(|\.terminate\(|\.send_signal\()' \
+  Makefile tests/*.py scripts/* 2>/dev/null | grep -v '^scripts/check-signals:' \
+  | grep -v '^tests/conftest.py' | grep -v '^tests/test_no_signals.py' | grep -v '^tests/test_close.py')
+if [ -n "$hits" ]; then
+  echo "signals sent outside podbay/app.py:" >&2
+  echo "$hits" >&2
+  exit 1
+fi

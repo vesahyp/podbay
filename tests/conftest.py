@@ -27,6 +27,42 @@ def _no_real_claude_cli(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_signals_to_real_processes(monkeypatch):
+    """The live screen and every session on the machine are processes this
+    suite did not start. No test may signal one: os.kill (except the
+    signal-0 liveness probe and a process the test started), os.killpg and
+    a pkill, killall or kill command all raise. A test of the close path patches os.kill with its own fake,
+    which replaces this guard."""
+    import os
+    import subprocess
+
+    real_kill = os.kill
+    started = set()  # pids of processes this test started: subprocess kills its own on a timeout
+
+    def _guarded_kill(pid, sig):
+        if sig == 0 or pid in started:
+            return real_kill(pid, sig)
+        raise AssertionError(f"a test tried to send signal {sig} to pid {pid}")
+
+    def _guarded_killpg(pgid, sig):
+        raise AssertionError(f"a test tried to send signal {sig} to process group {pgid}")
+
+    real_popen_init = subprocess.Popen.__init__
+
+    def _guarded_popen_init(self, args, *a, **kw):
+        argv = [args] if isinstance(args, (str, bytes, os.PathLike)) else list(args)
+        words = " ".join(os.fsdecode(w) for w in argv).split()
+        if words and os.path.basename(words[0]) in ("pkill", "killall", "kill"):
+            raise AssertionError(f"a test tried to run {words[0]}")
+        real_popen_init(self, args, *a, **kw)
+        started.add(self.pid)
+
+    monkeypatch.setattr(os, "kill", _guarded_kill)
+    monkeypatch.setattr(os, "killpg", _guarded_killpg)
+    monkeypatch.setattr(subprocess.Popen, "__init__", _guarded_popen_init)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_usage_cache(monkeypatch, tmp_path):
     """The real cache under ~/.local/state/podbay is written by the running
     podbay, so a test reading CACHE_PATH would pass or fail depending on
