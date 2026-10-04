@@ -269,8 +269,12 @@ def open_target(directory: str) -> str:
     return f"The work is in {directory}."
 
 
-def open_started(where: str, account: str, directory: str) -> str:
-    return f"claude is up in {where} as {account}: {directory}"
+def model_note(model: str | None) -> str:
+    return f" on {model}" if model else ""
+
+
+def open_started(where: str, account: str, directory: str, model: str | None = None) -> str:
+    return f"claude is up in {where} as {account}{model_note(model)}: {directory}"
 
 
 def open_failed(where: str, seconds: int) -> str:

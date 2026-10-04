@@ -8,7 +8,8 @@ function here reads its file fresh and writes it atomically.
 
 opened.json has one entry per launch: tty, name, opened_at (ISO), by (the
 name of the Claude session that ran `podbay open`, None from a plain
-shell), prompt (the first prompt it handed claude, None without one) and
+shell), prompt (the first prompt it handed claude, None without one),
+model (what `--model` asked for, None for the account's default) and
 session_id once the new session is in the registry.
 
 sent.json has one entry per `podbay send` run from inside a Claude session:
@@ -74,13 +75,15 @@ def _write(entries: list[dict], path: Path) -> None:
 
 def record(
     tty: str, name: str | None, by: str | None, opened_at: datetime, path: Path | None = None, prompt: str | None = None,
+    model: str | None = None,
 ) -> None:
     """Add one launch; launches older than KEEP are dropped on the way."""
     path = path or OPENED_PATH
     cutoff = opened_at - KEEP
     entries = [e for e in read(path) if _opened_at(e) and _opened_at(e) > cutoff]
     entries.append({
-        "tty": tty, "name": name, "by": by, "opened_at": opened_at.isoformat(), "prompt": prompt or None, "session_id": None,
+        "tty": tty, "name": name, "by": by, "opened_at": opened_at.isoformat(), "prompt": prompt or None, "model": model or None,
+        "session_id": None,
     })
     _write(entries, path)
 
@@ -171,6 +174,13 @@ def opener(session: Session, entries: list[dict]) -> str | None:
     not start it, or a plain shell did."""
     found = launch(session, entries)
     return found.get("by") if found else None
+
+
+def opened_model(session: Session, entries: list[dict]) -> str | None:
+    """The model `podbay open` asked for when it started `session`. None
+    when it was not started that way, or ran on the account's default."""
+    found = launch(session, entries)
+    return found.get("model") if found else None
 
 
 def agent_text(session: Session, entries: list[dict], sent: list[dict]) -> set[str]:

@@ -167,3 +167,34 @@ def test_open_window_with_tty_reads_id_and_tty(monkeypatch):
     monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: Done())
     assert iterm.open_window_with_tty("ls") == ("4242", "/dev/ttys011")
     assert iterm.open_window("ls") == "4242"
+
+
+def test_a_model_goes_to_claude_as_model(tmp_path):
+    account = Account("claude", Path.home() / ".claude")
+    command = app_mod.open_command(account, str(tmp_path), "fixer", None, "sonnet")
+    shell = subprocess.Popen(
+        ["bash", "-c", f"claude() {{ printf '%s\\0' \"$@\"; }}; {command}"],
+        stdout=subprocess.PIPE, text=True,
+    )
+    out, _ = shell.communicate()
+    assert out.split("\0")[:-1] == ["-n", "fixer", "--model", "sonnet"]
+    assert "--model" not in app_mod.open_command(account, str(tmp_path), "fixer", None)
+
+
+def test_open_records_the_model_and_the_session_carries_it(tmp_path, monkeypatch, capsys):
+    from podbay import opened as opened_mod
+
+    free = _shell("free", "/dev/ttys008")
+    started = _selection_session("new", datetime.now(), tty="/dev/ttys008")
+    scans = [[free]]
+    sent, _ = _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [free, started], {"/dev/ttys008": ZSH_PROMPT})
+
+    app_mod.cmd_open(str(tmp_path), None, "fixer", "Fix it.", wait=5, model="opus")
+
+    assert "--model opus" in sent[0][1]
+    assert "as claude on opus" in capsys.readouterr().out
+    entries = opened_mod.read()
+    assert entries[-1]["model"] == "opus"
+    session = _selection_session("new", datetime.now(), tty="/dev/ttys008")
+    session.started_at = datetime.fromisoformat(entries[-1]["opened_at"])
+    assert opened_mod.opened_model(session, entries) == "opus"

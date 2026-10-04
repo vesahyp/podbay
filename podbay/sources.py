@@ -921,6 +921,7 @@ def gather_sessions(
     sent = opened_mod.read_sent()
     for s in sessions:
         s.opened_by = opened_mod.opener(s, launches)
+        s.opened_model = opened_mod.opened_model(s, launches)
         # The mood gauge scores what the user typed: the first prompt of a
         # launched session and anything an agent sent through podbay are
         # recorded by `podbay open` and `podbay send` and left out here.

@@ -1508,10 +1508,15 @@ def _write_prompt_file(prompt: str, directory: Path = PROMPTS_DIR) -> Path:
     return path
 
 
-def open_command(account: Account, launch_dir: str, name: str | None, prompt_file: Path | None) -> str:
+def open_command(
+    account: Account, launch_dir: str, name: str | None, prompt_file: Path | None, model: str | None = None,
+) -> str:
     """The short line typed into the shell: the prompt is read from its
-    file by the shell, never typed."""
+    file by the shell, never typed. `model` goes to claude as --model (an
+    alias such as fable, opus or sonnet, or a full model id)."""
     args = [f"-n {shlex.quote(name)}"] if name else []
+    if model:
+        args.append(f"--model {shlex.quote(model)}")
     if prompt_file is not None:
         args.append(f'"$(cat {shlex.quote(str(prompt_file))})"')
     tail = f" {' '.join(args)}" if args else ""
@@ -1589,7 +1594,10 @@ def _record_session_id(tty: str, before: set[str], opened_at: datetime) -> None:
         time.sleep(OPEN_POLL_SECONDS)
 
 
-def cmd_open(directory: str, account_label: str | None, name: str | None, prompt: str, wait: int = OPEN_WAIT_SECONDS) -> None:
+def cmd_open(
+    directory: str, account_label: str | None, name: str | None, prompt: str,
+    wait: int = OPEN_WAIT_SECONDS, model: str | None = None,
+) -> None:
     """Start claude in the first terminal sitting at an empty shell prompt,
     or in a new window, and wait until it is up; prints where, or the
     screen's tail and exits 1 when it never came up."""
@@ -1600,7 +1608,7 @@ def cmd_open(directory: str, account_label: str | None, name: str | None, prompt
         sys.exit(1)
     launch_dir, prompt = open_launch(directory, prompt)
     prompt_file = _write_prompt_file(prompt) if prompt else None
-    command = open_command(account, launch_dir, name, prompt_file)
+    command = open_command(account, launch_dir, name, prompt_file, model)
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
     before = {s.session_id for s in sessions if not s.is_shell}
     busy = sources.busy_ttys()
@@ -1624,14 +1632,14 @@ def cmd_open(directory: str, account_label: str | None, name: str | None, prompt
         tty, where = opened[1], f"a new window ({opened[1]})"
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     opened_at = datetime.now()
-    opened_mod.record(tty, name, caller.name if caller else None, opened_at, prompt=prompt)
+    opened_mod.record(tty, name, caller.name if caller else None, opened_at, prompt=prompt, model=model)
     if wait <= 0:
-        print(f"typed into {where} as {account.label}: {launch_dir}")
+        print(f"typed into {where} as {account.label}{voice.model_note(model)}: {launch_dir}")
         return
     print(f"waiting up to {wait} s for claude in {where}", flush=True)
     marker = prompt_file.name if prompt_file else None
     if _wait_for_claude(tty, before, marker, wait):
-        print(voice.open_started(where, account.label, launch_dir), flush=True)
+        print(voice.open_started(where, account.label, launch_dir, model), flush=True)
         _record_session_id(tty, before, opened_at)
         return
     print(voice.open_failed(where, wait), file=sys.stderr)
@@ -1827,6 +1835,7 @@ def main() -> None:
     open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window) and wait until it is up")
     open_parser.add_argument("directory", help="the repo it is for; it starts in the home base and is told this in its first prompt")
     open_parser.add_argument("--account", default=None, metavar="LABEL", help="the account to run as (default: the default account)")
+    open_parser.add_argument("--model", default=None, metavar="ID", help="the model, passed to claude as --model: an alias (fable, opus, sonnet, haiku) or a full id (default: the account's default)")
     open_parser.add_argument("--name", default=None, metavar="NAME", help="the session name (claude -n)")
     open_parser.add_argument("--wait", type=int, default=OPEN_WAIT_SECONDS, metavar="SECONDS", help="how long to wait for claude to come up (0: do not wait)")
     open_parser.add_argument("prompt", nargs="*", help="the first prompt, handed to claude through a file")
@@ -1862,7 +1871,7 @@ def main() -> None:
     elif args.command == "excerpt":
         cmd_excerpt(args.target, args.turns)
     elif args.command == "open":
-        cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait)
+        cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait, args.model)
     elif args.command == "close":
         cmd_close(args.target, args.force)
     elif args.command == "inventory":

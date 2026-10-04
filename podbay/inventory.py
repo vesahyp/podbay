@@ -74,7 +74,10 @@ def _session_dict(s: Session, now: datetime) -> dict:
         "last_text": _collapse(s.recap, 300) if s.recap else None,
         "waiting_on": s.waiting_on,
         "context_pct": s.context_pct,
+        # What it runs on now, from the status line; and what `podbay open
+        # --model` asked for at launch (None: the account's default).
         "model": s.model,
+        "opened_model": s.opened_model,
         "has_transcript": s.has_transcript,
     }
 

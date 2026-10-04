@@ -128,6 +128,8 @@ class Session:
     # The name of the session that started this one with `podbay open`
     # (see opened.py); None when nothing recorded it.
     opened_by: str | None = None
+    # The model `podbay open --model` asked for; None for the default.
+    opened_model: str | None = None
 
     # True for a synthetic row built from an iTerm2 pane with no live
     # Claude registry entry -- a plain shell. tty/window_id identify the

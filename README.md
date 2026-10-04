@@ -74,7 +74,7 @@ podbay send <sessionName|pid> <text...>   # any length, arrives as one prompt
 podbay notify <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay excerpt <sessionName|pid|id> [--turns N]
-podbay open <dir> [--account LABEL] [--name NAME] [--wait SECONDS] [first prompt...]
+podbay open <dir> [--account LABEL] [--model ID] [--name NAME] [--wait SECONDS] [first prompt...]
 podbay close <sessionName|#N|title> [--force]
 podbay board [--out PATH]
 ```
@@ -100,8 +100,11 @@ The prompt reaches claude through a file under `~/.local/state/podbay/prompts/`,
 so its length does not matter. It waits (180 s by default) until the session
 is up, and otherwise exits 1 with the end of that terminal's screen. Each
 launch is recorded in `~/.local/state/podbay/opened.json` with the session
-that ran it and the first prompt, and `podbay inventory` shows the former as
-`opened_by`.
+that ran it, the first prompt and the model. `--model` goes to claude as
+`--model`: an alias (`fable`, `opus`, `sonnet`, `haiku`) or a full model id;
+without it the session runs on the account's default. `podbay inventory`
+shows who ran it as `opened_by` and the model asked for as `opened_model`,
+next to `model`, the one the session runs on now.
 
 `podbay close` ends a finished session (SIGTERM, as closing its terminal
 would) and closes its iTerm2 tab, or its window when that tab was the only
