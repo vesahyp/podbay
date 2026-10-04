@@ -888,3 +888,12 @@ def test_tail_read_tracks_background_task_starts_and_ends(tmp_path):
     assert {k: v["ended"] for k, v in tasks.items()} == {"bdone": True, "brun": False, "bmon": False, "bstop": True, "bqueued": True}
     assert tasks["bmon"]["timeout_ms"] == 540000
     assert tasks["brun"]["ts"] == _expected_local("2026-09-23T09:01:00Z")
+
+
+def test_headless_claude_runs_are_not_sessions(tmp_path, monkeypatch):
+    import json
+    from podbay import sources
+    monkeypatch.setattr(sources, "_pid_alive", lambda pid: True)
+    for pid, entrypoint in ((1, "cli"), (2, "sdk-cli")):
+        (tmp_path / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": str(pid), "entrypoint": entrypoint}))
+    assert [e["pid"] for e in sources.read_registry(tmp_path)] == [1]

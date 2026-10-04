@@ -6,13 +6,13 @@ from podbay.model import Session
 NOW = datetime(2026, 10, 3, 12, 0)
 
 
-def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, parked_until=None, shell=False):
+def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, parked_until=None, shell=False, prompt="do it"):
     ts = NOW - timedelta(minutes=minutes_ago)
     return Session(
         session_id=sid, pid=1, cwd="/x", name=sid, name_source="derived", status="idle",
         status_updated_at=ts, updated_at=ts, started_at=NOW - timedelta(hours=2),
         last_turn=last_turn, last_turn_ts=ts, seen_at=NOW if seen else None,
-        waiting_on=waiting_on, parked_until=parked_until, is_shell=shell, iterm_title=sid.upper(),
+        waiting_on=waiting_on, parked_until=parked_until, is_shell=shell, iterm_title=sid.upper(), last_prompt=prompt,
     )
 
 
@@ -163,5 +163,13 @@ def test_a_session_missing_from_one_scan_but_still_running_is_not_ended(monkeypa
     monkeypatch.setattr(hal, "pid_alive", lambda pid: True)
     memory = hal.Memory()
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    assert hal.remarks(memory, [], {}, NOW) == []
+    assert memory.events == []
+
+
+def test_a_session_that_never_had_a_prompt_is_not_announced_as_ended(monkeypatch):
+    monkeypatch.setattr(hal, "pid_alive", lambda pid: False)
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("blip", prompt=None)], {}, NOW)
     assert hal.remarks(memory, [], {}, NOW) == []
     assert memory.events == []

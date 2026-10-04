@@ -90,7 +90,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         closed = opened.closed_ids() if ended else set()
         for session_id in ended - closed:
             gone = memory.seen.get(session_id)
-            if gone is not None and not pid_alive(gone.pid):
+            if gone is not None and (gone.last_prompt or gone.recap) and not pid_alive(gone.pid):
                 line = voice.hal_ended(gone.title, gone.recap)
                 lines.append(line)
                 memory.events.append((gone.name, line))

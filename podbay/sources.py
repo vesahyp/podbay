@@ -69,6 +69,10 @@ def _iso_to_local_dt(ts: str | None) -> datetime | None:
     return dt
 
 
+# Registry entrypoints of runs with no terminal: `claude -p` and the SDK.
+HEADLESS_ENTRYPOINTS = {"sdk-cli", "sdk-ts", "sdk-py"}
+
+
 def read_registry(sessions_dir: Path = SESSIONS_DIR) -> list[dict]:
     """Live registry entries only (dead pids' stale files are dropped)."""
     entries = []
@@ -82,6 +86,8 @@ def read_registry(sessions_dir: Path = SESSIONS_DIR) -> list[dict]:
         pid = data.get("pid")
         if pid is None or not _pid_alive(int(pid)):
             continue
+        if data.get("entrypoint") in HEADLESS_ENTRYPOINTS:
+            continue  # `claude -p` runs (podbay's own /usage included) live seconds and are nobody's session
         entries.append(data)
     return entries
 
