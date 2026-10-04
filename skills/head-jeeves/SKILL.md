@@ -33,7 +33,8 @@ Two kinds of prompt reach you:
   give an order for a session, pass it on with `podbay send` and confirm in
   one line. When they give a task that belongs to no live session, start one
   with `podbay open` for the right repo under `~/Repositories`, with a name
-  and the task as the first prompt, and say where it runs. When they ask how
+  and the task as the first prompt, and say where it runs and on which
+  account and model. When they ask how
   something is going, read the inventory and, if needed, an excerpt, and
   tell them in plain words. Ask a question only when the order cannot be
   carried out without the answer.
@@ -70,7 +71,7 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   orders, verbatim or tidied, and your own one sentence to an agent when
   that would unblock it. Any length arrives whole as one prompt; never
   split a message into parts.
-- `podbay open <repo dir> --name <name> --account <label> "<first prompt>"`
+- `podbay open <repo dir> --name <name> --account <label> --model <model> "<first prompt>"`
   starts a new session in a terminal at an empty shell prompt, or a new
   window. Every session starts in the home repo (`podbay config home-repo`),
   never in the target repo: `<repo dir>` is the repo the work is for, and
@@ -78,9 +79,9 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   dir>." leading its first prompt. Name it after the repo and the task
   (`keitos-import`), and put the whole task in the first prompt: what, where,
   how it will be checked. Any length is fine; podbay hands it over in a
-  file. Use the account the user names, else the default one. The first
-  prompt becomes the session's title, so start it with the task in a few
-  words.
+  file. Choose the account and the model first, as in "Choosing the
+  account and model" below. The first prompt becomes the session's title,
+  so start it with the task in a few words.
 - `podbay open` waits until the session is up (up to 180 s; a slow machine
   takes over a minute) and prints `claude is up in ...`. When it exits 1 it
   prints the end of that terminal's screen instead. Read it: a shell error
@@ -94,10 +95,37 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   is working, watching a background task or stalled (exit 1, one line);
   `--force` overrides that, and only a restart needs it. It never closes
   you.
-- Every session `podbay open` starts is recorded with who ran it. In
-  `podbay inventory --json`, `opened_by: "head-jeeves"` marks the ones you
-  started; any other value or null means the user's or another session's,
-  and those you never close.
+- Every session `podbay open` starts is recorded with who ran it and the
+  model it asked for. In `podbay inventory --json`, `opened_by:
+  "head-jeeves"` marks the ones you started; any other value or null means
+  the user's or another session's, and those you never close.
+  `opened_model` is the model asked for at launch, `model` the one it runs
+  on now.
+
+## Choosing the account and model
+
+Each account has its own quota, and some models have their own weekly
+window inside it. Run this before every `podbay open`, every time:
+
+- `podbay accounts --json` gives each account's 5-hour and 7-day windows,
+  each model's weekly window (`models`), and two suggestions:
+  `suggested.heavy` (the strongest model with room) and
+  `suggested.routine` (Sonnet and below). It never suggests an account or
+  a model at or above 85 percent of a window, and it prefers the account
+  with the larger quota.
+- Choose by the job. Design, game feel, architecture, a hard bug or a
+  review that must be right: take `suggested.heavy`. Routine fixes, copy
+  edits, dependency bumps, doc updates and anything mechanical: take
+  `suggested.routine`.
+- Pass both: `--account <label> --model <model>`. Never leave `--model`
+  off: the default model is often the one with the least room left.
+- When the user names an account or a model, use it, but say in one line
+  when `podbay accounts` shows it at or above 85 percent.
+- When a suggestion is null, nothing has room. Do not open the session.
+  Tell the user in one line which window is full and when it resets.
+- In the reply that says where the session runs, name the account and the
+  model, for example "Started keitos-import on claude, sonnet."
+
 - The SendMessage tool reaches a live session by its name too, when
   `podbay send` reports no tab.
 
@@ -288,8 +316,9 @@ The steps, in this order:
      twice, and the state the work is in (what is committed, what is not,
      what to check first). A fenced block.
 2. Start the new session with `podbay open <repo dir> --name <name>
-   --account <label> "<the handover prompt>"`, the same repo and account as
-   the old one, the name with a `-2` suffix (`keitos-import-2`).
+   --account <label> --model <model> "<the handover prompt>"`, the same
+   repo as the old one, the account and model chosen with `podbay accounts`
+   as for any launch, the name with a `-2` suffix (`keitos-import-2`).
 3. Once `podbay open` reports it up, close the old one with `podbay close
    <name> --force`. Only a restart needs `--force`.
 4. Tell the user in one line what was restarted and why, and refresh the
