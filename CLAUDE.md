@@ -51,6 +51,8 @@ podbay/
                       TUI rewrites state.json
   mood.py           the heat lexicon behind the ⚡ column
   usage.py          `claude -p /usage` per account, cached
+  quota.py          `podbay accounts`: the windows per account and the
+                      suggested account and model for a new session
   inventory.py      the JSON/table/status views for other agents
   voice.py          every string HAL says; the header segments
   splash.py         the HAL eye: startup and shutdown sequences

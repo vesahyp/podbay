@@ -45,6 +45,7 @@ from . import logs
 from . import notifications
 from . import notify as notify_mod
 from . import opened as opened_mod
+from . import quota
 from . import sources
 from . import usage
 from . import voice
@@ -1802,6 +1803,37 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
         sys.stdout.write("\n")
 
 
+def account_usage(account: Account) -> dict | None:
+    """The account's `claude -p /usage` figures: the TUI's cache while it is
+    fresh, else one new run written back to it, else the stale cache."""
+    path = usage.cache_path_for(account)
+    data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS)
+    if data is not None:
+        return data
+    data = usage.fetch(account=account)
+    if data is not None:
+        usage.write_cache(data, path)
+        return data
+    return usage.read_cache(path)
+
+
+def cmd_accounts(as_json: bool) -> None:
+    """Every account's windows and a suggested account and model for a new
+    session (see quota.py)."""
+    snapshots = sources.read_status_snapshots()
+    now = time.time()
+    entries = [
+        quota.account_entry(a, sources.newest_limits(snapshots, a.label), account_usage(a), now)
+        for a in discover()
+    ]
+    data = quota.payload(entries)
+    if as_json:
+        json.dump(data, sys.stdout)
+        sys.stdout.write("\n")
+    else:
+        print(quota.render(data))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="podbay")
     parser.add_argument(
@@ -1844,6 +1876,9 @@ def main() -> None:
     close_parser.add_argument("target", help=target_help)
     close_parser.add_argument("--force", action="store_true", help="close it even while it is working")
 
+    accounts_parser = sub.add_parser("accounts", help="each account's 5-hour, 7-day and per-model windows, and the account and model to open a new session on")
+    accounts_parser.add_argument("--json", action="store_true", help="print JSON (default: a short summary)")
+
     inventory_parser = sub.add_parser("inventory", help="print a deterministic session inventory")
     inventory_parser.add_argument("--json", action="store_true", help="print JSON (default)")
     inventory_parser.add_argument("--table", action="store_true", help="print as a plain-text table")
@@ -1874,6 +1909,8 @@ def main() -> None:
         cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait, args.model)
     elif args.command == "close":
         cmd_close(args.target, args.force)
+    elif args.command == "accounts":
+        cmd_accounts(args.json)
     elif args.command == "inventory":
         cmd_inventory(args.table, args.status, args.exclude)
     else:

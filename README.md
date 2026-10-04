@@ -73,6 +73,7 @@ podbay list
 podbay send <sessionName|pid> <text...>   # any length, arrives as one prompt
 podbay notify <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
+podbay accounts [--json]
 podbay excerpt <sessionName|pid|id> [--turns N]
 podbay open <dir> [--account LABEL] [--model ID] [--name NAME] [--wait SECONDS] [first prompt...]
 podbay close <sessionName|#N|title> [--force]
@@ -92,6 +93,16 @@ podbay config head-jeeves-compact-at 60   # compact Head Jeeves in place at this
 podbay config notify-command "~/bin/push --tag ''"   # what `podbay notify` runs; empty (default) means off
 podbay config                    # show every setting
 ```
+
+`podbay accounts` shows each account's 5-hour and 7-day windows, every
+per-model weekly window that `claude -p /usage` lists (such as Fable), and
+the account and model to open a new session on: one for heavy work (the
+strongest model with room) and one for routine work (Sonnet and below).
+Nothing at or above 85 percent of any window is suggested. Among the rest
+the most room wins, counted as percent left times the plan's multiplier
+(Max 5x counts five times), so the larger quota wins a tie. The windows
+come from the same snapshots and `/usage` cache as the header; a cache older
+than ten minutes is refreshed first.
 
 `podbay open` starts claude in a terminal sitting at an empty shell prompt
 (one stuck on a half-typed line does not count), or in a new window. With a
