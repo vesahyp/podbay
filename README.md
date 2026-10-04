@@ -47,7 +47,8 @@ make install
    and runs the tests there. If they fail, `.release/` stays at the commit
    it was at and the install stops. The installed podbay runs from this
    copy, never from your working tree, so an edit in progress cannot break
-   a running podbay. Run `make install` again after each push to update it.
+   a running podbay. `make ship` pushes `main` and runs `make install` in
+   one step, so the installed copy never lags a push.
 2. Symlinks `.release/bin/podbay` into `~/.local/bin/podbay`. The launcher
    execs `uv run --project <checkout>/.release podbay`, so uv creates the
    venv on first run.

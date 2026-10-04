@@ -1,4 +1,4 @@
-.PHONY: help run list test check install install-skill shots plan apply outputs deploy analytics
+.PHONY: help run list test check install ship install-skill shots plan apply outputs deploy analytics
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -19,6 +19,7 @@ help:
 	@echo "make test      run the tests"
 	@echo "make check     fail if a public doc quotes or names the user (scripts/check-quotes)"
 	@echo "make install   test origin/main into .release/, link ~/.local/bin/podbay + status line to it"
+	@echo "make ship      push main to origin, then make install: the one way a change reaches the installed copy"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
@@ -55,6 +56,12 @@ install:
 	    "$$d/settings.json" > "$$d/settings.json.tmp" && mv "$$d/settings.json.tmp" "$$d/settings.json" \
 	    && echo "→ $$d/settings.json statusLine"; \
 	done
+
+# A push alone leaves the installed copy behind, and nobody remembers the
+# second step, so the push and the install are one target.
+ship:
+	@git push origin main
+	@$(MAKE) install
 
 # Head Jeeves' instructions, linked into the repo every session starts from
 # (the home repo), where Claude Code picks skills up. A link, so the skill

@@ -18,6 +18,9 @@ make check      this repo is public: fails if a doc, the skill, a page or
 make install    test origin/main in .release/, then point
                 ~/.local/bin/podbay and the statusLine in every
                 ~/.claude*/settings.json at that copy
+make ship       git push origin main, then make install. Always this,
+                never a bare push: a push alone leaves the installed
+                copy on the old commit
 
 make shots      the site's screenshots into site/img/ (Playwright)
 make plan       terraform plan for infra/, saved to infra/tfplan
@@ -103,4 +106,5 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 - The `podbay` on the PATH and the status line run from `.release/`, never
   from your working tree. To test a change, use `make run` or
   `uv run --project . podbay`. A change reaches the installed copy only
-  after it is pushed and `make install` runs.
+  through `make ship`, which pushes and then runs `make install`. End
+  every slice on podbay with `make ship`, not `git push`.
