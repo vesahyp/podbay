@@ -34,9 +34,10 @@ async def test_refresh_key_does_not_raise():
 
 
 @pytest.mark.asyncio
-async def test_toggle_transcript_and_escape_keys_do_not_raise(tmp_path, monkeypatch):
-    # Never send anything against real sessions from this test.
+async def test_toggle_transcript_and_message_keys_do_not_raise(tmp_path, monkeypatch):
+    # Never park or send anything against real sessions from this test.
     monkeypatch.setattr(iterm_mod, "get_tty_for_pid", lambda pid: None)
+    monkeypatch.setattr(iterm_mod, "focus_tty", lambda tty: False)
     monkeypatch.setattr(iterm_mod, "send_text", lambda tty, text: False)
 
     state_store = StateStore(path=tmp_path / "state.json")
@@ -44,6 +45,8 @@ async def test_toggle_transcript_and_escape_keys_do_not_raise(tmp_path, monkeypa
     async with app.run_test() as pilot:
         await app.workers.wait_for_complete()
         await pilot.press("t")
+        await pilot.pause()
+        await pilot.press("m")
         await pilot.pause()
         await pilot.press("escape")
         await pilot.pause()
@@ -151,6 +154,32 @@ async def test_no_splash_starts_directly_on_main_screen():
         assert not isinstance(app.screen, SplashScreen)
         table = app.query_one("#table", DataTable)
         assert table.row_count >= 0
+
+
+@pytest.mark.asyncio
+async def test_prompt_glyphs_tell_park_and_message_apart():
+    from podbay import glyphs
+    from podbay.app import PromptScreen
+
+    assert glyphs.PARK.art != glyphs.MESSAGE.art
+    assert glyphs.PARK.accent != glyphs.MESSAGE.accent
+
+    app = PodbayApp(no_splash=True)
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        app.push_screen(PromptScreen("Park until:", glyph=glyphs.PARK))
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, PromptScreen)
+        assert glyphs.PARK.caption in str(screen.query_one("#prompt-caption", Static).render())
+        assert screen.query_one("#prompt-box").styles.border.top[1].hex.lower() == glyphs.PARK.accent
+        await pilot.press("escape")
+        await pilot.pause()
+
+        app.push_screen(PromptScreen("Note:"))
+        await pilot.pause()
+        assert not app.screen.query("#prompt-glyph")
+        await pilot.press("escape")
 
 
 @pytest.mark.asyncio

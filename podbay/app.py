@@ -36,6 +36,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Label, Static
 
 from . import config
+from . import glyphs
 from . import board
 from . import hal
 from . import mood
@@ -519,7 +520,7 @@ class PromptScreen(ModalScreen[str | None]):
         background: transparent 60%;
     }
     #prompt-box {
-        width: 80%;
+        width: 60;
         height: auto;
         border: round #e0201f;
         padding: 1 2;
@@ -534,13 +535,24 @@ class PromptScreen(ModalScreen[str | None]):
         color: #d9c9a0;
         border: solid #e0201f;
     }
+    #prompt-glyph {
+        width: 100%;
+        content-align: center middle;
+    }
+    #prompt-caption {
+        width: 100%;
+        content-align: center middle;
+        margin-bottom: 1;
+    }
     """
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, prompt: str):
+    def __init__(self, prompt: str, initial: str = "", glyph: glyphs.Glyph | None = None):
         super().__init__()
         self._prompt = prompt
+        self._initial = initial
+        self._glyph = glyph
         self._done = False
 
     def _finish(self, value: str | None) -> None:
@@ -552,10 +564,18 @@ class PromptScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="prompt-box"):
+            if self._glyph is not None:
+                yield Static(self._glyph.art, id="prompt-glyph")
+                yield Static(f"[bold {self._glyph.accent}]{self._glyph.caption}[/]", id="prompt-caption")
             yield Label(self._prompt)
-            yield Input(id="prompt-input")
+            yield Input(value=self._initial, id="prompt-input")
 
     def on_mount(self) -> None:
+        if self._glyph is not None:
+            # The border and the input frame take the glyph's accent so the
+            # whole modal, not just the art, says which prompt this is.
+            self.query_one("#prompt-box").styles.border = ("round", self._glyph.accent)
+            self.query_one("#prompt-input", Input).styles.border = ("solid", self._glyph.accent)
         self.query_one("#prompt-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -1468,7 +1488,7 @@ class PodbayApp(App):
             self.trigger_refresh()
 
         self.push_screen(
-            PromptScreen("Park until (+2h, today 14, tomorrow 9, fri 14, 2026-09-12 09:00, ...):"), handle_result
+            PromptScreen("Park until (+2h, today 14, tomorrow 9, fri 14, 2026-09-12 09:00, ...):", glyph=glyphs.PARK), handle_result
         )
 
     def action_unpark(self) -> None:
@@ -1489,32 +1509,40 @@ class PodbayApp(App):
         tty = session.tty if is_shell else iterm_mod.get_tty_for_pid(session.pid)
         return bool(tty) and iterm_mod.send_text(tty, text)
 
-    def _message_prompt(self, session: Session, label: str) -> None:
-        """Ask for one line and type it into `session`'s tab: the code path
-        of `podbay send`, so any length arrives whole."""
+    def action_message(self) -> None:
+        """A Claude row goes through get_tty_for_pid (session.pid); a plain
+        shell already carries its own tty from the iTerm2 join."""
+        session = self._selected_session()
+        if session is None:
+            return
+        is_shell = getattr(session, "is_shell", False)
 
         def handle_result(value: str | None) -> None:
-            text = (value or "").strip()
-            if not text:
+            if not value:
                 return
-            if not self._send_to_session(session, text):
+            if not self._send_to_session(session, value):
                 self.notify(voice.no_tab(), severity="warning")
                 return
-            self.notify(voice.message_sent(label))
+            self.notify(voice.message_sent(session.title))
 
-        self.push_screen(PromptScreen(f"Message to {label}:"), handle_result)
-
-    def action_message(self) -> None:
-        session = self._selected_session()
-        if session is not None:
-            self._message_prompt(session, session.title)
+        target = f"shell {session.title} ({session.cwd or session.tty})" if is_shell else session.title
+        self.push_screen(PromptScreen(f"Message to {target}:", glyph=glyphs.MESSAGE), handle_result)
 
     def action_message_head_jeeves(self) -> None:
         head = self._head_jeeves_session()
         if head is None:
             self.notify("Head Jeeves is not running.", severity="warning")
             return
-        self._message_prompt(head, "Head Jeeves")
+
+        def handle_result(value: str | None) -> None:
+            if not value:
+                return
+            if not self._send_to_session(head, value):
+                self.notify(voice.no_tab(), severity="warning")
+                return
+            self.notify(voice.message_sent(head.title))
+
+        self.push_screen(PromptScreen("Message to Head Jeeves:", glyph=glyphs.MESSAGE), handle_result)
 
     def notify(self, message, *args, **kwargs) -> None:
         self._record_notification(kwargs.get("severity") or "information", str(message))

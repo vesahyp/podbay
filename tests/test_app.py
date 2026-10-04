@@ -252,6 +252,83 @@ def test_build_rows_styles_shell_row_gray():
             assert cell.style == app_mod.ROW_STYLES[app_mod.SHELL]
 
 
+def test_message_on_shell_row_sends_directly_into_its_tty(monkeypatch, tmp_path):
+    import asyncio
+    from datetime import datetime
+    from textual.widgets import Input
+    from podbay import app as app_mod
+    from podbay.app import PromptScreen
+    from podbay.state import StateStore
+
+    now = datetime.now()
+    shell_session = _selection_session("sh", now, last_turn=None, last_turn_ts=None, has_transcript=False)
+    shell_session.is_shell = True
+    shell_session.tty = "/dev/ttys005"
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [shell_session])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+
+    send_calls = []
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: send_calls.append((tty, text)) or True)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("get_tty_for_pid must not be called for a shell row")
+
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", _boom)
+
+    async def run():
+        application = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True)
+        async with application.run_test(size=(140, 40)) as pilot:
+            await application.workers.wait_for_complete()
+            await pilot.pause()
+            application.action_message()
+            await pilot.pause()
+            assert isinstance(application.screen, PromptScreen)
+            # the prompt names the shell terminal, not a Claude session
+            assert shell_session.title in application.screen._prompt or shell_session.cwd in application.screen._prompt
+            input_widget = application.screen.query_one("#prompt-input", Input)
+            input_widget.value = "hello shell"
+            await pilot.press("enter")
+            await pilot.pause()
+
+    asyncio.run(run())
+    assert send_calls == [("/dev/ttys005", "hello shell")]
+
+
+def test_message_on_claude_row_still_resolves_tty_from_pid(monkeypatch, tmp_path):
+    import asyncio
+    from datetime import datetime
+    from textual.widgets import Input
+    from podbay import app as app_mod
+    from podbay.app import PromptScreen
+    from podbay.state import StateStore
+
+    now = datetime.now()
+    session = _selection_session("a", now)
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [session])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys009")
+    send_calls = []
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: send_calls.append((tty, text)) or True)
+
+    async def run():
+        application = app_mod.PodbayApp(state_store=StateStore(tmp_path / "s.json"), no_splash=True)
+        async with application.run_test(size=(140, 40)) as pilot:
+            await application.workers.wait_for_complete()
+            await pilot.pause()
+            application.action_message()
+            await pilot.pause()
+            assert isinstance(application.screen, PromptScreen)
+            assert application.screen._prompt == f"Message to {session.title}:"
+            input_widget = application.screen.query_one("#prompt-input", Input)
+            input_widget.value = "hello claude"
+            await pilot.press("enter")
+            await pilot.pause()
+
+    asyncio.run(run())
+    assert send_calls == [("/dev/ttys009", "hello claude")]
+
+
 def test_transcript_pane_renders_shell_output_for_shell_row(monkeypatch, tmp_path):
     import asyncio
     from datetime import datetime
