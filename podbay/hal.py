@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from . import mood, voice
+from . import mood, opened, voice
 from .model import DUE, NEEDS_YOU, STALLED, Session, is_head_jeeves
 
 # A quota window at or past this is hot: HAL warns once per window.
@@ -84,8 +84,11 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     if memory.primed:
         # A session whose claude exited drops out of the registry; its
         # terminal goes back to being a shell. That is a finish too, and
-        # the last thing it said is what the user wants to hear.
-        for session_id in memory.statuses.keys() - current.keys():
+        # the last thing it said is what the user wants to hear. A session
+        # `podbay close` ended was closed on purpose: no event for it.
+        ended = memory.statuses.keys() - current.keys()
+        closed = opened.closed_ids() if ended else set()
+        for session_id in ended - closed:
             gone = memory.seen.get(session_id)
             if gone is not None and not pid_alive(gone.pid):
                 line = voice.hal_ended(gone.title, gone.recap)

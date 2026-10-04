@@ -2765,6 +2765,9 @@ def cmd_close(target: str, force: bool) -> None:
         print(voice.close_refused_working(match.title, STATUS_LABELS[state][1]), file=sys.stderr)
         sys.exit(1)
     tty = match.tty or iterm_mod.get_tty_for_pid(match.pid)
+    # Before the kill, so the TUI's next refresh already knows this end was
+    # on purpose and sends Head Jeeves no "has ended" event.
+    opened_mod.record_closed(match.session_id, datetime.now())
     try:
         os.kill(match.pid, signal.SIGTERM)
     except ProcessLookupError:

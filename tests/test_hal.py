@@ -146,6 +146,19 @@ def test_a_session_whose_claude_exits_is_announced_with_its_last_words(monkeypat
     assert hal.remarks(memory, [shell], {}, NOW) == []  # said once
 
 
+def test_a_session_podbay_close_ended_is_not_announced(monkeypatch):
+    from podbay import opened
+    monkeypatch.setattr(hal, "pid_alive", lambda pid: False)
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("closed"), _session("quit")], {}, NOW)
+
+    opened.record_closed("closed", NOW)
+    lines = hal.remarks(memory, [], {}, NOW)
+
+    assert [name for name, _ in memory.events] == ["quit"]
+    assert len(lines) == 1 and lines[0].startswith("QUIT has ended")
+
+
 def test_a_session_missing_from_one_scan_but_still_running_is_not_ended(monkeypatch):
     monkeypatch.setattr(hal, "pid_alive", lambda pid: True)
     memory = hal.Memory()

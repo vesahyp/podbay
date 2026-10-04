@@ -20,6 +20,10 @@ first prompt of a launched session and anything an agent sent are marked
 here, at the source, and gather_sessions drops them from a session's
 prompts. The text is matched, not its position, so a tail read that no
 longer holds the first prompt loses nothing.
+
+closed.json has one entry per `podbay close`: session_id and closed_at
+(ISO). HAL reads it so a session closed on purpose does not come back as a
+"has ended" event.
 """
 
 from __future__ import annotations
@@ -93,6 +97,25 @@ def record_sent(session_id: str, text: str, by: str, sent_at: datetime, path: Pa
 
 def read_sent(path: Path | None = None) -> list[dict]:
     return read(path or SENT_PATH)
+
+
+def _closed_path() -> Path:
+    return OPENED_PATH.with_name("closed.json")
+
+
+def record_closed(session_id: str, closed_at: datetime, path: Path | None = None) -> None:
+    """Mark one session as closed by `podbay close`; entries older than KEEP
+    are dropped on the way."""
+    path = path or _closed_path()
+    cutoff = closed_at - KEEP
+    entries = [e for e in read(path) if (at := _when(e, "closed_at")) and at > cutoff]
+    entries.append({"session_id": session_id, "closed_at": closed_at.isoformat()})
+    _write(entries, path)
+
+
+def closed_ids(path: Path | None = None) -> set[str]:
+    """The ids of the sessions `podbay close` ended."""
+    return {e["session_id"] for e in read(path or _closed_path()) if e.get("session_id")}
 
 
 def set_session(tty: str, opened_at: datetime, session_id: str, path: Path | None = None) -> None:

@@ -100,6 +100,7 @@ def test_close_ends_a_finished_session_and_closes_its_terminal(monkeypatch, caps
     assert signals == [(501, app_mod.signal.SIGTERM)]
     assert closed == ["/dev/ttys006"]
     assert opened_mod.read() == []
+    assert opened_mod.closed_ids() == {"done"}
     assert "closed done and terminal #6" in capsys.readouterr().out
 
 
