@@ -165,3 +165,20 @@ def test_close_tty_leaves_other_tabs_and_reports_a_missing_tty(monkeypatch):
     assert iterm.close_tty("/dev/ttys015")
     assert calls == ["/dev/ttys015"]
     assert not iterm.close_tty("/dev/ttys099")
+
+
+def test_close_refuses_a_session_that_shares_the_screens_terminal(monkeypatch, capsys):
+    at = datetime.now()
+    session = _selection_session("abc", at, tty="/dev/ttys001", started_at=at)
+    session.name = "x"
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [session])
+    monkeypatch.setattr(app_mod.iterm_mod, "ItermLister", lambda *_a, **_k: None)
+    monkeypatch.setattr(app_mod.sources, "screen_ttys", lambda *_a, **_k: {"/dev/ttys001"})
+    monkeypatch.setattr(app_mod, "_ancestor_pids", lambda *_a, **_k: [])
+    monkeypatch.setattr(app_mod.iterm_mod, "get_ttys_for_pids", lambda *_a, **_k: {})
+    killed = []
+    monkeypatch.setattr(app_mod.os, "kill", lambda *a: killed.append(a))
+    with pytest.raises(SystemExit):
+        app_mod.cmd_close("x", True)
+    assert killed == []
+    assert "leave it open" in capsys.readouterr().err

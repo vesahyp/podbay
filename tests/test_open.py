@@ -100,7 +100,9 @@ def _patch_open(monkeypatch, tmp_path, sessions, screens):
     monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda *_a, **_k: set())
     monkeypatch.setattr(app_mod.iterm_mod, "ItermLister", lambda *_a, **_k: None)
     monkeypatch.setattr(app_mod.iterm_mod, "read_session_text", lambda tty, max_lines=200: screens.get(tty))
-    monkeypatch.setattr(app_mod.os, "ttyname", lambda fd: "/dev/ttys000")
+    monkeypatch.setattr(app_mod.sources, "screen_ttys", lambda *_a, **_k: set())
+    monkeypatch.setattr(app_mod, "_ancestor_pids", lambda *_a, **_k: [])
+    monkeypatch.setattr(app_mod.iterm_mod, "get_ttys_for_pids", lambda *_a, **_k: {})
     sent, windows = [], []
     monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
     monkeypatch.setattr(
@@ -272,3 +274,27 @@ def test_a_numbered_menu_or_confirm_footer_waits_for_input_but_the_banner_does_n
     assert iterm.screen_waits_for_input("Continue?\n ❯ 1. Yes\n   2. No\n")
     assert not iterm.screen_waits_for_input(f"{ZSH_PROMPT}claude\n ✻ Welcome to Claude Code\n > ")
     assert not iterm.screen_waits_for_input(None)
+
+
+def test_open_never_types_into_the_terminal_that_runs_the_screen_or_head_jeeves(tmp_path, monkeypatch):
+    screen = _shell("screen", "/dev/ttys001")
+    hj = _shell("head-jeeves", "/dev/ttys002")
+    caller = _shell("caller", "/dev/ttys003")
+    scans = [[screen, hj, caller]]
+    screens = {t: ZSH_PROMPT for t in ("/dev/ttys001", "/dev/ttys002", "/dev/ttys003")}
+    sent, windows = _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [], screens)
+    monkeypatch.setattr(app_mod.sources, "screen_ttys", lambda *_a, **_k: {"/dev/ttys001"})
+    monkeypatch.setattr(app_mod.iterm_mod, "get_ttys_for_pids", lambda *_a, **_k: {1: "/dev/ttys003"})
+
+    app_mod.cmd_open(str(tmp_path), None, "x", "Go.", wait=0)
+
+    assert sent == []
+    assert len(windows) == 1
+
+
+def test_screen_command_lines():
+    from podbay import sources
+    assert sources._is_screen_command("uv run --project /r podbay")
+    assert sources._is_screen_command("/r/.venv/bin/python /r/.venv/bin/podbay --no-splash")
+    assert not sources._is_screen_command("uv run --project /r podbay open /x")
+    assert not sources._is_screen_command("podbay")

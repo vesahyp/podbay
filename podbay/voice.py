@@ -316,6 +316,10 @@ def close_refused_head_jeeves() -> str:
     return f"I'm sorry, {USER_NAME}. I cannot close Head Jeeves."
 
 
+def close_refused_protected(title: str) -> str:
+    return f"I'm sorry, {USER_NAME}. {title} shares a terminal with the podbay screen, Head Jeeves or this command, so I leave it open."
+
+
 def close_still_running(title: str, seconds: int) -> str:
     return f"I'm sorry, {USER_NAME}. {title} did not exit within {seconds} s, so its terminal stays open."
 

@@ -736,6 +736,35 @@ def busy_ttys(timeout: float = 2.0) -> set[str]:
     return busy
 
 
+def _is_screen_command(command: str) -> bool:
+    """Whether a process command line starts the podbay screen: the podbay
+    entry point (or `uv run ... podbay`) with no subcommand."""
+    tokens = command.split()
+    while tokens and tokens[-1] == "--no-splash":
+        tokens.pop()
+    return len(tokens) > 1 and Path(tokens[-1]).name == "podbay"
+
+
+def screen_ttys(timeout: float = 2.0) -> set[str]:
+    """Ttys that run the podbay screen. A terminal with the screen in it is
+    never a free shell and never one to close."""
+    try:
+        out = subprocess.run(
+            ["ps", "-ax", "-o", "tty=,command="],
+            capture_output=True, text=True, timeout=timeout,
+        ).stdout
+    except (subprocess.SubprocessError, OSError):
+        return set()
+    found: set[str] = set()
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) != 2 or parts[0] == "??":
+            continue
+        if _is_screen_command(parts[1]):
+            found.add(parts[0] if parts[0].startswith("/dev/") else f"/dev/{parts[0]}")
+    return found
+
+
 def _cwds_for_pids(pids: list[int], timeout: float = 2.0) -> dict[int, str]:
     """One 'lsof' call for the cwd of several pids at once. A pid lsof
     can't see (permission, already gone) is simply absent -- never raises,

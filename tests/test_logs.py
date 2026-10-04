@@ -81,3 +81,10 @@ def test_tui_crash_lands_in_the_log(tmp_path, monkeypatch, caplog):
     assert seen == [error]
     assert "unhandled exception, the TUI is exiting" in caplog.text
     assert "RuntimeError: boom" in caplog.text
+
+
+def test_terminal_reset_turns_mouse_and_alternate_screen_off_and_the_cursor_on():
+    reset = logs.TERMINAL_RESET
+    for mode in ("1000", "1002", "1003", "1006", "1049"):
+        assert f"\x1b[?{mode}l" in reset
+    assert "\x1b[?25h" in reset

@@ -2,4 +2,13 @@
 # Launcher for a ~/.local/bin/podbay symlink. Resolves the project from the
 # script's own location (through symlinks), so the checkout can live anywhere.
 here=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
-exec uv run --project "$here" podbay "$@"
+if [ "$#" -gt 0 ] && [ "$1" != "--no-splash" ]; then
+  exec uv run --project "$here" podbay "$@"
+fi
+# The screen: no exec, so the terminal is reset after the process ends in any
+# way, SIGKILL included (mouse tracking, alternate screen, cursor).
+reset_terminal() { printf '\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1004l\033[?2004l\033[?1049l\033[?25h\033[0m' >/dev/tty 2>/dev/null; }
+uv run --project "$here" podbay "$@"
+status=$?
+reset_terminal
+exit "$status"

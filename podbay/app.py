@@ -1526,7 +1526,7 @@ class PodbayApp(App):
         """Listed terminals sitting at an empty shell prompt, in table order,
         the highlighted one first. A new window is a last resort: the point is
         to fill the terminals that are already open."""
-        busy = sources.busy_ttys()
+        busy = sources.busy_ttys() | sources.screen_ttys()
         free = [
             row["session"]
             for row in self.rows
@@ -1733,6 +1733,17 @@ def _record_session_id(tty: str, before: set[str], opened_at: datetime) -> None:
         time.sleep(OPEN_POLL_SECONDS)
 
 
+def _protected_ttys(sessions: list[Session]) -> set[str]:
+    """Terminals podbay open and close must leave alone: the ones running
+    the podbay screen, Head Jeeves, and the one this command itself runs
+    in (or its caller's, found through the parent chain)."""
+    protected = sources.screen_ttys()
+    protected |= {s.tty for s in sessions if s.tty and is_head_jeeves(s)}
+    chain = [os.getpid(), *_ancestor_pids(os.getpid())]
+    protected |= set(iterm_mod.get_ttys_for_pids(chain).values())
+    return protected
+
+
 def cmd_open(
     directory: str, account_label: str | None, name: str | None, prompt: str,
     wait: int = OPEN_WAIT_SECONDS, model: str | None = None,
@@ -1751,12 +1762,8 @@ def cmd_open(
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
     before = {s.session_id for s in sessions if not s.is_shell}
     busy = sources.busy_ttys()
-    own = None
-    try:
-        own = os.ttyname(0)
-    except OSError:
-        pass
-    candidates = [s for s in sessions if s.is_shell and s.tty and s.tty not in busy and s.tty != own]
+    protected = _protected_ttys(sessions)
+    candidates = [s for s in sessions if s.is_shell and s.tty and s.tty not in busy and s.tty not in protected]
     target = next((s for s in candidates if iterm_mod.at_empty_prompt(s.tty)), None)
     if target is not None:
         if not iterm_mod.send_text(target.tty, command):
@@ -1886,6 +1893,9 @@ def cmd_close(target: str, force: bool) -> None:
         print(voice.close_refused_working(match.title, STATUS_LABELS[state][1]), file=sys.stderr)
         sys.exit(1)
     tty = match.tty or iterm_mod.get_tty_for_pid(match.pid)
+    if tty and tty in _protected_ttys(sessions):
+        print(voice.close_refused_protected(match.title), file=sys.stderr)
+        sys.exit(1)
     # Before the kill, so the TUI's next refresh already knows this end was
     # on purpose and sends Head Jeeves no "has ended" event.
     opened_mod.record_closed(match.session_id, datetime.now())
@@ -2074,11 +2084,37 @@ def main() -> None:
             head_jeeves_account=config.head_jeeves_account(),
             head_jeeves_compact_at=config.head_jeeves_compact_at(),
         )
+        run_screen(app)
+
+
+def run_screen(app: "PodbayApp") -> None:
+    """Run the screen so the terminal is restored and an exit line is
+    logged on every way out: a normal quit, a crash, SIGTERM, SIGHUP and
+    SIGQUIT. (SIGKILL cannot be caught; bin/podbay restores the terminal
+    after it, and the next start does too.)"""
+
+    def leave(reason: str, code: int) -> None:
+        logs.restore_terminal()
+        log.info("exit %s", reason)
+        logging.shutdown()
+        os._exit(code)
+
+    def on_signal(signum, _frame):
+        leave(f"signal={signal.Signals(signum).name}", 128 + signum)
+
+    for name in ("SIGTERM", "SIGHUP", "SIGQUIT"):
+        signal.signal(getattr(signal, name), on_signal)
+    logs.restore_terminal()  # a killed predecessor may have left mouse mode on
+    try:
         app.run()
-        log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")
-        if app._force_quit:
-            logging.shutdown()
-            os._exit(app.return_code or 0)
+    except BaseException as error:
+        log.critical("the screen crashed", exc_info=True)
+        leave(f"crash={type(error).__name__}: {error}", 1)
+    logs.restore_terminal()
+    log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")
+    if app._force_quit:
+        logging.shutdown()
+        os._exit(app.return_code or 0)
 
 
 if __name__ == "__main__":

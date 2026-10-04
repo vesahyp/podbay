@@ -63,3 +63,26 @@ def install_excepthook() -> None:
         previous(exc_type, exc, tb)
 
     sys.excepthook = hook
+
+
+# Mouse tracking (all modes and encodings), alternate screen, bracketed
+# paste, focus reporting off; cursor on; attributes reset.
+TERMINAL_RESET = (
+    "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l"
+    "\x1b[?1004l\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m"
+)
+
+
+def restore_terminal() -> None:
+    """Hand the terminal back as a shell expects it. Written to /dev/tty so
+    it works when stdout is redirected, and safe to call twice."""
+    try:
+        fd = os.open("/dev/tty", os.O_WRONLY | os.O_NOCTTY)
+    except OSError:
+        return
+    try:
+        os.write(fd, TERMINAL_RESET.encode())
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
