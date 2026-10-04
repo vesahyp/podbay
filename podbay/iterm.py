@@ -330,23 +330,42 @@ class ItermLister:
         return {pid: tabs.get(ttys[pid]) if pid in ttys else None for pid in pids}
 
 
+# A tty's input queue holds 1024 bytes (TTYHOG, the same number as
+# MAX_CANON). `write text` hands iTerm2 the whole string at once and the
+# kernel drops what does not fit before the reader gets to it: a 1132-byte
+# message reached a session as its last 1024 bytes (2026-10-04). So the
+# text goes in pieces well under that, with a pause after each, wrapped in
+# the bracketed-paste markers (ESC [200~ ... ESC [201~) that Claude Code
+# and zsh read as one paste: the pieces join into one prompt, newlines
+# inside stay line breaks, and Enter after the last piece submits it.
+PASTE_START = "\x1b[200~"
+PASTE_END = "\x1b[201~"
+PASTE_CHUNK_BYTES = 512
+PASTE_CHUNK_DELAY = 0.05
+
 # argv-based (never string-interpolated) so quotes/unicode in the message
-# survive; also never select/activate the target tab.
+# survive; also never select/activate the target tab. Item 1 is the tty,
+# every item after it one piece of the text, written in order; then Enter.
 SEND_SCRIPT_LINES = [
     "on run argv",
     '  tell application "iTerm2"',
     "    set targetTty to item 1 of argv",
-    "    set targetText to item 2 of argv",
     "    set found to false",
     "    repeat with w in windows",
     "      repeat with t in tabs of w",
     "        repeat with s in sessions of t",
     "          if (tty of s) is targetTty then",
-    # Text and Enter go separately: one burst reads as a paste in Claude
-    # Code and the newline becomes a line break instead of a submit.
-    "            tell s to write text targetText newline NO",
+    # The pieces go in one at a time with a pause between them, so the
+    # reader drains the tty's input queue before the next arrives (see
+    # paste_chunks). Enter goes separately from the text: one burst reads
+    # as a paste in Claude Code and the newline becomes a line break
+    # instead of a submit.
+    "            repeat with i from 2 to (count of argv)",
+    "              tell s to write text (item i of argv) newline NO",
+    f"              delay {PASTE_CHUNK_DELAY}",
+    "            end repeat",
     "            delay 0.3",
-    "            tell s to write text \"\"",
+    '            tell s to write text ""',
     "            set found to true",
     "          end if",
     "        end repeat",
@@ -468,17 +487,45 @@ def at_empty_prompt(tty: str) -> bool:
     return screen_at_empty_prompt(read_session_text(tty, max_lines=20))
 
 
+def paste_chunks(text: str, limit: int = PASTE_CHUNK_BYTES) -> list[str]:
+    """`text` as the argv items for SEND_SCRIPT_LINES: one plain item for a
+    short single line, otherwise bracketed-paste pieces of at most `limit`
+    bytes of UTF-8 each (markers included), split between characters."""
+    if "\n" not in text and len(text.encode()) <= limit:
+        return [text]
+    budget = limit - len(PASTE_START) - len(PASTE_END)
+    pieces: list[str] = []
+    current: list[str] = []
+    size = 0
+    for ch in text:
+        n = len(ch.encode())
+        if current and size + n > budget:
+            pieces.append("".join(current))
+            current, size = [], 0
+        current.append(ch)
+        size += n
+    pieces.append("".join(current))
+    pieces[0] = PASTE_START + pieces[0]
+    pieces[-1] = pieces[-1] + PASTE_END
+    return pieces
+
+
 def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
-    """Write `text` into the iTerm2 session whose tty matches, via `write
-    text` (which appends a newline -- submitting a Claude Code prompt, or
-    queuing behind one that's still running). Never selects or activates
-    the tab. Returns True iff a matching tab was found."""
+    """Write `text` into the iTerm2 session whose tty matches, then Enter
+    (submitting a Claude Code prompt, or queuing behind one that is still
+    running). Any length arrives whole as one prompt: see paste_chunks.
+    Never selects or activates the tab. Returns True iff a matching tab was
+    found."""
+    chunks = paste_chunks(text)
     cmd = ["osascript"]
     for line in SEND_SCRIPT_LINES:
         cmd += ["-e", line]
-    cmd += [tty, text]
+    cmd += [tty, *chunks]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=timeout + len(chunks) * PASTE_CHUNK_DELAY,
+        )
     except (subprocess.SubprocessError, OSError):
         return False
     return result.stdout.strip().lower() == "true"

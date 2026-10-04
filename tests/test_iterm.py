@@ -337,3 +337,58 @@ def test_list_script_skips_a_window_it_cannot_read():
     assert body.split("\n", 2)[1].strip() == "try"
     assert "set out to out & winOut" in body
     assert "count of tabList" not in body
+
+
+def _send_argv(cmd):
+    """The argv items after the script: the tty, then the text pieces."""
+    i = max(k for k, flag in enumerate(cmd) if flag == "-e") + 2
+    return cmd[i], cmd[i + 1:]
+
+
+def test_a_5000_byte_message_arrives_whole_as_one_paste(monkeypatch):
+    """Typed terminal input is cut at 1024 bytes (TTYHOG = MAX_CANON): a
+    1132-byte report once reached a session as its last 1024 bytes. The
+    text now goes in pieces under that, as one bracketed paste."""
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeCompletedProcess(stdout="true\n")
+
+    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
+    line = "Part %d: \"quoted\", 'ticks', $HOME and ä ö å.\n"
+    message = "".join(line % n for n in range(60))
+    message += "x" * (5000 - len(message.encode()))
+    assert len(message.encode()) == 5000
+
+    assert iterm.send_text("/dev/ttys005", message) is True
+    tty, pieces = _send_argv(calls[0])
+    assert tty == "/dev/ttys005"
+    assert len(pieces) > 1
+    assert all(len(p.encode()) <= iterm.PASTE_CHUNK_BYTES for p in pieces)
+    joined = "".join(pieces)
+    assert joined == iterm.PASTE_START + message + iterm.PASTE_END
+    assert joined.count(iterm.PASTE_START) == 1 and joined.count(iterm.PASTE_END) == 1
+    # Enter is a separate write after the last piece, never part of one.
+    script = "\n".join(c for flag, c in zip(calls[0], calls[0][1:]) if flag == "-e")
+    assert "repeat with i from 2 to (count of argv)" in script
+    assert 'write text ""' in script
+    assert not any("\n" in p[-1] for p in pieces)
+
+
+def test_pieces_split_between_characters_not_inside_one():
+    import podbay.iterm as iterm
+
+    pieces = iterm.paste_chunks("ä" * 3000, limit=64)
+    assert "".join(pieces) == iterm.PASTE_START + "ä" * 3000 + iterm.PASTE_END
+    assert all(len(p.encode()) <= 64 for p in pieces)
+
+
+def test_a_short_single_line_is_typed_plain_and_a_multiline_one_is_pasted():
+    import podbay.iterm as iterm
+
+    assert iterm.paste_chunks("stop") == ["stop"]
+    assert iterm.paste_chunks("cd /tmp && claude") == ["cd /tmp && claude"]
+    assert iterm.paste_chunks("two\nlines") == [iterm.PASTE_START + "two\nlines" + iterm.PASTE_END]

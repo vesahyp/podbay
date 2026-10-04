@@ -70,7 +70,7 @@ by hand from any shell):
 podbay                 # the TUI
 podbay --no-splash     # without the HAL startup and shutdown sequences
 podbay list
-podbay send <sessionName|pid> <text...>
+podbay send <sessionName|pid> <text...>   # any length, arrives as one prompt
 podbay notify <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay excerpt <sessionName|pid|id> [--turns N]

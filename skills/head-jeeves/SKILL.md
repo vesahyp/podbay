@@ -68,7 +68,8 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   transcript you need; do not open the JSONL files.
 - `podbay send <name> <text>` types a message into a session: the user's
   orders, verbatim or tidied, and your own one sentence to an agent when
-  that would unblock it.
+  that would unblock it. Any length arrives whole as one prompt; never
+  split a message into parts.
 - `podbay open <repo dir> --name <name> --account <label> "<first prompt>"`
   starts a new session in a terminal at an empty shell prompt, or a new
   window. Every session starts in the home repo (`podbay config home-repo`),
