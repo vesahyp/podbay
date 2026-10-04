@@ -109,9 +109,11 @@ write that page yourself: `podbay board` writes it from the inventory and
 your headlines to `~/.local/state/podbay/board.html` and prints the path.
 Publish that file with the Artifact tool, `capabilities: {comments: {}}`,
 to the same `url` every time so the link stays; on the first publish,
-`icon: "board"`. Refresh it on `status`, after every event and after every
-order you carry out: update the headlines, run `podbay board`, publish the
-file, nothing else.
+`icon: "board"`, then record the link once with `podbay board --url <url>`:
+every later `podbay board` prints it under the path, and that is where you
+take it from when it is not in your context. Refresh the board on `status`,
+after every event and after every order you carry out: update the
+headlines, run `podbay board`, publish the file, nothing else.
 
 The page, top to bottom:
 
@@ -213,6 +215,26 @@ work again, however many events it raises. No pushes between 23:00 and
 a deadline falls inside those hours); hold the rest for the morning. When
 `podbay notify` reports that nothing was sent, say so in one line in your
 reply and go on: the board carries the item either way.
+
+## What survives a compact
+
+Your context fills up over a day, and this session is the one the phone is
+bridged to, so podbay compacts it in place instead of replacing it: when
+your context use passes the threshold in `podbay config
+head-jeeves-compact-at` and you are idle, it types `/compact` with a focus
+list, at most once per 30 minutes. The summary that remains is a memory
+aid, not the record. Everything you need is in files, and you read it from
+there afterwards:
+
+- the board link: `podbay board` prints it, from `podbay board --url`
+- decisions, shipped work and its tests, progress, and which pushes went
+  out (`pushed: true`): `~/.local/state/podbay/headlines.json`
+- the sessions you started and what each is for: `podbay inventory --json`
+  (`opened_by: "head-jeeves"`, their titles)
+- your rules: this skill, loaded again by every `/head-jeeves` command, and
+  your memory files
+
+Keep those files current as you work, and a compact costs nothing.
 
 ## Faults
 
