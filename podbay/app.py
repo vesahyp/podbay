@@ -186,6 +186,7 @@ ACTIONS = [
     ("t", "toggle_transcript", "Transcript"),
     ("m", "message", "Message"),
     ("j", "message_head_jeeves", "Message Head Jeeves"),
+    ("o", "open_session", "Open"),
     ("h", "history", "History"),
     ("v", "view_review", "Review"),
     ("r", "refresh", "Refresh"),
@@ -1542,7 +1543,47 @@ class PodbayApp(App):
                 return
             self.notify(voice.message_sent(head.title))
 
-        self.push_screen(PromptScreen("Message to Head Jeeves:", glyph=glyphs.MESSAGE), handle_result)
+        self.push_screen(PromptScreen("Message to Head Jeeves:", glyph=glyphs.HEAD_JEEVES), handle_result)
+
+    def action_open_session(self) -> None:
+        """Ask which repo, then start claude for it the way `podbay open`
+        does: in a free terminal or a new window, launched from the home
+        base, on the account and model `podbay accounts` suggests."""
+        session = self._selected_session()
+        initial = session.cwd if session is not None and session.cwd else str(sources.REPOS_DIR) + os.sep
+
+        def handle_result(value: str | None) -> None:
+            if not (value or "").strip():
+                return
+            directory = open_directory(value)
+            if directory is None:
+                self.notify(voice.no_directory(value.strip()), severity="warning")
+                return
+            self.notify(voice.opening(directory))
+            self._open_worker(directory)
+
+        self.push_screen(PromptScreen("Open a session for the repo:", initial=initial, glyph=glyphs.OPEN), handle_result)
+
+    @work(thread=True, group="open")
+    def _open_worker(self, directory: str) -> None:
+        """Runs `podbay open` as a child process: it waits until claude is
+        up, which takes far longer than a keypress may block."""
+        args = ["open", directory]
+        pick = quota.suggest(_quota_entries(self._accounts), quota.MODELS[0])
+        if pick is not None:
+            args += ["--account", pick["account"], "--model", pick["model"]]
+        with self._polling(f"open {directory}"):
+            result = subprocess.run(
+                [sys.executable, "-c", "from podbay.app import main; main()", *args],
+                capture_output=True, text=True,
+            )
+        lines = [line for line in (result.stdout + result.stderr).splitlines() if line.strip()]
+        if result.returncode == 0:
+            self.call_from_thread(self.notify, lines[-1] if lines else voice.opening(directory))
+            self.call_from_thread(self.trigger_refresh)
+        else:
+            failure = next((line for line in result.stderr.splitlines() if line.strip()), voice.open_failed_short(directory))
+            self.call_from_thread(self.notify, failure, severity="warning")
 
     def notify(self, message, *args, **kwargs) -> None:
         self._record_notification(kwargs.get("severity") or "information", str(message))
@@ -1698,6 +1739,19 @@ def open_command(
         args.append(f'"$(cat {shlex.quote(str(prompt_file))})"')
     tail = f" {' '.join(args)}" if args else ""
     return f"cd {shlex.quote(launch_dir)} && {account.command_prefix()}claude{tail}"
+
+
+def open_directory(value: str) -> str | None:
+    """What the open prompt typed, as a directory: a bare name is a repo
+    under the repos directory, a path is taken as it is. None when it is
+    empty or not a directory."""
+    value = value.strip()
+    if not value:
+        return None
+    path = Path(os.path.expanduser(value))
+    if not path.is_absolute() and "/" not in value:
+        path = sources.REPOS_DIR / value
+    return str(path.resolve()) if path.is_dir() else None
 
 
 def open_launch(directory: str, prompt: str) -> tuple[str, str]:
@@ -2036,16 +2090,16 @@ def account_usage(account: Account) -> dict | None:
     return usage.read_cache(path)
 
 
+def _quota_entries(accounts: list[Account]) -> list[dict]:
+    snapshots = sources.read_status_snapshots()
+    now = time.time()
+    return [quota.account_entry(a, sources.newest_limits(snapshots, a.label), account_usage(a), now) for a in accounts]
+
+
 def cmd_accounts(as_json: bool) -> None:
     """Every account's windows and a suggested account and model for a new
     session (see quota.py)."""
-    snapshots = sources.read_status_snapshots()
-    now = time.time()
-    entries = [
-        quota.account_entry(a, sources.newest_limits(snapshots, a.label), account_usage(a), now)
-        for a in discover()
-    ]
-    data = quota.payload(entries)
+    data = quota.payload(_quota_entries(discover()))
     if as_json:
         json.dump(data, sys.stdout)
         sys.stdout.write("\n")

@@ -1,8 +1,9 @@
-"""Small HAL 9000 glyphs for the prompt modals, so the two prompts that
-matter most read differently at a glance: Message shows HAL's open red eye
-(he is listening), Park shows the same eye gone dormant, a dim amber slit
-(the hibernation pods). Both are a compact cousin of the splash eye and use
-the same banded-ellipse rendering.
+"""Small glyphs for the prompt modals, so each prompt reads differently at
+a glance, by shape and by colour: Message shows HAL's open red eye (he is
+listening), Park shows the same eye gone dormant, a dim amber slit (the
+hibernation pods). Both are a compact cousin of the splash eye. Message to
+Head Jeeves shows a blue bow tie, the butler, since he is not HAL and not a
+session. Open shows the pod bay doors with light in the gap.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ class Glyph:
     accent: str
 
 
-def _band_for(nx: float, ny: float) -> int:
+def _eye_band(nx: float, ny: float) -> int:
     r = (nx * nx + ny * ny) ** 0.5
     if r > 1.0:
         return -1
@@ -42,7 +43,33 @@ def _band_for(nx: float, ny: float) -> int:
     return 3
 
 
-def _render(width: int, height: int, chars: list[str], colors: list[str]) -> str:
+def _bowtie_band(nx: float, ny: float) -> int:
+    """The knot in the middle, two wings that widen outwards."""
+    ax, ay = abs(nx), abs(ny)
+    if ax < 0.1 and ay < 0.5:
+        return 0
+    if ay > 0.2 + 0.9 * ax:
+        return -1
+    if ax < 0.45:
+        return 1
+    if ax < 0.8:
+        return 2
+    return 3
+
+
+def _doors_band(nx: float, ny: float) -> int:
+    """Two door panels with ribs, a frame round them, light in the gap."""
+    ax, ay = abs(nx), abs(ny)
+    if ax > 0.95 or ay > 0.95:
+        return 3
+    if ax < 0.05:
+        return 0
+    if ay < 0.05 or 0.6 < ay < 0.7:
+        return 1
+    return 2
+
+
+def _render(width: int, height: int, chars: list[str], colors: list[str], band_for=_eye_band) -> str:
     a = (width - 1) / 2
     b = (height - 1) / 2
     lines = []
@@ -50,7 +77,7 @@ def _render(width: int, height: int, chars: list[str], colors: list[str]) -> str
         parts = []
         run_band, run_len = None, 0
         for x in range(width + 1):
-            band = _band_for((x - a) / a, (y - b) / b) if x < width else None
+            band = band_for((x - a) / a, (y - b) / b) if x < width else None
             if band == run_band:
                 run_len += 1
                 continue
@@ -75,4 +102,16 @@ PARK = Glyph(
     art=_render(WIDTH, DORMANT_HEIGHT, _DORMANT_CHARS, _DORMANT_COLORS),
     caption="HIBERNATION",
     accent="#ffb000",
+)
+
+HEAD_JEEVES = Glyph(
+    art=_render(WIDTH, OPEN_HEIGHT, ["#", "=", ":", "."], ["#e8f4ff", "#7fb0d0", "#4a7a9a", "#24465a"], _bowtie_band),
+    caption="TO HEAD JEEVES",
+    accent="#7fb0d0",
+)
+
+OPEN = Glyph(
+    art=_render(WIDTH, OPEN_HEIGHT, ["|", "=", ":", "#"], ["#fff2a8", "#9a9a9a", "#5a5a5a", "#3a3a3a"], _doors_band),
+    caption="OPEN THE POD BAY DOORS",
+    accent="#c8c8c8",
 )

@@ -94,9 +94,10 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
   `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
   `podbay close` is the one command that ends a session and closes a tab.
 - The TUI has few hands-on keys: `Enter` focuses a session's tab, `m` and
-  `j` type a message into a tab, `p` and `u` park and unpark. None selects,
-  arranges, opens or closes a session. What starts and ends sessions is Head
-  Jeeves through the CLI. Do not add more hands-on keys back.
+  `j` type a message into a tab, `p` and `u` park and unpark, `o` opens a
+  session through `podbay open`. None selects, arranges or closes a
+  session. Closing, and the opening Head Jeeves decides on, go through the
+  CLI. Add a hands-on key only when the user asks for it.
 - `Enter` is the only action that switches to iTerm2.
 - Every user-facing string lives in `voice.py`.
 - Nothing personal in the repo: no login names, no home paths, no repo

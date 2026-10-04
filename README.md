@@ -155,7 +155,7 @@ With one config dir nothing changes: no label, no Acct value.
 
 ## Keys
 
-The screen shows. It changes a session in two ways only: the message you type and the park time you set. The keys:
+The screen shows. It changes a session in three ways only: the message you type, the park time you set, and the session you open. The keys:
 
 - arrow keys move the highlight; the lower half follows it: the session's
   details on the left, its last turns on the right
@@ -170,7 +170,13 @@ The screen shows. It changes a session in two ways only: the message you type an
 - `m` opens a one-line input and types the text into the highlighted
   session's tab, the same way as `podbay send` (any length). Enter sends,
   `Escape` cancels
-- `j` does the same for Head Jeeves, whichever row is highlighted
+- `j` does the same for Head Jeeves, whichever row is highlighted. Its
+  prompt shows a blue bow tie, the `m` prompt HAL's red eye, so you see
+  which one you are typing into
+- `o` asks for a repo (a name under the repos directory, or a path) and
+  starts claude for it the same way as `podbay open`: in a free terminal or
+  a new window, on the account and model `podbay accounts` suggests. The
+  result shows as a notification when claude is up
 - `v` shows the newest file Head Jeeves wrote about the highlighted session
   (a checkup or a handover, see Head Jeeves)
 - `h` shows today's notification history

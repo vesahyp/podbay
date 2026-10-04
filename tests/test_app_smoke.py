@@ -345,3 +345,64 @@ async def test_j_sends_to_head_jeeves_and_escape_sends_nothing(tmp_path, monkeyp
         await pilot.pause()
 
     assert sent == [("/dev/ttys777", "status?")]
+
+
+def test_head_jeeves_and_open_glyphs_differ_from_message():
+    from podbay import glyphs
+
+    shown = [glyphs.MESSAGE, glyphs.HEAD_JEEVES, glyphs.OPEN, glyphs.PARK]
+    assert len({g.art for g in shown}) == len(shown)
+    assert len({g.accent for g in shown}) == len(shown)
+
+
+def test_open_directory_takes_a_repo_name_or_a_path(tmp_path, monkeypatch):
+    from podbay import app as app_mod
+
+    (tmp_path / "repo").mkdir()
+    monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
+    assert app_mod.open_directory("repo") == str((tmp_path / "repo").resolve())
+    assert app_mod.open_directory(f" {tmp_path / 'repo'} ") == str((tmp_path / "repo").resolve())
+    assert app_mod.open_directory("missing") is None
+    assert app_mod.open_directory("  ") is None
+
+
+@pytest.mark.asyncio
+async def test_open_key_runs_podbay_open_with_the_suggested_account(tmp_path, monkeypatch):
+    from podbay import app as app_mod
+    from podbay import glyphs
+    from podbay.app import PromptScreen
+
+    (tmp_path / "repo").mkdir()
+    monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
+    monkeypatch.setattr(app_mod.quota, "suggest", lambda entries, start: {"account": "work", "model": "opus"})
+    calls = []
+
+    class Done:
+        returncode = 0
+        stdout = "claude is up in a new window as work\n"
+        stderr = ""
+
+    real_run = app_mod.subprocess.run
+
+    def fake_run(cmd, **kwargs):
+        if "open" not in cmd:
+            return real_run(cmd, **kwargs)
+        calls.append(cmd)
+        return Done()
+
+    app = PodbayApp(no_splash=True)
+    async with app.run_test() as pilot:
+        await app.workers.wait_for_complete()
+        # Never start a real claude from this test.
+        monkeypatch.setattr(app_mod.subprocess, "run", fake_run)
+        await pilot.press("o")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, PromptScreen)
+        assert glyphs.OPEN.caption in str(screen.query_one("#prompt-caption", Static).render())
+        screen.query_one("#prompt-input").value = "repo"
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+
+    assert len(calls) == 1 and calls[0][-6:] == ["open", str((tmp_path / "repo").resolve()), "--account", "work", "--model", "opus"]

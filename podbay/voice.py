@@ -287,6 +287,18 @@ def open_started(where: str, account: str, directory: str, model: str | None = N
     return f"claude is up in {where} as {account}{model_note(model)}: {directory}"
 
 
+def opening(directory: str) -> str:
+    return f"Opening the pod bay doors for {directory}, {USER_NAME}."
+
+
+def no_directory(value: str) -> str:
+    return f"I'm sorry, {USER_NAME}. {value} is not a directory."
+
+
+def open_failed_short(directory: str) -> str:
+    return f"I'm sorry, {USER_NAME}. I could not open a session for {directory}."
+
+
 def open_failed(where: str, seconds: int) -> str:
     return f"I'm sorry, {USER_NAME}. claude did not come up in {where} within {seconds} s. Its screen ends:"
 
