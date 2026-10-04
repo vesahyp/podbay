@@ -45,6 +45,7 @@ def _session_dict(s: Session, now: datetime) -> dict:
         "name": s.name,
         "state": s.derive_status(now),
         "age_seconds": s.age_seconds(now),
+        "parked_until": s.parked_until.isoformat() if s.parked_until else None,
         # What the session is about: the tab title Claude Code sets from the
         # first prompt. The handle to use when talking about it.
         "title": s.title,

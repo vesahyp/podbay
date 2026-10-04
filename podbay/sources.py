@@ -667,6 +667,17 @@ def _mark_seen_if_unread(state_store: StateStore, session_id: str, transcript: d
     return saved
 
 
+def _auto_unpark(state_store: StateStore, session_id: str, last_turn_ts: datetime | None) -> SessionState:
+    """Clear an expired park once the session has had a turn after the due
+    time -- otherwise the row stays `due` forever after you resume it.
+    Turns before the due time leave the park alone."""
+    saved = state_store.get(session_id)
+    if saved.parked_until is not None and last_turn_ts is not None and last_turn_ts > saved.parked_until:
+        state_store.set_parked(session_id, None)
+        saved = state_store.get(session_id)
+    return saved
+
+
 def _all_pids_by_tty(timeout: float = 2.0) -> dict[str, int]:
     """One 'ps -e' call mapping tty -> lowest (session-leader) pid, so
     resolving every unmatched pane's pid costs one subprocess instead of
@@ -869,7 +880,7 @@ def gather_sessions(
                 if sub is not None:
                     transcript["last_turn"], transcript["last_turn_ts"] = sub
 
-        saved = state_store.get(session_id)
+        saved = _auto_unpark(state_store, session_id, transcript.get("last_turn_ts"))
         tab = tabs_by_pid.get(pid)
         if tab is not None and tab.selected:
             saved = _mark_seen_if_unread(state_store, session_id, transcript)
@@ -899,6 +910,8 @@ def gather_sessions(
                 context_pct=snapshot.get("context_pct") if snapshot else None,
                 model=(snapshot.get("model") if snapshot else None) or model_name_from_id(transcript.get("model_id")),
                 effort=snapshot.get("effort") if snapshot else None,
+                note=saved.note,
+                parked_until=saved.parked_until,
                 seen_at=saved.seen_at,
                 has_transcript=path is not None,
                 repos_touched=sorted(transcript.get("repos_touched", set())),

@@ -8,7 +8,7 @@ NOW = datetime(2026, 10, 3, 18, 5)
 def _session(**over):
     base = {
         "name": "jeeves-64", "title": "Sora graphics research", "tab": "6", "repo": "sora", "state": "working",
-        "age_seconds": 30, "last_text": "Slices 1 and 2 are pushed.", "waiting_on": None,
+        "age_seconds": 30, "parked_until": None, "last_text": "Slices 1 and 2 are pushed.", "waiting_on": None,
         "has_transcript": True, "head_jeeves": False, "context_pct": 18.0, "work_repo": "sora",
         "session_id": "s-0", "short_id": "s-0",
     }
@@ -25,6 +25,8 @@ def test_board_leads_with_outcomes_grouped_by_project():
                  waiting_on={"kind": "ask_user_question", "detail": "Which **layout**?"}),
         _session(session_id="s-ins", name="b", title="Tile cache sizing", tab="9", work_repo="ecarbrowser", state="working",
                  last_text="Comparing the three cache sizes."),
+        _session(session_id="s-ug", name="c", title="Greenhouse follow-up", tab="3", repo="greenhouse", work_repo="greenhouse",
+                 state="parked", parked_until="2026-10-12T09:00:00", age_seconds=86400 * 9),
         _session(session_id="s-fix", name="podbay-fix-close", title="podbay-fix-close", tab="14", work_repo="podbay", state="working"),
         _session(session_id="s-new", name="d", title="Claude Code", tab="7", repo="", work_repo="", state="empty",
                  last_text=None, has_transcript=False, context_pct=None),
@@ -34,7 +36,7 @@ def test_board_leads_with_outcomes_grouped_by_project():
     html = board.render(payload, NOW, limits)
 
     assert html.startswith("<title>Status Board</title>")
-    assert "1 decision for you · 1 finished today · 1 in progress" in html
+    assert "1 decision for you · 1 finished today · 2 in progress" in html
     order = [html.index(h) for h in ("Decisions for you", "Ready for you to test", "Finished today", "In progress", "Machine room")]
     assert order == sorted(order)
     decisions = html[html.index("Decisions for you"):html.index("Ready for you to test")]
@@ -46,7 +48,7 @@ def test_board_leads_with_outcomes_grouped_by_project():
     assert "Done, six commits on sora, all live at https://vesahyp.github.io/sora</span>" in done
     assert 'href="https://vesahyp.github.io/sora"' in done and "*" not in done and "race" not in done
     progress = html[html.index("In progress"):html.index("Machine room")]
-    assert progress.count('class="proj">ecarbrowser<') == 1
+    assert progress.count('class="proj">ecarbrowser<') == 1 and "parked until Mon 12 Oct" in progress
     assert "podbay-fix" not in progress and "Claude Code" not in progress
     room = html[html.index("Machine room"):]
     assert "podbay-fix-close" in room and "<b>claude</b> 5H 36%  7D 17%" in room and "never used" in room

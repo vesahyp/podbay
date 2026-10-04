@@ -44,7 +44,7 @@ podbay/
                       transcripts, snapshots; the iTerm2 join
   model.py          Session and the status derivation; repo groups
   iterm.py          AppleScript: list tabs, send text, open and close windows
-  state.py          seen-at per session, pruned after 14 days
+  state.py          park/seen state; parse_when for park expressions
   opened.py         the sessions `podbay open` started and who ran it, and
                       what agents typed into sessions through podbay, so
                       the mood gauge skips it; its own files, since the

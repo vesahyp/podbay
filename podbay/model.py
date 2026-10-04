@@ -1,7 +1,7 @@
 """Merged session model and status derivation.
 
 A Session is the join of the live registry entry, the transcript recap,
-podbay's own seen state, and (best effort) an iTerm2 tab. Nothing
+podbay's own note/parking state, and (best effort) an iTerm2 tab. Nothing
 here reads files directly -- that lives in sources.py, iterm.py, state.py.
 """
 
@@ -16,6 +16,8 @@ from . import config
 WORKING = "working"
 # Turn ended, but a background Bash command or Monitor it started still runs.
 WATCHING = "watching"
+DUE = "due"
+PARKED = "parked"
 NEEDS_YOU = "needs_you"
 STALLED = "stalled"
 EMPTY = "empty"
@@ -37,6 +39,8 @@ BACKGROUND_TASK_MAX_AGE = timedelta(hours=6)
 STATUS_LABELS = {
     WORKING: ("*", "working"),
     WATCHING: ("o", "watching"),
+    DUE: ("!", "due"),
+    PARKED: ("=", "parked"),
     NEEDS_YOU: ("?", "needs you"),
     STALLED: ("~", "stalled"),
     EMPTY: ("-", "empty"),
@@ -101,6 +105,8 @@ class Session:
     model: str | None = None
     effort: str | None = None
 
+    note: str | None = None
+    parked_until: datetime | None = None
     seen_at: datetime | None = None
 
     # False when no transcript file exists yet: a freshly opened session
@@ -133,7 +139,7 @@ class Session:
 
     # True for a synthetic row built from an iTerm2 pane with no live
     # Claude registry entry -- a plain shell. tty/window_id identify the
-    # pane the same way as for a Claude session.
+    # pane for arranging/focusing it same as a Claude session.
     is_shell: bool = False
     tty: str | None = None
     window_id: str | None = None
@@ -196,15 +202,15 @@ class Session:
         The transcript's last_turn is primary: "in_progress" means working
         (or STALLED if it's been in progress for more than
         STALLED_THRESHOLD -- likely a hung session or one waiting on a
-        permission prompt); "end_turn" falls through to the needs_you
-        logic. With no transcript signal at all (last_turn is
+        permission prompt); "end_turn" falls through to the parked / due /
+        needs_you logic. With no transcript signal at all (last_turn is
         None), fall back to the iTerm2 tab-title glyph, and failing that to
         the (stale-prone) registry status. A finished turn whose subagents
         still run is WORKING; one with a background Bash command or Monitor
         still running is WATCHING, not needs_you. A
         session with no transcript file at all is EMPTY: opened, never used.
         is_shell wins over everything else: a plain terminal has no Claude
-        turn to classify. A registry status of "waiting" newer
+        turn/park state to classify. A registry status of "waiting" newer
         than the last transcript turn wins over the transcript: an open
         AskUserQuestion or permission dialog is not in the transcript until
         answered, so the transcript alone would call that session working or
@@ -227,8 +233,12 @@ class Session:
             elif self.status in ("busy", "shell"):
                 return WORKING
 
+        if self.parked_until is not None and self.parked_until <= now:
+            return DUE
         if self.has_transcript and self.running_background_tasks(now):
             return WATCHING
+        if self.parked_until is not None and self.parked_until > now:
+            return PARKED
         if not self.has_transcript:
             return EMPTY
         return NEEDS_YOU
@@ -247,16 +257,20 @@ class Session:
 
 # needs_you and STALLED share a group -- sorted together by age, not
 # needs_you-then-stalled -- since both mean "likely wants your attention".
-# Plain shells sit below all Claude work.
-_GROUP_ORDER = {NEEDS_YOU: 1, STALLED: 1, WORKING: 2, WATCHING: 2, EMPTY: 3, SHELL: 4}
+# Plain shells sit below all Claude work but above parked sessions.
+_GROUP_ORDER = {DUE: 0, NEEDS_YOU: 1, STALLED: 1, WORKING: 2, WATCHING: 2, EMPTY: 3, SHELL: 4, PARKED: 5}
 
 
 def sort_key(session: Session, now: datetime):
-    """Sort order: needs_you/stalled (oldest idle first), then working,
-    then empty (unused sessions), then shell (plain terminals)."""
+    """Sort order: due, then needs_you/stalled (oldest idle first), then
+    working, then empty (unused sessions), then shell (plain terminals),
+    then parked (soonest first)."""
     derived = session.derive_status(now)
     group = _GROUP_ORDER[derived]
-    secondary = session.activity_at  # ascending -> oldest first
+    if derived == PARKED:
+        secondary = session.parked_until  # ascending -> soonest first
+    else:
+        secondary = session.activity_at  # ascending -> oldest first
     if is_head_jeeves(session):
         return (-1, secondary)  # ahead of every group, whatever his status
     return (group, secondary)
