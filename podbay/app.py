@@ -2239,6 +2239,7 @@ def _quota_entries(accounts: list[Account], fetch: bool = True) -> list[dict]:
         quota.account_entry(
             a, sources.newest_limits(snapshots, a.label),
             account_usage(a) if fetch else usage.read_cache(usage.cache_path_for(a)), now,
+            quota.SEEN_PATH,
         )
         for a in accounts
     ]

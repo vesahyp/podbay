@@ -95,3 +95,25 @@ def test_fable_stays_available_where_it_is_listed(tmp_path):
     plain = quota.account_entry(_account(tmp_path, "personal", "default_claude_ai"), _limits(1, 1), None, NOW)
     heavy = quota.payload([listed, plain])["suggested"]["heavy"]
     assert (heavy["account"], heavy["model"]) == ("claude", "fable")
+
+
+def test_fable_stays_eligible_after_a_reset_empties_the_list(tmp_path):
+    seen = tmp_path / "models_seen.json"
+    claude, personal = _account(tmp_path, "claude", "default_claude_max_5x"), _account(tmp_path, "personal", "default_claude_ai")
+    before = quota.account_entry(claude, _limits(10, 80), _usage(("Fable", 84)), NOW, seen)
+    assert before["models_seen"] == ["fable"]
+    # Right after the weekly reset /usage lists no per-model window.
+    after = quota.account_entry(claude, _limits(1, 1), _usage(), NOW, seen)
+    assert after["models"] == [] and after["models_seen"] == ["fable"]
+    plain = quota.account_entry(personal, _limits(1, 1), None, NOW, seen)
+    heavy = quota.payload([after, plain])["suggested"]["heavy"]
+    assert (heavy["account"], heavy["model"]) == ("claude", "fable")
+    assert plain["models_seen"] == []
+    assert {o["account"] for o in quota.options([after, plain]) if o["model"] == "fable"} == {"claude"}
+
+
+def test_an_unreadable_seen_file_is_treated_as_empty(tmp_path):
+    seen = tmp_path / "models_seen.json"
+    seen.write_text("{not json")
+    entry = quota.account_entry(_account(tmp_path), _limits(1, 1), _usage(("Fable", 5)), NOW, seen)
+    assert entry["models_seen"] == ["fable"]

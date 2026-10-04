@@ -11,7 +11,7 @@ times the base plan.
 
 The suggestion: an account or a model at or above LIMIT_PCT of any window
 is never suggested, and neither is a LISTED_ONLY model on an account whose
-/usage does not list it. Among the rest, the one with the most room left wins,
+/usage does not list it right now or has never listed it. Among the rest, the one with the most room left wins,
 counted in base-plan units (percent left times the plan multiplier), so a
 larger quota wins over a smaller one with the same percentage left.
 """
@@ -19,11 +19,16 @@ larger quota wins over a smaller one with the same percentage left.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .accounts import Account
+
+log = logging.getLogger(__name__)
 
 LIMIT_PCT = 85.0
 # The --model aliases claude takes, strongest first. A heavy job starts
@@ -33,8 +38,12 @@ ROUTINE_FROM = "sonnet"
 # Models a plan does not include. Claude Code refuses them with "Requires
 # usage credits" on an account that lacks them. /usage lists a per-model
 # weekly window only for an account that has the model, so these are
-# suggested only where that window is listed.
+# suggested only where that window is listed, or was listed before: the
+# list is empty right after a weekly reset, so each account's past models
+# are kept in SEEN_PATH. Its own file, not state.json, since the TUI
+# rewrites state.json from memory.
 LISTED_ONLY = {"fable"}
+SEEN_PATH = Path.home() / ".local" / "state" / "podbay" / "models_seen.json"
 
 _MULTIPLIER_RE = re.compile(r"_(\d+)x$")
 
@@ -83,7 +92,38 @@ def model_alias(label: str | None) -> str | None:
     return label.split()[0].lower() if label else None
 
 
-def account_entry(account: Account, limits: dict, usage_data: dict | None, now: float) -> dict:
+def read_seen(path: Path) -> dict[str, list[str]]:
+    """{account label: model aliases its /usage has ever listed}."""
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("models seen file %s unreadable: %s", path, exc)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def remember(path: Path, label: str, aliases: list[str]) -> list[str]:
+    """Add `aliases` to the account's remembered models, write the file
+    atomically when that changed it, and return the full list."""
+    data = read_seen(path)
+    known = data.get(label, [])
+    merged = sorted(set(known) | {a for a in aliases if a})
+    if merged != known:
+        data[label] = merged
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp, path)
+        except OSError as exc:
+            log.warning("models seen file %s not written: %s", path, exc)
+    return merged
+
+
+def account_entry(account: Account, limits: dict, usage_data: dict | None, now: float, seen_path: Path | None = None) -> dict:
     """One account: its plan, its overall windows, and every per-model
     weekly window /usage lists for it. The snapshots are the newer source
     for the overall windows; /usage fills in one the snapshots lack."""
@@ -103,6 +143,7 @@ def account_entry(account: Account, limits: dict, usage_data: dict | None, now: 
         if w is not None:
             models.append({"model": e.get("label"), "alias": model_alias(e.get("label")), "seven_day": w})
     tier, multiplier = plan(account)
+    seen = remember(seen_path, account.label, [m["alias"] for m in models]) if seen_path else [m["alias"] for m in models]
     return {
         "account": account.label,
         "plan": tier,
@@ -110,6 +151,7 @@ def account_entry(account: Account, limits: dict, usage_data: dict | None, now: 
         "five_hour": five,
         "seven_day": week,
         "models": models,
+        "models_seen": seen,
         "usage_checked_at": _iso((usage_data or {}).get("fetched_at")),
     }
 
@@ -129,7 +171,7 @@ def options(entries: list[dict]) -> list[dict]:
     for e in entries:
         per_model = {m["alias"]: m["seven_day"] for m in e["models"]}
         for alias in MODELS:
-            if alias in LISTED_ONLY and alias not in per_model:
+            if alias in LISTED_ONLY and alias not in per_model and alias not in e.get("models_seen", []):
                 continue
             left = _left([e["five_hour"], e["seven_day"], per_model.get(alias)])
             if left is None:
