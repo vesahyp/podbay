@@ -47,6 +47,7 @@ def test_open_records_the_session_that_ran_it(tmp_path, monkeypatch):
     head = _selection_session("hj", datetime.now(), name="head-jeeves", pid=4242)
     free = _shell("free", "/dev/ttys008")
     started = _selection_session("new", datetime.now(), tty="/dev/ttys008")
+    started.cwd = str(tmp_path)
     scans = [[head, free]]
     _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [head, started], {"/dev/ttys008": ZSH_PROMPT})
     monkeypatch.setattr(app_mod, "_ancestor_pids", lambda pid: [999, 4242, 1])
