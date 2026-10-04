@@ -1,6 +1,15 @@
-import pytest
+import os
 
-from podbay import usage as usage_mod
+# HAL addresses the operator by PODBAY_USER, read once when podbay.voice is
+# imported, and otherwise by the login name of whoever runs the tests. The
+# suite addresses the crew member of the film, so the expected strings are
+# the same on every machine and name nobody.
+os.environ["PODBAY_USER"] = "Dave"
+
+import pytest  # noqa: E402
+
+from podbay import usage as usage_mod  # noqa: E402
+from podbay import voice as voice_mod  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +23,7 @@ def _no_real_claude_cli(monkeypatch):
         raise FileNotFoundError("claude")
 
     monkeypatch.setattr(usage_mod.subprocess, "run", _missing_binary)
-    monkeypatch.setenv("PODBAY_USER", "Vesa")
+    monkeypatch.setattr(voice_mod, "USER_NAME", "Dave")
 
 
 @pytest.fixture(autouse=True)

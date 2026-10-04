@@ -29,7 +29,7 @@ def test_a_session_that_finishes_is_announced_once_and_only_if_unread():
 
     done = _session("a")
     lines = hal.remarks(memory, [done], {}, NOW)
-    assert lines == ["A has finished, Vesa. It is waiting for you."] or lines[0].startswith("A has finished")
+    assert lines == ["A has finished, Dave. It is waiting for you."] or lines[0].startswith("A has finished")
     assert hal.remarks(memory, [done], {}, NOW) == []  # same state, nothing new
 
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
@@ -56,7 +56,7 @@ def test_hot_quota_warns_once_per_window_and_again_after_a_reset():
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {"claude": {"five_pct": 10}}, NOW)
     hot = {"claude": {"five_pct": 90}, "personal": {"five_pct": 20}}
     lines = hal.remarks(memory, [_session("a", last_turn="in_progress")], hot, NOW)
-    assert lines == ["The claude account's five-hour window is at 90 percent, Vesa. I would not take on anything heavy."] or "90 percent" in lines[0]
+    assert lines == ["The claude account's five-hour window is at 90 percent, Dave. I would not take on anything heavy."] or "90 percent" in lines[0]
     assert hal.remarks(memory, [_session("a", last_turn="in_progress")], hot, NOW) == []
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {"claude": {"five_pct": 3}, "personal": {"five_pct": 20}}, NOW)
     assert "90 percent" in hal.remarks(memory, [_session("a", last_turn="in_progress")], hot, NOW)[0]
@@ -108,7 +108,7 @@ def test_session_events_are_listed_for_head_jeeves():
     memory = hal.Memory()
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
     hal.remarks(memory, [_session("a")], {}, NOW)
-    assert memory.events == [("a", "A has finished, Vesa. It is waiting for you.")]
+    assert memory.events == [("a", "A has finished, Dave. It is waiting for you.")]
     hal.remarks(memory, [_session("a")], {}, NOW)
     assert memory.events == []
 
@@ -141,7 +141,7 @@ def test_a_session_whose_claude_exits_is_announced_with_its_last_words(monkeypat
     shell = _session("shell-7", shell=True)  # its terminal, back at the prompt
     lines = hal.remarks(memory, [shell], {}, NOW)
 
-    assert lines == ["SITE has ended, Vesa. Its last words: Deployed the site. All green."]
+    assert lines == ["SITE has ended, Dave. Its last words: Deployed the site. All green."]
     assert memory.events == [("site", lines[0])]
     assert hal.remarks(memory, [shell], {}, NOW) == []  # said once
 

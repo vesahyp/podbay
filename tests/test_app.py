@@ -141,7 +141,7 @@ def test_render_transcript_renders_assistant_markdown():
     console.print(_render_transcript(entries))
     out = console.file.getvalue()
 
-    assert "▶ VESA  fix the **thing** in `foo.py`" in out  # user text stays literal
+    assert "▶ DAVE  fix the **thing** in `foo.py`" in out  # user text stays literal
     assert "● HAL" in out
     assert "**Bold**" not in out and "`code`" not in out  # markdown consumed
     assert "\x1b[1mBold" in out  # bold escape emitted

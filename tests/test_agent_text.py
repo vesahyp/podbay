@@ -10,7 +10,7 @@ from podbay import opened as opened_mod
 from tests.test_app import _selection_session
 from tests.test_open import ZSH_PROMPT, _patch_open, _shell
 
-FIRST = "The work is in a repo.\n\nVesa is not happy with the collisions, why is this STILL broken?!"
+FIRST = "The work is in a repo.\n\nThe user is not happy with the collisions, why is this STILL broken?!"
 
 
 def test_the_launch_prompt_and_sent_text_are_dropped_and_the_users_words_kept():

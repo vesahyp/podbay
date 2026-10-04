@@ -1,0 +1,37 @@
+#!/bin/sh
+# podbay is a public repo. Its docs state rules as plain instructions and
+# never quote the user: no "the user's words: ...", no name, no dated
+# attribution. The private wording lives in the home repo. This runs as
+# part of `make check` and exits 1 on the first file that breaks the rule.
+#
+# Checked: every tracked Markdown file, every page under site/, and the
+# tests (fixtures are docs too, once they quote a person). LICENSE is the
+# one place the author's name belongs.
+set -eu
+cd "$(dirname "$0")/.."
+
+files=$(git ls-files -- '*.md' 'site/*.html' 'site/**/*.html' 'tests/*.py' 'skills/**' | grep -v '^LICENSE$')
+
+# One pattern per line. Case-insensitive, extended regex.
+patterns='(user|his|her|their|vesa)'"'"'?s? (own |exact |actual )?words
+\b(he|she|they|vesa|the user) (said|wrote|told|put it|asked)\b
+\bsaid:
+\bquot(e|ed|ing) (the user|him|her|them|vesa)\b
+\bvesa\b
+\(20[0-9]{2}-[0-9]{2}-[0-9]{2}\)'
+
+rc=0
+printf '%s\n' "$patterns" | while IFS= read -r pat; do
+  [ -n "$pat" ] || continue
+  # shellcheck disable=SC2086
+  if grep -n -i -E -- "$pat" $files 2>/dev/null; then
+    echo "check-quotes: the lines above quote or name the user (pattern: $pat)" >&2
+    exit 1
+  fi
+done || rc=1
+
+if [ "$rc" -ne 0 ]; then
+  echo "check-quotes: FAIL. Rewrite each line as a plain instruction. The user's own wording belongs in the private home repo." >&2
+  exit 1
+fi
+echo "check-quotes: ok, no quotation attributed to the user in the public docs"

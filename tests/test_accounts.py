@@ -593,4 +593,4 @@ async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tm
             await pilot.pause()
 
     # the claude-account newcomer was not taken for him; the personal one was, and the finish was relayed
-    assert sent[1:] == ["/head-jeeves", "/head-jeeves event worker: worker has finished, Vesa. It is waiting for you."]
+    assert sent[1:] == ["/head-jeeves", "/head-jeeves event worker: worker has finished, Dave. It is waiting for you."]

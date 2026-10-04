@@ -1,4 +1,4 @@
-.PHONY: help run list test install install-skill shots plan apply outputs deploy analytics
+.PHONY: help run list test check install install-skill shots plan apply outputs deploy analytics
 
 PODBAY := uv run --project .
 
@@ -15,6 +15,7 @@ help:
 	@echo "make run       open the TUI"
 	@echo "make list      the same rows as plain text"
 	@echo "make test      run the tests"
+	@echo "make check     fail if a public doc quotes or names the user (scripts/check-quotes)"
 	@echo "make install   ~/.local/bin/podbay symlink + status line in every Claude account"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
@@ -31,6 +32,11 @@ list:
 
 test:
 	@$(PODBAY) pytest -q
+
+# This repo is public. Rules in the skill and the docs are plain
+# instructions; the user's own wording stays in the private home repo.
+check:
+	@scripts/check-quotes
 
 # The status line is the source of podbay's context and quota columns, so
 # every Claude Code config dir (~/.claude and ~/.claude-<label>) points at
