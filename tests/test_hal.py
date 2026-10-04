@@ -173,3 +173,13 @@ def test_a_session_that_never_had_a_prompt_is_not_announced_as_ended(monkeypatch
     hal.remarks(memory, [_session("blip", prompt=None)], {}, NOW)
     assert hal.remarks(memory, [], {}, NOW) == []
     assert memory.events == []
+
+
+def test_a_usage_run_that_slipped_into_the_registry_is_not_announced_as_ended(monkeypatch):
+    """jeeves-45 and jeeves-e5: a `claude -p /usage` in the jeeves cwd, no prompt, no recap."""
+    monkeypatch.setattr(hal, "pid_alive", lambda pid: False)
+    memory = hal.Memory()
+    ghost = _session("jeeves-45", prompt=None)
+    hal.remarks(memory, [ghost], {}, NOW)
+    assert hal.remarks(memory, [], {}, NOW) == []
+    assert memory.events == []

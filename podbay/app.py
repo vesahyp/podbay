@@ -48,6 +48,7 @@ from . import notifications
 from . import notify as notify_mod
 from . import opened as opened_mod
 from . import quota
+from . import selfupdate
 from . import sources
 from . import usage
 from . import voice
@@ -132,6 +133,7 @@ STATE_STYLES = {
 # A terminal read is a ~250ms blocking AppleScript call, so it waits for the
 # cursor to settle and the result stays usable for a moment afterwards.
 TABLE_REFRESH_SECONDS = 3
+CODE_CHECK_SECONDS = 30
 # `claude -p /usage` costs no tokens but takes ~5.5s of CPU and leaves a
 # transcript behind, and the figure moves in whole percent over minutes.
 USAGE_REFRESH_SECONDS = 600
@@ -933,6 +935,8 @@ class PodbayApp(App):
         self.backdrop = backdrop
         self._quitting = False
         self._force_quit = False
+        self._restart = False
+        self._code_version = selfupdate.code_version()
         # label -> monotonic start, for each poll whose thread is running
         self._polls: dict[str, float] = {}
         self.rows: list[dict] = []
@@ -993,6 +997,7 @@ class PodbayApp(App):
         self.set_interval(TABLE_REFRESH_SECONDS, self.trigger_refresh)
         self._refresh_usage()
         self.set_interval(USAGE_REFRESH_SECONDS, self._refresh_usage)
+        self.set_interval(CODE_CHECK_SECONDS, self._check_code_version)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
             self.push_screen(PromptScreen(voice.name_question(), glyph=glyphs.MESSAGE), self._name_given)
@@ -1046,6 +1051,16 @@ class PodbayApp(App):
             yield
         finally:
             self._polls.pop(label, None)
+
+    def _check_code_version(self) -> None:
+        """`make install` moved the installed copy to a new commit: leave so
+        run_screen starts the screen again on it, once no poll runs."""
+        if self._quitting or self._polls or not selfupdate.changed(self._code_version, selfupdate.code_version()):
+            return
+        log.info("installed code changed from %s: restarting", self._code_version)
+        self._restart = True
+        self._quitting = True
+        self.exit()
 
     def _exit_when_idle(self) -> None:
         """Exit now when no poll runs, else show the wait screen (once)."""
@@ -2384,6 +2399,9 @@ def run_screen(app: "PodbayApp") -> None:
         leave(f"crash={type(error).__name__}: {error}", 1)
     logs.restore_terminal()
     log.info("exit return_code=%s%s", app.return_code, " (forced)" if app._force_quit else "")
+    if app._restart:
+        logging.shutdown()
+        selfupdate.restart(sys.argv[1:])
     if app._force_quit:
         logging.shutdown()
         os._exit(app.return_code or 0)
