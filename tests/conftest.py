@@ -42,12 +42,11 @@ def _single_default_account(monkeypatch):
     from pathlib import Path
 
     from podbay import app as app_mod
-    from podbay import history as history_mod
     from podbay import sources as sources_mod
     from podbay.accounts import Account
 
     one = [Account(label="claude", config_dir=Path.home() / ".claude")]
-    for module in (app_mod, history_mod, sources_mod):
+    for module in (app_mod, sources_mod):
         monkeypatch.setattr(module, "discover", lambda home=None, _one=one: list(_one))
 
 

@@ -42,12 +42,10 @@ from . import mood
 from . import reviewer
 from . import iterm as iterm_mod
 from .accounts import Account, by_label, discover
-from . import layout
 from . import logs
 from . import notifications
 from . import notify as notify_mod
 from . import opened as opened_mod
-from . import screens
 from . import sources
 from . import usage
 from . import voice
@@ -76,13 +74,6 @@ from .splash import FADE_IN_SECONDS, FADE_OUT_SECONDS, ShutdownScreen, SplashScr
 from .state import STATE_PATH, StateStore, ParseError, parse_when
 
 log = logging.getLogger(__name__)
-
-try:
-    # Owned by a parallel change; guarded so this module still imports (and
-    # this app's own tests still pass) before history.py lands.
-    from . import history as history_mod
-except ImportError:
-    history_mod = None
 
 RECAP_WIDTH = 80
 TRANSCRIPT_LIMIT = 40
@@ -175,28 +166,15 @@ ACCOUNT_SEPARATOR = "  │  "
 ACCOUNT_PICK_KEYS = "123456789"
 RECAP_MIN_WIDTH = 12
 
-SEL_GLYPH = "✓"
-SEL_STYLE = f"bold {HAL_AMBER}"
-
-# Only a fallback for a headless run: the real frame comes from
-# screens.arrange_display() at the moment you press A, so undocking or
-# swapping monitors needs no change here.
-EXTERNAL_SCREEN_FRAME = layout.Screen(0, 0, 1512, 982)
-
 # One row per user-facing action: (key, textual action name, footer label).
 # New actions (snooze rules, filters, ...) are added here only.
 ACTIONS = [
-    ("slash", "filter", "Filter"),
     ("p", "park", "Park"),
     ("u", "unpark", "Unpark"),
     ("n", "note", "Note"),
     ("t", "toggle_transcript", "Transcript"),
     ("m", "message", "Message"),
-    ("space", "toggle_selection", "Select"),
-    ("c", "clear_selection", "Clear sel"),
-    ("A", "arrange", "Arrange"),
     ("o", "open_claude", "Open claude"),
-    ("R", "resume", "Resume"),
     ("h", "history", "History"),
     ("x", "remote", "Remote"),
     ("E", "exit_interview", "Exit interview"),
@@ -290,13 +268,9 @@ def _dir_label(cwd: str) -> str:
     return path
 
 
-def _state_cell(derived: str, selected: bool, row_style: str | None, force_style: str | None = None) -> Text | str:
-    """The selection mark takes the status glyph's place: the word next to it
-    still says what the state is, so the mark costs no width. `force_style`
-    (Head Jeeves' colour) wins over the status colours, selection over that."""
+def _state_cell(derived: str, row_style: str | None, force_style: str | None = None) -> Text | str:
+    """`force_style` (Head Jeeves' colour) wins over the status colours."""
     glyph, word = STATUS_LABELS[derived]
-    if selected:
-        return Text(f"{SEL_GLYPH} {word}", style=SEL_STYLE)
     style = force_style if force_style is not None else STATE_STYLES.get(derived, row_style)
     return _cell(f"{glyph} {word}", style)
 
@@ -397,9 +371,8 @@ class QuitWaitScreen(ModalScreen[None]):
         self._on_force()
 
 
-def build_rows(sessions: list[Session], now: datetime, selected: set[str] | None = None) -> list[dict]:
+def build_rows(sessions: list[Session], now: datetime) -> list[dict]:
     ordered = sorted(sessions, key=lambda s: sort_key(s, now))
-    selected = selected or set()
     groups = repo_groups(sessions)
     rows = []
     for s in ordered:
@@ -410,7 +383,7 @@ def build_rows(sessions: list[Session], now: datetime, selected: set[str] | None
             {
                 "session_id": s.session_id,
                 "new": _cell(UNREAD_GLYPH, UNREAD_STYLE) if s.unread and not head else "",
-                "state": _state_cell(derived, s.session_id in selected, row_style, force_style=HEAD_JEEVES_STYLE if head else None),
+                "state": _state_cell(derived, row_style, force_style=HEAD_JEEVES_STYLE if head else None),
                 "age": _cell(humanize_age(s.age_seconds(now)), row_style),
                 "ctx": _ctx_cell(s.context_pct),
                 "model": _cell(_model_label(s.model), row_style),
@@ -665,96 +638,6 @@ class PromptScreen(ModalScreen[str | None]):
         self._finish(None)
 
 
-RESUME_AGE_WIDTH = 5
-RESUME_DIR_WIDTH = 16
-RESUME_TITLE_WIDTH = 62
-RESUME_SEARCH_DEBOUNCE = 0.2
-RESUME_SEARCH_MIN_LEN = 3
-RESUME_CONVERSATION_LABEL = "Found in conversation"
-
-
-def _clip(text: str, width: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= width else text[: width - 1] + "…"
-
-
-def _dir_basename(cwd: str) -> str:
-    return os.path.basename(cwd.rstrip("/")) or cwd
-
-
-def _fuzzy_score(haystack: str, query: str) -> float | None:
-    """fzf-style subsequence match, case-insensitive: every query character
-    must occur in haystack in order (not necessarily contiguous). None means
-    no match; otherwise lower is better -- a tight, early match beats a
-    scattered or late one."""
-    if not query:
-        return 0.0
-    h = haystack.lower()
-    q = query.lower()
-    pos = -1
-    first = None
-    prev = None
-    gap_penalty = 0
-    for ch in q:
-        idx = h.find(ch, pos + 1)
-        if idx == -1:
-            return None
-        if first is None:
-            first = idx
-        if prev is not None:
-            gap_penalty += idx - prev - 1
-        prev = idx
-        pos = idx
-    span = pos - first + 1
-    return span + gap_penalty + first * 0.01
-
-
-def _filter_rows(rows: list[dict], query: str) -> list[dict]:
-    """Rows matching `query` as a fuzzy subsequence of "title + directory",
-    ranked by match quality then recency. Empty query keeps the incoming
-    (already recency-sorted) order untouched."""
-    query = query.strip()
-    if not query:
-        return rows
-    scored = []
-    for row in rows:
-        haystack = f"{row['title']} {_dir_basename(row['cwd'])}"
-        score = _fuzzy_score(haystack, query)
-        if score is not None:
-            scored.append((score, row))
-    scored.sort(key=lambda item: (item[0], -item[1]["sort_ts"].timestamp()))
-    return [row for _, row in scored]
-
-
-def _snapshot_resume_rows(entries: list[dict], now: datetime) -> list[dict]:
-    """Snapshot entries (see StateStore.get_snapshot) to resume rows, newest first."""
-    rows = []
-    for e in entries:
-        try:
-            ts = datetime.fromisoformat(e["seen_at"]) if e.get("seen_at") else now
-        except ValueError:
-            ts = now
-        rows.append({
-            "session_id": e.get("session_id"),
-            "cwd": e.get("cwd") or "",
-            "title": e.get("title") or e.get("session_id") or "",
-            "account": e.get("account"),
-            "sort_ts": ts,
-        })
-    rows.sort(key=lambda r: r["sort_ts"], reverse=True)
-    return rows
-
-
-def _history_resume_rows(entries: list) -> list[dict]:
-    """history.PastSession objects to resume rows, newest first."""
-    rows = [
-        {"session_id": e.session_id, "cwd": e.cwd, "title": e.title, "account": getattr(e, "account", None), "sort_ts": e.ended_at}
-        for e in entries
-    ]
-    rows.sort(key=lambda r: r["sort_ts"], reverse=True)
-    return rows
-
-
 class ReviewScreen(ModalScreen[None]):
     """A saved Head Jeeves review (exit interview or checkup), as Markdown,
     scrollable. Escape or v closes it."""
@@ -837,282 +720,6 @@ class HistoryScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
-class ResumeScreen(ModalScreen[list[dict] | None]):
-    """Pick list over two fixed groups (snapshot-before-restart, then older
-    history) plus a third, search-only group of conversation hits. Typing in
-    the search box fuzzy-filters the first two groups at once (synchronous,
-    subsequence match over title+directory) and, once the query is 3+ chars
-    and settles for a moment, kicks off a background content search whose
-    results merge in as "Found in conversation". space toggles the
-    highlighted row, enter opens every ticked row (or just the highlighted
-    one if none is ticked), escape clears a live query before it cancels the
-    modal. Divider rows (group labels) aren't selectable."""
-
-    DEFAULT_CSS = """
-    ResumeScreen {
-        align: center middle;
-        background: transparent 60%;
-    }
-    #resume-box {
-        width: 96;
-        height: auto;
-        max-height: 34;
-        border: round #e0201f;
-        padding: 1 2;
-        background: #000000;
-        color: #d9c9a0;
-    }
-    #resume-box Label {
-        color: #d9c9a0;
-    }
-    #resume-search {
-        background: #000000;
-        color: #d9c9a0;
-        border: solid #e0201f;
-        margin-bottom: 1;
-    }
-    #resume-table {
-        height: auto;
-        max-height: 28;
-        background: #000000;
-        color: #d9c9a0;
-    }
-    """
-
-    # DataTable owns "enter" itself (select_cursor -> RowSelected); confirm
-    # is wired through on_data_table_row_selected below, same pattern the
-    # main table uses for its own Enter-to-focus action. up/down/tab are
-    # bound here too because the search Input has focus by default and does
-    # not itself act on them, so without these they would just be typed --
-    # they only reach these actions when the focused widget didn't already
-    # handle them itself (i.e. never once the table -- which owns cursor
-    # movement -- has focus).
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("space", "toggle", "Select"),
-        Binding("tab", "focus_table", "Table"),
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
-    ]
-
-    def __init__(self, groups: list[tuple[str, list[dict]]], now: datetime | None = None):
-        super().__init__()
-        self._now = now or datetime.now()
-        labels = list(groups) + [("", []), ("", [])]
-        self._before_label, self._before_rows = labels[0]
-        self._older_label, self._older_rows = labels[1]
-        self._conv_matches: list = []  # history.SessionMatch, from the search worker
-        self._entries: list[dict] = []  # divider rows and pickable rows, in display order
-        self._selected: set[str] = set()  # session_ids -- resilient to re-sorting/filtering
-        self._query = ""
-        self._search_token = 0
-        self._debounce_timer = None
-        self._done = False
-        self._col_keys: list = []
-
-    def _finish(self, value: list[dict] | None) -> None:
-        if self._done:
-            return
-        self._done = True
-        self.dismiss(value)
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="resume-box"):
-            yield Label("Resume: type to search  ↑↓ move  enter open  tab+space multi  esc back")
-            yield Input(placeholder="filter by title/directory, or search conversations...", id="resume-search")
-            yield DataTable(id="resume-table", cursor_type="row")
-
-    def on_mount(self) -> None:
-        table = self.query_one("#resume-table", DataTable)
-        # fixed widths: an untruncated title pushes the other columns off the
-        # modal and leaves the list scrolling sideways
-        self._col_keys = [
-            table.add_column("Age", width=RESUME_AGE_WIDTH),
-            table.add_column("Dir", width=RESUME_DIR_WIDTH),
-            table.add_column("Title", width=RESUME_TITLE_WIDTH),
-        ]
-        self._rebuild_entries()
-        self.query_one("#resume-search", Input).focus()
-
-    def _rebuild_entries(self) -> None:
-        """Recompute the displayed rows from the current query and whatever
-        conversation matches have arrived so far, then redraw the table."""
-        query = self._query.strip()
-        before_rows = _filter_rows(self._before_rows, query)
-        older_rows = _filter_rows(self._older_rows, query)
-        visible_ids = {r["session_id"] for r in before_rows} | {r["session_id"] for r in older_rows}
-
-        conv_rows = []
-        seen_ids: set[str] = set()
-        for match in self._conv_matches:
-            sid = match.session.session_id
-            if sid in visible_ids or sid in seen_ids:
-                continue  # already offered in one of the first two groups
-            seen_ids.add(sid)
-            conv_rows.append({
-                "session_id": sid,
-                "cwd": match.session.cwd,
-                "title": match.session.title,
-                "account": getattr(match.session, "account", None),
-                "sort_ts": match.session.ended_at,
-                "snippet": match.snippet,
-            })
-
-        groups = [(self._before_label, before_rows), (self._older_label, older_rows)]
-        if conv_rows:
-            groups.append((RESUME_CONVERSATION_LABEL, conv_rows))
-
-        self._entries = []
-        for label, rows in groups:
-            if not rows:
-                continue
-            self._entries.append({"divider": True, "label": label})
-            self._entries.extend(rows)
-
-        live_ids = {e["session_id"] for e in self._entries if not e.get("divider")}
-        self._selected &= live_ids
-        self._redraw_table()
-
-    def _redraw_table(self) -> None:
-        table = self.query_one("#resume-table", DataTable)
-        previous_id = self._current_session_id()
-        table.clear()
-        for idx, entry in enumerate(self._entries):
-            if entry.get("divider"):
-                table.add_row("", "", _cell(entry["label"], "bold"), key=str(idx))
-                continue
-            age = humanize_age((self._now - entry["sort_ts"]).total_seconds())
-            dirname = _clip(_dir_basename(entry["cwd"]), RESUME_DIR_WIDTH)
-            table.add_row(age, dirname, self._title_cell(entry), key=str(idx))
-
-        target = None
-        if previous_id is not None:
-            target = next((i for i, e in enumerate(self._entries) if e.get("session_id") == previous_id), None)
-        if target is None:
-            target = next((i for i, e in enumerate(self._entries) if not e.get("divider")), None)
-        if target is not None:
-            table.move_cursor(row=target)
-
-    def _current_session_id(self) -> str | None:
-        table = self.query_one("#resume-table", DataTable)
-        if table.cursor_row is None or table.cursor_row >= len(self._entries):
-            return None
-        return self._entries[table.cursor_row].get("session_id")
-
-    def _title_cell(self, entry: dict) -> Text | str:
-        selected = entry.get("session_id") in self._selected
-        mark = f"{SEL_GLYPH} " if selected else "  "
-        inner_width = RESUME_TITLE_WIDTH - 2
-        snippet = entry.get("snippet")
-        if snippet and snippet != entry["title"]:
-            title = _clip(entry["title"], inner_width // 2)
-            rest_width = max(inner_width - len(title) - 1, 8)
-            text = Text(mark + title, style=SEL_STYLE if selected else None)
-            text.append(" " + _clip(snippet, rest_width), style="dim")
-            return text
-        title = _clip(entry["title"], inner_width)
-        return Text(mark + title, style=SEL_STYLE) if selected else mark + title
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        event.stop()  # otherwise bubbles to PodbayApp's own row-selected handler
-        self.action_confirm()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "resume-search":
-            return
-        event.stop()
-        self.action_confirm()
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id != "resume-search":
-            return
-        self._query = event.value
-        self._search_token += 1
-        if len(self._query.strip()) < RESUME_SEARCH_MIN_LEN:
-            self._conv_matches = []
-        self._rebuild_entries()
-
-        if self._debounce_timer is not None:
-            self._debounce_timer.stop()
-            self._debounce_timer = None
-        query = self._query.strip()
-        if len(query) >= RESUME_SEARCH_MIN_LEN:
-            token = self._search_token
-            self._debounce_timer = self.set_timer(RESUME_SEARCH_DEBOUNCE, lambda: self._start_search(query, token))
-
-    def _start_search(self, query: str, token: int) -> None:
-        if token != self._search_token:
-            return  # the query moved on while we were waiting out the debounce
-        self._search_worker(query, token)
-
-    @work(thread=True, exclusive=True, group="resume-search")
-    def _search_worker(self, query: str, token: int) -> None:
-        search_sessions = getattr(history_mod, "search_sessions", None) if history_mod else None
-        matches: list = []
-        if search_sessions is not None:
-            try:
-                matches = search_sessions(query, limit=40)
-            except Exception:
-                log.warning("resume search failed for %r", query, exc_info=True)
-                matches = []
-        self.app.call_from_thread(self._apply_search_results, token, matches)
-
-    def _apply_search_results(self, token: int, matches: list) -> None:
-        if token != self._search_token:
-            return  # a newer query has since started typing
-        self._conv_matches = matches
-        self._rebuild_entries()
-
-    def action_cancel(self) -> None:
-        if self._query:
-            if self._debounce_timer is not None:
-                self._debounce_timer.stop()
-                self._debounce_timer = None
-            self._query = ""
-            self._search_token += 1
-            self._conv_matches = []
-            self.query_one("#resume-search", Input).value = ""
-            self._rebuild_entries()
-            return
-        self._finish(None)
-
-    def action_focus_table(self) -> None:
-        self.query_one("#resume-table", DataTable).focus()
-
-    def action_cursor_up(self) -> None:
-        self.query_one("#resume-table", DataTable).action_cursor_up()
-
-    def action_cursor_down(self) -> None:
-        self.query_one("#resume-table", DataTable).action_cursor_down()
-
-    def action_toggle(self) -> None:
-        table = self.query_one("#resume-table", DataTable)
-        if table.cursor_row is None or table.cursor_row >= len(self._entries):
-            return
-        idx = table.cursor_row
-        entry = self._entries[idx]
-        if entry.get("divider"):
-            return
-        sid = entry["session_id"]
-        if sid in self._selected:
-            self._selected.discard(sid)
-        else:
-            self._selected.add(sid)
-        table.update_cell(str(idx), self._col_keys[2], self._title_cell(entry))
-
-    def action_confirm(self) -> None:
-        if self._selected:
-            selected = [e for e in self._entries if e.get("session_id") in self._selected]
-        else:
-            table = self.query_one("#resume-table", DataTable)
-            idx = table.cursor_row
-            if idx is None or idx >= len(self._entries) or self._entries[idx].get("divider"):
-                self._finish([])
-                return
-            selected = [self._entries[idx]]
-        self._finish(selected)
-
-
 class PodbayHeader(Widget):
     """Single-line ship console: ship identity left, quota figures centred,
     scan clock right. Textual's own Header only takes one style for the
@@ -1193,12 +800,6 @@ class PodbayApp(App):
         background: {HAL_BLACK};
         color: {HAL_TEXT};
         border-bottom: solid {HAL_RED};
-    }}
-    #table-filter {{
-        display: none;
-        background: {HAL_BLACK};
-        color: {HAL_TEXT};
-        border: solid {HAL_RED};
     }}
     DataTable > .datatable--header {{
         background: {HAL_BLACK};
@@ -1296,23 +897,13 @@ class PodbayApp(App):
         # account label -> sources.newest_limits() of that account's snapshots
         self._limits: dict[str, dict] = {}
         self._limits_now: datetime = datetime.now()
-        self._selected: set[str] = set()
         self._shell_text_cache: dict[str, tuple[float, str]] = {}
         self._shell_read_timer = None
-        # / filters the table (see _apply_filter); self.rows/_row_keys always
-        # stay the complete set (snapshot, arrange, window numbers read those).
-        self._filtering = False
-        self._filter_query = ""
-        self._conv_hit_ids: set[str] = set()
-        self._filter_token = 0
-        self._filter_timer = None
-        self._visible_rows: list[dict] = []
         # Terminal that `o` just started Claude in: its shell row is about to
         # be replaced by a Claude row with a new session id, and the cursor
         # should follow the terminal across that change (see _redraw_table).
         self._follow_tty: str | None = None
         self._follow_until: float = 0.0
-        self._visible_row_keys: list[str] = []
         # Notification history for `h`. Only main() passes a file path, so a
         # test never appends to the real history; without one it stays in memory.
         self._notifications_path = notifications_path
@@ -1331,7 +922,6 @@ class PodbayApp(App):
     def compose(self) -> ComposeResult:
         yield PodbayHeader(id="header")
         yield DataTable(id="table", cursor_type="row")
-        yield Input(placeholder="filter by title/directory, or search conversations...", id="table-filter")
         with Horizontal(id="lower"):
             yield Static(id="detail")
             with VerticalScroll(id="transcript"):
@@ -1480,11 +1070,9 @@ class PodbayApp(App):
 
         self.state_store.prune({s.session_id for s in sessions}, now)
         self._live_sessions = {s.session_id: s for s in sessions if not getattr(s, "is_shell", False)}
-        self.rows = build_rows(sessions, now, self._selected)
+        self.rows = build_rows(sessions, now)
         self._check_head_jeeves_pending(sessions, now)
         self._row_keys = [r["session_id"] for r in self.rows]
-        self._selected &= set(self._row_keys)  # drop selections for rows that vanished
-        self._write_snapshot(now)
 
         self._limits = limits or {}
         self._limits_now = now
@@ -1494,10 +1082,7 @@ class PodbayApp(App):
 
         try:
             self._fit_recap_column()
-            # a live filter query stays applied across a refresh -- this
-            # recomputes self._visible_rows from the new self.rows and redraws
-            # the table, restoring the cursor by session id (see _redraw_table).
-            self._apply_filter()
+            self._redraw_table()
         except NoMatches:
             return  # the screen is already gone: a scan landing during shutdown
 
@@ -1650,77 +1235,6 @@ class PodbayApp(App):
             return
         self.push_screen(ReviewScreen(text, path))
 
-    def _write_snapshot(self, now: datetime) -> None:
-        """Persist the live Claude sessions (not shells -- nothing to resume)
-        as the working set to offer back via Resume after a reboot. Reads
-        the iTerm2 window cache directly rather than iterm_lister.windows()
-        so this never forces a fresh AppleScript call from the UI thread."""
-        windows_cache = getattr(self.iterm_lister, "_windows", None) or {}
-        entries = []
-        for r in self.rows:
-            session = r["session"]
-            if getattr(session, "is_shell", False):
-                continue
-            window_id = getattr(session, "window_id", None)
-            win = windows_cache.get(window_id) if window_id else None
-            entries.append(
-                {
-                    "session_id": session.session_id,
-                    "cwd": session.cwd,
-                    "title": session.title,
-                    "account": session.account,
-                    "window_id": window_id,
-                    "bounds": list(win.bounds) if win is not None else None,
-                    "seen_at": now.isoformat(),
-                }
-            )
-        if not entries:
-            return  # right after a reboot nothing is live yet: keep the pre-reboot set to restore from
-        self.state_store.set_snapshot(entries, now)
-
-    def _apply_filter(self) -> None:
-        """Recompute self._visible_rows from self.rows plus the live query
-        and whatever conversation hits have arrived so far, then redraw.
-        self.rows/_row_keys are never touched here -- they stay the complete
-        set for the snapshot, arrange and window numbers."""
-        query = self._filter_query.strip()
-        if not query:
-            self._visible_rows = list(self.rows)
-            self._redraw_table()
-            return
-
-        # Same fuzzy subsequence scoring the Resume modal uses over "title +
-        # directory" -- reuse _filter_rows itself rather than a second scorer.
-        candidates = [
-            {
-                "session_id": r["session_id"],
-                "title": r["session"].title,
-                "cwd": r["session"].cwd,
-                "sort_ts": r["session"].status_updated_at,
-            }
-            for r in self.rows
-        ]
-        fuzzy = _filter_rows(candidates, query)
-        by_id = {r["session_id"]: r for r in self.rows}
-        visible = [by_id[c["session_id"]] for c in fuzzy]
-        visible_ids = {c["session_id"] for c in fuzzy}
-
-        # Conversation-only hits (matched by history.search_sessions in the
-        # background, not by title/directory) are appended, newest first.
-        extra_ids = [sid for sid in self._conv_hit_ids if sid in by_id and sid not in visible_ids]
-        extra_ids.sort(key=lambda sid: by_id[sid]["session"].status_updated_at, reverse=True)
-        visible.extend(by_id[sid] for sid in extra_ids)
-
-        self._visible_rows = visible
-        self._redraw_table()
-
-    def _mark_conv_hit(self, row: dict) -> Text:
-        """The only visible sign a row is here because the query matched
-        inside its transcript, not its title/directory: a dim prefix on the
-        Recap cell (which already has room, unlike the fixed-width Title)."""
-        marker = Text("[chat] ", style="dim italic")
-        original = row["recap"]
-        return marker + (original if isinstance(original, Text) else Text(str(original) if original else ""))
 
     # Claude registers itself within a few seconds of starting; past this the
     # start most likely failed and the cursor is released.
@@ -1738,45 +1252,34 @@ class PodbayApp(App):
         if self._follow_tty and time.time() > self._follow_until:
             self._follow_tty = None  # Claude never showed up there: stop pinning the cursor to that shell
         if self._follow_tty:
-            for i, row in enumerate(self._visible_rows):
+            for i, row in enumerate(self.rows):
                 session = row["session"]
                 if getattr(session, "tty", None) == self._follow_tty:
                     if not getattr(session, "is_shell", False):
                         self._follow_tty = None  # Claude is up in that terminal: the follow is done
                     return i
-        if previous_key and previous_key in self._visible_row_keys:
-            return self._visible_row_keys.index(previous_key)
-        if previous_index is not None and self._visible_row_keys:
-            return min(previous_index, len(self._visible_row_keys) - 1)
+        if previous_key and previous_key in self._row_keys:
+            return self._row_keys.index(previous_key)
+        if previous_index is not None and self._row_keys:
+            return min(previous_index, len(self._row_keys) - 1)
         return None
 
     def _redraw_table(self) -> None:
-        """Redraw #table from self._visible_rows, restoring the cursor by
-        session id when the previously highlighted row is still listed (see
-        _cursor_row_after_redraw for the fallbacks)."""
+        """Redraw #table from self.rows, restoring the cursor by session id
+        when the previously highlighted row is still listed (see
+        _cursor_row_after_redraw for the fallbacks). The previous keys are
+        read before the rows were rebuilt, so they come from the table."""
         table = self.query_one("#table", DataTable)
         previous_key = None
         previous_index = table.cursor_row
-        if table.cursor_row is not None and 0 <= table.cursor_row < len(self._visible_row_keys):
-            previous_key = self._visible_row_keys[table.cursor_row]
+        if table.cursor_row is not None and 0 <= table.cursor_row < table.row_count:
+            previous_key = str(table.ordered_rows[table.cursor_row].key.value)
 
         table.clear()
-        if self._filter_query.strip() and not self._visible_rows:
-            self._visible_row_keys = []
-            table.add_row(
-                *[""] * TITLE_COLUMN, _cell("no match", "dim italic"), *[""] * (len(COLUMN_WIDTHS) - TITLE_COLUMN - 1),
-                key="__no_match__",
-            )
-            self._update_detail()
-            self._refresh_transcript()
-            return
-
-        self._visible_row_keys = [r["session_id"] for r in self._visible_rows]
-        for r in self._visible_rows:
-            recap = self._mark_conv_hit(r) if r["session_id"] in self._conv_hit_ids else r["recap"]
+        for r in self.rows:
             table.add_row(
                 r["new"], r["state"], r["age"], r["ctx"], r["model"], r["account"], r["remote"], r["mood"], r["dir"], r["repos"], r["wait"],
-                r["title"], recap, r["parked"], r["win"],
+                r["title"], r["recap"], r["parked"], r["win"],
                 key=r["session_id"],
             )
 
@@ -1806,8 +1309,6 @@ class PodbayApp(App):
 
     def on_resize(self, event) -> None:
         self._fit_recap_column()
-
-
 
     def _quota_segments(self) -> list:
         """One quota group per account, the account's label in front of it
@@ -1850,15 +1351,13 @@ class PodbayApp(App):
         header.update_clock(scan_text)
 
     def _selected_session(self) -> Session | None:
-        """The highlighted row's session, resolved through the currently
-        *visible* (possibly filtered) rows -- table.cursor_row indexes what
-        is actually listed, not the full self.rows."""
+        """The highlighted row's session."""
         table = self.query_one("#table", DataTable)
         if table.row_count == 0 or table.cursor_row is None:
             return None
-        if table.cursor_row >= len(self._visible_rows):
+        if table.cursor_row >= len(self.rows):
             return None
-        return self._visible_rows[table.cursor_row]["session"]
+        return self.rows[table.cursor_row]["session"]
 
     def _update_detail(self) -> None:
         try:
@@ -2023,82 +1522,7 @@ class PodbayApp(App):
         self.query_one("#table", DataTable).focus()
 
     def action_escape_pressed(self) -> None:
-        if self._filtering:
-            self._clear_filter()
-            return
         self.action_focus_table()
-
-    def action_filter(self) -> None:
-        self._filtering = True
-        input_widget = self.query_one("#table-filter", Input)
-        input_widget.display = True
-        input_widget.focus()
-
-    def _clear_filter(self) -> None:
-        self._filtering = False
-        self._filter_query = ""
-        self._conv_hit_ids = set()
-        self._filter_token += 1
-        if self._filter_timer is not None:
-            self._filter_timer.stop()
-            self._filter_timer = None
-        input_widget = self.query_one("#table-filter", Input)
-        input_widget.value = ""
-        input_widget.display = False
-        self._apply_filter()
-        self.action_focus_table()
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id != "table-filter":
-            return
-        event.stop()
-        self._filter_query = event.value
-        self._filter_token += 1
-        if len(self._filter_query.strip()) < RESUME_SEARCH_MIN_LEN:
-            self._conv_hit_ids = set()
-        self._apply_filter()
-
-        if self._filter_timer is not None:
-            self._filter_timer.stop()
-            self._filter_timer = None
-        query = self._filter_query.strip()
-        if len(query) >= RESUME_SEARCH_MIN_LEN:
-            token = self._filter_token
-            # shells have no transcript to search; only real Claude sessions
-            # are worth asking history.search_sessions to confirm.
-            live_ids = {r["session_id"] for r in self.rows if not getattr(r["session"], "is_shell", False)}
-            self._filter_timer = self.set_timer(
-                RESUME_SEARCH_DEBOUNCE, lambda: self._start_filter_search(query, token, live_ids)
-            )
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "table-filter":
-            return
-        event.stop()
-        self.action_focus_selected()
-
-    def _start_filter_search(self, query: str, token: int, live_ids: set[str]) -> None:
-        if token != self._filter_token:
-            return  # the query moved on while we were waiting out the debounce
-        self._filter_search_worker(query, token, live_ids)
-
-    @work(thread=True, exclusive=True, group="table-filter-search")
-    def _filter_search_worker(self, query: str, token: int, live_ids: set[str]) -> None:
-        search_sessions = getattr(history_mod, "search_sessions", None) if history_mod else None
-        matches: list = []
-        if search_sessions is not None:
-            try:
-                matches = search_sessions(query, limit=100, include_ids=live_ids)
-            except Exception:
-                log.warning("filter search failed for %r", query, exc_info=True)
-                matches = []
-        self.call_from_thread(self._apply_filter_search_results, token, matches)
-
-    def _apply_filter_search_results(self, token: int, matches: list) -> None:
-        if token != self._filter_token:
-            return  # a newer query has since started typing
-        self._conv_hit_ids = {m.session.session_id for m in matches}
-        self._apply_filter()
 
     def action_park(self) -> None:
         session = self._selected_session()
@@ -2220,81 +1644,6 @@ class PodbayApp(App):
     def action_refresh(self) -> None:
         self.trigger_refresh()
 
-    def action_toggle_selection(self) -> None:
-        session = self._selected_session()
-        if session is None:
-            return
-        key = session.session_id
-        if key in self._selected:
-            self._selected.discard(key)
-        else:
-            self._selected.add(key)
-        self._redraw_state_cell(key)
-
-    def action_clear_selection(self) -> None:
-        if not self._selected:
-            return
-        cleared = list(self._selected)
-        self._selected.clear()
-        for key in cleared:
-            self._redraw_state_cell(key)
-
-    def _redraw_state_cell(self, key: str) -> None:
-        row = next((r for r in self.rows if r["session_id"] == key), None)
-        if row is None:
-            return
-        session = row["session"]
-        derived = session.derive_status(datetime.now())
-        cell = _state_cell(derived, key in self._selected, ROW_STYLES.get(derived))
-        row["state"] = cell
-        try:
-            self.query_one("#table", DataTable).update_cell(key, self._col_keys[1], cell)
-        except Exception:
-            pass  # row vanished between highlight and toggle; next scan redraws
-
-    def action_arrange(self) -> None:
-        """Build a plan from the selected rows in table order (podbay's own
-        row and any row without a window id are dropped) and apply it."""
-        sessions_by_id = {r["session_id"]: r["session"] for r in self.rows}
-        pane_ids = []
-        for key in self._row_keys:
-            if key not in self._selected:
-                continue
-            session = sessions_by_id.get(key)
-            if session is None:
-                continue
-            if self._own_tty is not None and getattr(session, "tty", None) == self._own_tty:
-                continue
-            window_id = getattr(session, "window_id", None)
-            if window_id is None or window_id in pane_ids:
-                continue  # two selected tabs of one window are one window to move
-            pane_ids.append(window_id)
-
-        if not pane_ids:
-            self.notify("nothing to arrange (select terminals first)", severity="warning")
-            return
-
-        display = screens.arrange_display()
-        frame = layout.Screen(*display.bounds) if display is not None else EXTERNAL_SCREEN_FRAME
-        where = "external display" if display is not None and not display.is_main else "this screen"
-        plan = layout.plan_layout(pane_ids, frame)
-        self._apply_plan(plan, where)
-
-    def _apply_plan(self, plan: list[layout.Placement], where: str = "this screen") -> None:
-        """The single place that touches the OS for an arrange. macOS has no
-        API for moving a window to another desktop, so this places windows on
-        whatever desktop they are already on."""
-        applied = 0
-        for placement in plan:
-            try:
-                ok = iterm_mod.set_window_bounds(placement.pane_id, placement.bounds)
-            except Exception:
-                log.warning("set_window_bounds failed for window %s", placement.pane_id, exc_info=True)
-                ok = False
-            if ok:
-                applied += 1
-        self.notify(f"arranged {applied}/{len(plan)} window(s) on the {where}")
-
     def _free_shell_sessions(self) -> list[Session]:
         """Listed terminals sitting at an empty shell prompt, in table order,
         the highlighted one first. A new window is a last resort: the point is
@@ -2407,59 +1756,6 @@ class PodbayApp(App):
         target = f"in {free.title}" if free is not None else "in a new window"
         who = f" as {chosen.label}" if len(self._accounts) > 1 else ""
         self.push_screen(PromptScreen(f"Start claude {target}{who}, directory:", initial=default_dir), handle_result)
-
-    def action_resume(self) -> None:
-        """Offer sessions to resume: ones from the last snapshot that are no
-        longer live, then older history. Opening one starts a new window
-        running `claude --resume <id>` in its original directory."""
-        now = datetime.now()
-        live_ids = {r["session_id"] for r in self.rows}
-        snapshot = self.state_store.get_snapshot()
-        before_restart = [e for e in snapshot if e.get("session_id") not in live_ids]
-        before_rows = _snapshot_resume_rows(before_restart, now)
-
-        list_past_sessions = getattr(history_mod, "list_past_sessions", None) if history_mod else None
-        older_rows: list[dict] = []
-        if list_past_sessions is not None:
-            exclude_ids = live_ids | {e.get("session_id") for e in snapshot}
-            try:
-                past = list_past_sessions(exclude_ids=exclude_ids, limit=100, since_days=30, accounts=self._accounts)
-            except Exception:
-                log.warning("list_past_sessions failed", exc_info=True)
-                past = []
-            older_rows = _history_resume_rows(past)
-
-        if not before_rows and not older_rows:
-            self.notify("nothing to resume", severity="warning")
-            return
-
-        def handle_result(selected: list[dict] | None) -> None:
-            if not selected:
-                return
-            self._resume_entries(selected)
-
-        self.push_screen(
-            ResumeScreen([("Before the restart", before_rows), ("Older sessions", older_rows)], now),
-            handle_result,
-        )
-
-    def _resume_entries(self, selected: list[dict]) -> None:
-        """Each entry takes the next terminal already sitting at a prompt; a
-        new window is opened only once those run out."""
-        pool = self._free_shell_sessions()
-        opened = 0
-        reused = 0
-        for entry in selected:
-            account = by_label(self._accounts, entry.get("account")) or self._accounts[0]
-            command = self._claude_command(account, entry["cwd"], f"--resume {shlex.quote(entry['session_id'])}")
-            ok, used_pane = self._dispatch_command(pool, command)
-            if ok:
-                opened += 1
-                if used_pane:
-                    reused += 1
-        where = f"{reused} in open terminals" if reused else "in new windows"
-        self.notify(f"resumed {opened}/{len(selected)} session(s), {where}")
-        self.trigger_refresh()
 
 
 # Typed into a session's tab to toggle its bridge; the registry then adds or

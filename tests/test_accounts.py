@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from podbay import app as app_mod
-from podbay import history as history_mod
 from podbay import usage as usage_mod
 from podbay.accounts import Account, by_label, discover, label_for
 from podbay.sources import gather_sessions, newest_limits, read_status_snapshots
@@ -152,9 +151,6 @@ def test_usage_fetch_runs_claude_as_the_account(monkeypatch):
     assert usage_mod.cache_path_for(Account("claude", Path("/u/.claude"))) == usage_mod.CACHE_PATH
 
 
-# -- history.py: past sessions of both accounts --------------------------------
-
-
 def _transcript(projects_dir: Path, session_id: str, cwd: str, prompt: str) -> Path:
     slug_dir = projects_dir / cwd.replace("/", "-")
     slug_dir.mkdir(parents=True, exist_ok=True)
@@ -166,20 +162,7 @@ def _transcript(projects_dir: Path, session_id: str, cwd: str, prompt: str) -> P
     return path
 
 
-def test_list_and_search_past_sessions_span_every_account(tmp_path, monkeypatch):
-    accounts = _accounts(tmp_path)
-    _transcript(accounts[0].projects_dir, "d1", "/x/one", "fix the parser")
-    _transcript(accounts[1].projects_dir, "p1", "/x/two", "parser tests for the other account")
-    monkeypatch.setattr(history_mod, "_rg_matching_files", lambda *_a, **_k: None)  # pure-Python fallback
-
-    listed = history_mod.list_past_sessions(accounts=accounts, since_days=None)
-    assert {s.session_id: s.account for s in listed} == {"d1": "claude", "p1": "personal"}
-
-    found = history_mod.search_sessions("parser", accounts=accounts)
-    assert {m.session.session_id: m.session.account for m in found} == {"d1": "claude", "p1": "personal"}
-
-
-# -- app.py: header, open and resume -------------------------------------------
+# -- app.py: header and open -------------------------------------------
 
 
 def _app(tmp_path, monkeypatch, accounts):
@@ -286,27 +269,6 @@ async def test_open_claude_skips_the_pick_list_with_one_account(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_resume_command_runs_claude_as_the_session_account(tmp_path, monkeypatch):
-    app = _app(tmp_path, monkeypatch, _accounts(Path.home()))
-    sent = []
-    monkeypatch.setattr(app_mod.iterm_mod, "open_window", lambda command=None, **_k: sent.append(command) or "w", raising=False)
-    monkeypatch.setattr(app, "notify", lambda *a, **k: None)
-    monkeypatch.setattr(app, "trigger_refresh", lambda: None)
-
-    async with app.run_test(size=(140, 40)):
-        await app.workers.wait_for_complete()
-        app._resume_entries([
-            {"session_id": "p1", "cwd": "/x/two", "account": "personal"},
-            {"session_id": "d1", "cwd": "/x/one", "account": None},
-        ])
-
-    assert sent == [
-        "cd /x/two && CLAUDE_CONFIG_DIR=~/.claude-personal claude --resume p1",
-        "cd /x/one && claude --resume d1",
-    ]
-
-
-@pytest.mark.asyncio
 async def test_transcript_pane_reads_the_sessions_own_account(tmp_path, monkeypatch):
     """A personal session's transcript lives under ~/.claude-personal/projects;
     the pane must look there, not under the default account."""
@@ -400,7 +362,7 @@ async def test_remote_key_toggles_remote_control_in_the_sessions_tab(tmp_path, m
         await app.workers.wait_for_complete()
         await pilot.pause()
         table = app.query_one("#table")
-        keys = app._visible_row_keys
+        keys = app._row_keys
         table.move_cursor(row=keys.index("a"))
         app.action_remote()
         table.move_cursor(row=keys.index("b"))
@@ -429,7 +391,7 @@ async def test_helper_tabs_are_not_listed(tmp_path, monkeypatch):
     async with app.run_test(size=(160, 40)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert sorted(app._visible_row_keys) == ["first", "unknown"]
+        assert sorted(app._row_keys) == ["first", "unknown"]
 
 
 # -- Head Jeeves -----------------------------------------------------------------
@@ -470,7 +432,7 @@ async def test_exit_interview_goes_to_a_live_head_jeeves_and_v_shows_what_he_wro
     async with app.run_test(size=(160, 40)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        keys = app._visible_row_keys
+        keys = app._row_keys
         assert keys[0] == "hj"  # Head Jeeves sorts first
         table = app.query_one("#table")
         table.move_cursor(row=keys.index("p1"))

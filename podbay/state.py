@@ -1,5 +1,4 @@
-"""Podbay's own persisted state: parked_until / note / seen_at per session,
-plus the last-known working set for Resume after a reboot.
+"""Podbay's own persisted state: parked_until / note / seen_at per session.
 
 Stored at ~/.local/state/podbay/state.json, written atomically
 (tmp file + rename) so a crash mid-write never corrupts it. A write the
@@ -54,23 +53,17 @@ class StateStore:
     def __init__(self, path: Path = STATE_PATH):
         self.path = path
         self._sessions: dict[str, SessionState] = {}
-        # Last-known working set of live Claude sessions, for Resume after a
-        # reboot; a plain list of dicts, not SessionState -- prune() must
-        # never touch it (see prune's docstring).
-        self._snapshot: list[dict] = []
         self.load()
 
     def load(self) -> None:
         if not self.path.exists():
             self._sessions = {}
-            self._snapshot = []
             return
         try:
             raw = json.loads(self.path.read_text())
         except (json.JSONDecodeError, OSError) as exc:
             log.warning("state file %s unreadable, starting empty: %s", self.path, exc)
             self._sessions = {}
-            self._snapshot = []
             return
         raw = _migrate(raw)
         sessions = {}
@@ -82,7 +75,6 @@ class StateStore:
                 updated_at=_parse_iso(entry.get("updated_at")),
             )
         self._sessions = sessions
-        self._snapshot = raw.get("snapshot", [])
 
     def save(self) -> bool:
         """Write the state file atomically. Returns False when the OS refused
@@ -98,7 +90,6 @@ class StateStore:
                 }
                 for sid, s in self._sessions.items()
             },
-            "snapshot": self._snapshot,
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,21 +135,9 @@ class StateStore:
         s.updated_at = datetime.now()
         self.save()
 
-    def set_snapshot(self, entries: list[dict], now: datetime) -> None:
-        """Replace the working-set snapshot wholesale (not merged) with
-        `entries`; `now` is accepted for symmetry with the other setters but
-        the caller stamps per-entry timestamps itself."""
-        self._snapshot = list(entries)
-        self.save()
-
-    def get_snapshot(self) -> list[dict]:
-        return list(self._snapshot)
-
     def prune(self, live_session_ids: set[str], now: datetime | None = None) -> int:
         """Drop entries for sessions that are both no longer live and stale.
-        Returns the number of entries removed. Only touches self._sessions
-        (park/note/seen state) -- the snapshot is what must survive a reboot,
-        so it is never in scope here."""
+        Returns the number of entries removed."""
         now = now or datetime.now()
         cutoff = now - timedelta(days=PRUNE_AFTER_DAYS)
         keep = {}

@@ -85,21 +85,6 @@ tell application "iTerm2"
 end tell
 """
 
-# Guarded the same way FOCUS_SCRIPT_TEMPLATE is: a window id that matches
-# nothing leaves "found" false and moves/resizes no window.
-SET_BOUNDS_SCRIPT_TEMPLATE = """
-tell application "iTerm2"
-	set found to false
-	repeat with w in windows
-		if ((id of w) as text) is "{window_id}" then
-			set bounds of w to {bounds}
-			set found to true
-		end if
-	end repeat
-	return found
-end tell
-"""
-
 @dataclass
 class TabInfo:
     tty: str
@@ -372,18 +357,6 @@ def focus_tty(tty: str) -> bool:
     """Select and activate the iTerm2 tab whose session has this tty.
     Returns True if a matching tab was found (and focused)."""
     script = FOCUS_SCRIPT_TEMPLATE.format(tty=tty)
-    try:
-        out = _run_applescript(script)
-    except (subprocess.SubprocessError, OSError):
-        return False
-    return out.strip().lower() == "true"
-
-
-def set_window_bounds(window_id: str, bounds: tuple[int, int, int, int]) -> bool:
-    """Move/resize the iTerm2 window with this id to (x1, y1, x2, y2).
-    Returns True if a matching window was found (and moved/resized)."""
-    x1, y1, x2, y2 = bounds
-    script = SET_BOUNDS_SCRIPT_TEMPLATE.format(window_id=window_id, bounds="{%d, %d, %d, %d}" % (x1, y1, x2, y2))
     try:
         out = _run_applescript(script)
     except (subprocess.SubprocessError, OSError):
