@@ -1,8 +1,10 @@
 # podbay
 
-One terminal console over every local Claude Code session, across accounts.
-`README.md` is the user page: what it does, install, keys. This file is for
-agents working on the code.
+One terminal console over every local Claude Code session, across accounts:
+a read-only status screen, the background loop that keeps Head Jeeves
+running and fed, and the CLI he drives sessions with. `README.md` is the
+user page: what it does, install, keys. This file is for agents working on
+the code.
 
 ## Commands
 
@@ -86,6 +88,10 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 - Read-only against Claude Code's files. podbay writes only under
   `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
   `podbay close` is the one command that ends a session and closes a tab.
+- The TUI is read-only. A key shows something (the transcript pane, a
+  review, the history); none parks, selects, arranges, opens, messages or
+  focuses a session. What drives sessions is Head Jeeves through the CLI.
+  Do not add a hands-on key back.
 - Nothing in the TUI switches to iTerm2 or types into a session. The
   background loop types only into Head Jeeves (and the session it primes
   as him); `podbay send` and `podbay open` are the CLI, run by him.

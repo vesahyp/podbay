@@ -63,9 +63,9 @@
         <div><h3><b>?</b>Who needs you</h3><p>A session that finished, asked a question or opened a permission dialog sorts to the top. A dot marks an answer you have not read.</p></div>
         <div><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript, not from guesses.</p></div>
         <div><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
-        <div><h3><b>↵</b>Jump or send</h3><p>Enter brings up the session's tab. <code>m</code> types a message into it without leaving podbay.</p></div>
-        <div><h3><b>=</b>Park it</h3><p>Snooze a session until <code>tomorrow 9</code> or <code>+2h</code>. It waits at the bottom until it is due.</p></div>
-        <div><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account. Open and resume start Claude as the right one.</p></div>
+        <div><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account, with its own column, quota and sessions.</p></div>
+        <div><h3><b>▶</b>Read, do not drive</h3><p>The screen is read-only. The lower half shows the highlighted session's last turns; the driving is Head Jeeves' job.</p></div>
+        <div><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
       </div>
     </div>
   </section>
@@ -94,7 +94,7 @@
     <div class="wrap"><div class="narrow">
       <p class="label">Install</p>
       <h2>Clone, make, run</h2>
-      <p>You need macOS, iTerm2, <a href="https://docs.astral.sh/uv/">uv</a> and <code>jq</code>. On another terminal the table works, but jump and send do not.</p>
+      <p>You need macOS, iTerm2, <a href="https://docs.astral.sh/uv/">uv</a> and <code>jq</code>. On another terminal the table works, but send, open and close do not.</p>
 <pre><code>git clone https://github.com/vesahyp/podbay.git
 cd podbay
 make install   <span class="c"># podbay on PATH, status line set</span>
@@ -102,7 +102,7 @@ make install   <span class="c"># podbay on PATH, status line set</span>
 podbay         <span class="c"># the console</span>
 podbay config head-jeeves on</code></pre>
       <p>The status line is where Claude Code reports context and quota, so <code>make install</code> points every account's status line at podbay's script. If you keep your own, copy one block into it instead. The <a href="https://github.com/vesahyp/podbay#readme" data-track="install-readme">README</a> has the details and every key.</p>
-      <p>podbay writes only under <code>~/.local/state/podbay/</code>, and types into an iTerm2 tab only when you ask it to. MIT licensed.</p>
+      <p>podbay writes only under <code>~/.local/state/podbay/</code>, and what it types into an iTerm2 tab is what Head Jeeves sends. MIT licensed.</p>
     </div></div>
   </section>
 

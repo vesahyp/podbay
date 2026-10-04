@@ -4,14 +4,19 @@ One terminal console over every local Claude Code session, across accounts.
 
 Claude Code sessions multiply: one per repo, one per task, one per
 subscription. podbay reads the live session registry and transcript tail of
-every Claude Code config dir on the machine, joins in its own park/note
-state, and maps each session to its iTerm2 tab, so one screen says what every
-session is doing, which ones need you, how much of each account's quota is
-left, and lets you jump to a session or send it a message without switching
-tabs. Themed as a HAL 9000 ship console.
+every Claude Code config dir on the machine and maps each session to its
+iTerm2 tab, so one screen says what every session is doing, which ones need
+you and how much of each account's quota is left. Themed as a HAL 9000 ship
+console.
 
-Read-only against Claude Code's own files. podbay writes only its own state
-under `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
+The screen is read-only: you look, you do not drive sessions from it. The
+driving is done by Head Jeeves, a Claude Code session of its own that
+podbay keeps running and feeds with every event, and that you talk to from
+your phone (see Head Jeeves). The CLI subcommands are his instrument.
+
+Read-only against Claude Code's own files too. podbay writes only its own
+state under `~/.local/state/podbay/`, and the text it types into an iTerm2
+tab is what reaches Head Jeeves, or what he sends on with `podbay send`.
 
 ```
   STATE          AGE  CTX  MODEL      ACCT     DIR                  TITLE                        #
@@ -23,9 +28,10 @@ under `~/.local/state/podbay/` and, on request, text into an iTerm2 tab.
 
 ## Requirements
 
-macOS, iTerm2 (tab focus and send use `osascript`; on another terminal the
-table still works and those two actions fail quietly), [`uv`](https://docs.astral.sh/uv/),
-`jq`, Python 3.12 or newer (uv fetches one if missing).
+macOS, iTerm2 (`podbay send`, `podbay open`, `podbay close` and the Head
+Jeeves loop use `osascript`; on another terminal the table still works and
+those fail quietly), [`uv`](https://docs.astral.sh/uv/), `jq`, Python 3.12
+or newer (uv fetches one if missing).
 
 ## Install
 
@@ -56,6 +62,8 @@ make install
    into it instead, and skip step 3.
 
 Then `podbay` opens the TUI; `podbay list` prints the same rows as text.
+The rest of the commands are what Head Jeeves runs (and what you can run
+by hand from any shell):
 
 ```
 podbay                 # the TUI
@@ -98,9 +106,9 @@ would) and closes its iTerm2 tab, or its window when that tab was the only
 one. A session that is working, watching a background task or stalled stays
 open unless `--force`; Head Jeeves is never closed.
 
-With a home repo set, `o` offers that directory by default, and a tool call
-that only reads there says nothing about where the work is, so that repo
-counts in the Repos column only when the session edits a file in it.
+With a home repo set, every session starts there, and a tool call that
+only reads there says nothing about where the work is, so that repo counts
+in the Repos column only when the session edits a file in it.
 
 Optional environment:
 
@@ -130,6 +138,10 @@ With one config dir nothing changes: no label, no Acct value.
 
 ## Keys
 
+The screen shows; it never changes a session. The keys:
+
+- arrow keys move the highlight; the lower half follows it: the session's
+  details on the left, its last turns on the right
 - `t` toggles keyboard focus between the table and the transcript pane
   (arrow keys and PageUp/PageDown scroll it); `Escape` returns to the table
 - `v` shows the newest file Head Jeeves wrote about the highlighted session
@@ -184,7 +196,8 @@ tokens. Only your own words count: the first prompt of a session that
 left out. HAL remarks once when a session turns hot (see HAL speaks).
 
 A `●` in the first column marks a finished answer you have not looked at yet.
-It clears when you focus the tab or move into the transcript pane.
+It clears when that tab is the current one in iTerm2, or when you move into
+the transcript pane.
 
 Rows sort: needs-you and stalled first (oldest idle first), then working and
 watching, then empty, then shells. Head Jeeves' row is always first.
@@ -227,7 +240,7 @@ He is also the operator you talk to from elsewhere. Run him as the account
 that bridges at startup (`podbay config head-jeeves-account personal` with
 `remoteControlAtStartup` on for that account) and his session is the one
 the Claude app shows on your phone. podbay forwards him every event it
-toasts (a session finished, asked, stalled, came due) and he reports it to
+toasts (a session finished, asked, stalled, ended) and he reports it to
 you in one line there; you can ask him what is going on, tell him to start
 a session somewhere with a task (`podbay open`), or to pass a message to a
 session (`podbay send`), and he does it and reports back.
@@ -306,7 +319,9 @@ make test
 
 `podbay/voice.py` holds every string HAL says. `podbay/model.py` is the
 status derivation, `podbay/sources.py` the file reads, `podbay/iterm.py` the
-AppleScript, `podbay/app.py` the Textual TUI.
+AppleScript, `podbay/app.py` the Textual TUI and the CLI. `make check`
+fails when a doc, the skill, a page or a test quotes or names the user:
+the repo is public.
 
 ## License
 
