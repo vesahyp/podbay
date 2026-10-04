@@ -39,6 +39,7 @@ def test_a_launch_without_a_prompt_or_from_a_shell_marks_nothing():
 def test_open_records_the_whole_first_prompt_it_handed_claude(tmp_path, monkeypatch):
     free = _shell("free", "/dev/ttys008")
     started = _selection_session("new", datetime.now(), tty="/dev/ttys008")
+    started.cwd = str(tmp_path)
     scans = [[free]]
     _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [started], {"/dev/ttys008": ZSH_PROMPT})
 

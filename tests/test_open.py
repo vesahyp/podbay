@@ -114,6 +114,7 @@ def test_open_skips_a_terminal_stuck_on_a_continuation_line(tmp_path, monkeypatc
     stuck = _shell("stuck", "/dev/ttys007")
     free = _shell("free", "/dev/ttys008")
     started = _selection_session("new", datetime.now(), tty="/dev/ttys008")
+    started.cwd = str(tmp_path)
     scans = [[stuck, free]]
     screens = {"/dev/ttys007": f"{ZSH_PROMPT}claude 'cut\ndquote> ", "/dev/ttys008": ZSH_PROMPT}
     sent, windows = _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [stuck, started], screens)
@@ -186,6 +187,7 @@ def test_open_records_the_model_and_the_session_carries_it(tmp_path, monkeypatch
 
     free = _shell("free", "/dev/ttys008")
     started = _selection_session("new", datetime.now(), tty="/dev/ttys008")
+    started.cwd = str(tmp_path)
     scans = [[free]]
     sent, _ = _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [free, started], {"/dev/ttys008": ZSH_PROMPT})
 
@@ -198,3 +200,75 @@ def test_open_records_the_model_and_the_session_carries_it(tmp_path, monkeypatch
     session = _selection_session("new", datetime.now(), tty="/dev/ttys008")
     session.started_at = datetime.fromisoformat(entries[-1]["opened_at"])
     assert opened_mod.opened_model(session, entries) == "opus"
+
+
+TRUST_DIALOG = (
+    f"{ZSH_PROMPT}claude \"$(cat {{marker}})\"\n"
+    " Accessing workspace:\n /Users/someone\n Do you trust the files in this folder?\n"
+    " ❯ 1. Yes, proceed\n   2. No, exit\n Enter to confirm · Esc to cancel\n"
+)
+
+
+def _fail_open(monkeypatch, tmp_path, screens, sessions):
+    monkeypatch.setattr(app_mod, "_write_prompt_file", lambda prompt, directory=None: tmp_path / "p-1.txt")
+    ticks = iter(range(0, 1000, 10))
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: next(ticks))
+    return _patch_open(monkeypatch, tmp_path, sessions, screens)
+
+
+def test_open_fails_while_the_screen_shows_the_trust_dialog_on_a_reused_terminal(tmp_path, monkeypatch, capsys):
+    free = _shell("free", "/dev/ttys008")
+    screens = {"/dev/ttys008": ZSH_PROMPT}
+    sent, windows = _fail_open(monkeypatch, tmp_path, screens, lambda: [free])
+    monkeypatch.setattr(
+        app_mod.iterm_mod, "send_text",
+        lambda tty, text: sent.append((tty, text)) or screens.update({tty: TRUST_DIALOG.format(marker=tmp_path / "p-1.txt")}) or True,
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        app_mod.cmd_open(str(tmp_path), None, None, "Hi.", wait=30)
+
+    assert exited.value.code == 1 and windows == []
+    err = capsys.readouterr().err
+    assert "waiting for an answer in terminal #8" in err and "Do you trust the files" in err
+    assert "claude is up" not in capsys.readouterr().out
+
+
+def test_open_fails_while_the_screen_shows_the_trust_dialog_in_a_new_window(tmp_path, monkeypatch, capsys):
+    screens = {}
+    sent, windows = _fail_open(monkeypatch, tmp_path, screens, lambda: [])
+    monkeypatch.setattr(
+        app_mod.iterm_mod, "open_window_with_tty",
+        lambda command=None, profile=None: windows.append(command) or screens.update({"/dev/ttys009": TRUST_DIALOG.format(marker=tmp_path / "p-1.txt")}) or ("w9", "/dev/ttys009"),
+    )
+
+    with pytest.raises(SystemExit):
+        app_mod.cmd_open(str(tmp_path), None, None, "Hi.", wait=30)
+
+    assert len(windows) == 1 and sent == []
+    assert "waiting for an answer in a new window" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("reused", [True, False])
+def test_open_fails_when_the_session_started_outside_the_launch_directory(tmp_path, monkeypatch, capsys, reused):
+    free = _shell("free", "/dev/ttys008")
+    tty = "/dev/ttys008" if reused else "/dev/ttys009"
+    started = _selection_session("new", datetime.now(), tty=tty)
+    started.cwd = str(Path.home())
+    scans = [[free] if reused else []]
+    _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [started], {tty: ZSH_PROMPT})
+    ticks = iter(range(0, 1000, 10))
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(SystemExit):
+        app_mod.cmd_open(str(tmp_path), None, None, "", wait=30)
+
+    err = capsys.readouterr().err
+    assert f"started in {Path.home()}" in err and str(tmp_path) in err
+
+
+def test_a_numbered_menu_or_confirm_footer_waits_for_input_but_the_banner_does_not():
+    assert iterm.screen_waits_for_input(TRUST_DIALOG.format(marker="x"))
+    assert iterm.screen_waits_for_input("Continue?\n ❯ 1. Yes\n   2. No\n")
+    assert not iterm.screen_waits_for_input(f"{ZSH_PROMPT}claude\n ✻ Welcome to Claude Code\n > ")
+    assert not iterm.screen_waits_for_input(None)

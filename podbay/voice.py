@@ -291,6 +291,14 @@ def open_failed(where: str, seconds: int) -> str:
     return f"I'm sorry, {USER_NAME}. claude did not come up in {where} within {seconds} s. Its screen ends:"
 
 
+def open_blocked(where: str) -> str:
+    return f"I'm sorry, {USER_NAME}. claude is waiting for an answer in {where} (a trust dialog or another prompt) and will not go on by itself. Its screen ends:"
+
+
+def open_wrong_dir(where: str, expected: str, actual: str) -> str:
+    return f"I'm sorry, {USER_NAME}. claude started in {actual} in {where}, not in {expected}. Its screen ends:"
+
+
 def closed(title: str, terminal: str | None) -> str:
     where = f" and terminal #{terminal}" if terminal else " and its terminal"
     return f"closed {title}{where}"

@@ -480,6 +480,22 @@ def screen_at_empty_prompt(text: str | None) -> bool:
     return not _CONTINUATION_RE.match(lines[-1])
 
 
+# Text that only a screen waiting for the user to answer shows: Claude
+# Code's folder trust dialog, its menus' footer, a y/n question.
+_BLOCKING_RE = re.compile(
+    r"do you trust the files|yes, i trust this folder|enter to confirm"
+    r"|press enter to continue|\(y/n\)|\[y/n\]|^\s*[❯>]\s*1\. ",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def screen_waits_for_input(text: str | None) -> bool:
+    """Whether the end of a screen shows a dialog or question that blocks
+    until the user answers (the folder trust dialog above all)."""
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    return bool(_BLOCKING_RE.search("\n".join(lines[-25:])))
+
+
 def at_empty_prompt(tty: str) -> bool:
     """A shell is free only when its screen ends at a fresh prompt: the
     foreground process alone cannot tell a prompt from a half-typed line

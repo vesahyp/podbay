@@ -1693,21 +1693,27 @@ def _new_session_on(tty: str, before: set[str]) -> Session | None:
     return next((s for s in sessions if not s.is_shell and s.tty == tty and s.session_id not in before), None)
 
 
-def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int) -> bool:
-    """True once a new Claude session sits on `tty` in the registry, or the
+def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int, launch_dir: str) -> str | None:
+    """None once a new Claude session sits on `tty` in the registry, or the
     screen shows the Claude banner below the typed command (`marker` is
-    text unique to that command). A slow machine takes over a minute to
+    text unique to that command). Otherwise the reason it is not up:
+    "blocked" (the screen waits for an answer, such as the trust dialog),
+    "wrong_dir" (the registry has the session in another directory than
+    `launch_dir`) or "timeout". A slow machine takes over a minute to
     register a new session."""
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
         time.sleep(OPEN_POLL_SECONDS)
-        if marker:
-            screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
-            if marker in screen and "Claude Code" in screen.rsplit(marker, 1)[1]:
-                return True
-        if _new_session_on(tty, before) is not None:
-            return True
-    return False
+        started = _new_session_on(tty, before)
+        if started is not None:
+            same = started.cwd and os.path.realpath(started.cwd) == os.path.realpath(launch_dir)
+            return None if same or not started.cwd else "wrong_dir"
+        screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
+        if iterm_mod.screen_waits_for_input(screen):
+            return "blocked"
+        if marker and marker in screen and "Claude Code" in screen.rsplit(marker, 1)[1]:
+            return None
+    return "timeout"
 
 
 # After the banner shows, the registry can take a while longer to list the
@@ -1771,12 +1777,20 @@ def cmd_open(
         return
     print(f"waiting up to {wait} s for claude in {where}", flush=True)
     marker = prompt_file.name if prompt_file else None
-    if _wait_for_claude(tty, before, marker, wait):
+    problem = _wait_for_claude(tty, before, marker, wait, launch_dir)
+    if problem is None:
         print(voice.open_started(where, account.label, launch_dir, model), flush=True)
         _record_session_id(tty, before, opened_at)
         return
-    print(voice.open_failed(where, wait), file=sys.stderr)
     screen = iterm_mod.read_session_text(tty, max_lines=60) or ""
+    if problem == "blocked":
+        message = voice.open_blocked(where)
+    elif problem == "wrong_dir":
+        started = _new_session_on(tty, before)
+        message = voice.open_wrong_dir(where, launch_dir, started.cwd if started else "another directory")
+    else:
+        message = voice.open_failed(where, wait)
+    print(message, file=sys.stderr)
     tail = [line for line in screen.splitlines() if line.strip()][-15:]
     print("\n".join(tail) or "(nothing readable)", file=sys.stderr)
     sys.exit(1)
