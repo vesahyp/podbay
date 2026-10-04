@@ -7,5 +7,5 @@ the record.
       account) is one more OAuth token user per account. If logouts return
       on a machine with several concurrent sessions, make the poll opt-in
       or slower.
-- [ ] A terminal other than iTerm2 (Ghostty, Terminal.app): the table works,
-      focus and send do not. Worth a second backend if someone asks.
+- [ ] A terminal other than iTerm2 (Ghostty, Terminal.app): the table works;
+      send, open and close do not. Worth a second backend if someone asks.
