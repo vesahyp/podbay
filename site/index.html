@@ -64,9 +64,29 @@
         <div><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript, not from guesses.</p></div>
         <div><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
         <div><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account, with its own column, quota and sessions.</p></div>
-        <div><h3><b>▶</b>Read, drive a little</h3><p>The lower half shows the highlighted session's last turns. A few keys message, park or open a session; the rest of the driving is Head Jeeves' job.</p></div>
+        <div><h3><b>▶</b>Read, drive a little</h3><p>The lower half shows the highlighted session's last turns. A few keys message, park or open a session (see below); the rest of the driving is Head Jeeves' job.</p></div>
         <div><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
       </div>
+    </div>
+  </section>
+
+  <section id="keys">
+    <div class="wrap split">
+      <div>
+        <p class="label">Hands on</p>
+        <h2>A few keys for you</h2>
+        <p>Head Jeeves does most of the driving. These keys are yours:</p>
+        <ul>
+          <li><code>o</code> opens a session. Type the repo, then pick the account. Each account shows the strongest model it has room for and its five-hour and weekly use, and the one with the most room is already picked.</li>
+          <li><code>m</code> types a message into the highlighted session, under HAL's red eye. <code>j</code> messages Head Jeeves, under a blue bow tie, so you always see which one you are writing to.</li>
+          <li><code>p</code> parks a session until a time you give, <code>u</code> wakes it. <code>Enter</code> jumps to its iTerm2 tab.</li>
+          <li>The first start asks what HAL should call you, and he uses that name from then on. <code>podbay config user-name</code> changes it.</li>
+        </ul>
+      </div>
+      <figure class="pick">
+        <img src="/img/open.png" width="1640" height="552" loading="lazy" alt="The account picker that o shows: two accounts, work and personal, each with the model it has room for, its five-hour and seven-day use and its live sessions, work picked.">
+        <figcaption>After the repo, <code>o</code> asks which account to use.</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -99,10 +119,10 @@
 cd podbay
 make install   <span class="c"># podbay on PATH, status line set</span>
 
-podbay         <span class="c"># the console</span>
+podbay         <span class="c"># the console; the first start asks your name</span>
 podbay config head-jeeves on</code></pre>
       <p>The status line is where Claude Code reports context and quota, so <code>make install</code> points every account's status line at podbay's script. If you keep your own, copy one block into it instead. The <a href="https://github.com/vesahyp/podbay#readme" data-track="install-readme">README</a> has the details and every key.</p>
-      <p>podbay writes only under <code>~/.local/state/podbay/</code>, and what it types into an iTerm2 tab is what Head Jeeves sends. MIT licensed.</p>
+      <p>podbay writes only under <code>~/.local/state/podbay/</code>, and it types into an iTerm2 tab only what you or Head Jeeves send. MIT licensed.</p>
     </div></div>
   </section>
 

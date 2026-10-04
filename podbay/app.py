@@ -526,7 +526,7 @@ class AccountScreen(ModalScreen["tuple[Account, str | None] | None"]):
         background: transparent 60%;
     }
     #account-box {
-        width: 64;
+        width: 72;
         height: auto;
         border: round #c8c8c8;
         padding: 1 2;

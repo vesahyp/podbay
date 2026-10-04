@@ -161,6 +161,32 @@ async def console_svg(tmp: Path) -> str:
         return app.export_screenshot(title="podbay")
 
 
+# What the `o` account picker shows: the per-model weekly windows that
+# quota.best_model reads, made up like everything else here.
+QUOTA = [
+    {"account": "work", "quota_multiplier": 5, "five_hour": {"used_pct": 36.0, "left_pct": 64.0},
+     "seven_day": {"used_pct": 41.0, "left_pct": 59.0},
+     "models": [{"model": "Fable", "alias": "fable", "seven_day": {"used_pct": 52.0, "left_pct": 48.0}}]},
+    {"account": "personal", "quota_multiplier": 1, "five_hour": {"used_pct": 12.0, "left_pct": 88.0},
+     "seven_day": {"used_pct": 18.0, "left_pct": 82.0}, "models": []},
+]
+
+
+async def open_svg(tmp: Path) -> str:
+    """The console with the `o` account picker up, the step after the repo."""
+    accounts = [Account(label="work", config_dir=tmp / ".claude-work"), Account(label="personal", config_dir=tmp / ".claude-personal")]
+    app = app_mod.PodbayApp(
+        state_store=StateStore(path=tmp / "state.json"), iterm_lister=NoIterm(), no_splash=True, accounts=accounts
+    )
+    async with app.run_test(size=(196, 34)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        app.push_screen(app_mod.AccountScreen(accounts, QUOTA, "work", app._live_counts()))
+        await pilot.resize_terminal(82, 12)
+        await pilot.pause(0.3)
+        return app.export_screenshot(title="podbay")
+
+
 def board_html() -> str:
     payload = inventory_payload(demo_sessions(), set())
     page = board.render(payload, NOW, LIMITS, HEADLINES)
@@ -174,8 +200,8 @@ async def main() -> None:
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         patch_sources(tmp)
-        svg = await console_svg(tmp)
-        (tmp / "console.svg").write_text(svg)
+        (tmp / "console.svg").write_text(await console_svg(tmp))
+        (tmp / "open.svg").write_text(await open_svg(tmp))
         (tmp / "board.html").write_text(board_html())
 
         async with async_playwright() as p:
@@ -183,12 +209,13 @@ async def main() -> None:
 
             # As an <img> the SVG box is its viewBox, which ends at the
             # window frame; opened directly it fills the viewport.
-            (tmp / "console.html").write_text(
-                '<body style="margin:0;background:transparent"><img src="console.svg" style="display:block;width:1600px">'
-            )
             page = await browser.new_page(viewport={"width": 1600, "height": 900}, device_scale_factor=2)
-            await page.goto((tmp / "console.html").as_uri())
-            await page.locator("img").screenshot(path=str(OUT / "console.png"), omit_background=True)
+            for name, width in (("console", 1600), ("open", 820)):
+                (tmp / f"{name}.html").write_text(
+                    f'<body style="margin:0;background:transparent"><img src="{name}.svg" style="display:block;width:{width}px">'
+                )
+                await page.goto((tmp / f"{name}.html").as_uri())
+                await page.locator("img").screenshot(path=str(OUT / f"{name}.png"), omit_background=True)
 
             # Dark, to sit on the dark page. The board itself follows the
             # phone's setting.
