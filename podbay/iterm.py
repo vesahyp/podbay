@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -412,43 +413,70 @@ SEND_SCRIPT_LINES = [
 ]
 
 
-# argv-based, same reason as SEND_SCRIPT_LINES. Creates the window via a
-# profile (never the `command` param of `create window`, which replaces the
-# login shell so the window closes the moment the command exits) then
-# writes the command into the new session as a separate step. Returns the
-# window id and the new session's tty, tab-separated. The separator is
-# `character id 9`: inside `tell application "iTerm2"` a bare `tab` is
-# iTerm2's tab class and comes out as the word "tab".
+# argv-based (never string-interpolated) so quotes/unicode survive. The
+# window is made in the background: the app in front and iTerm2's own
+# current window are noted first and put back right after, so the new
+# window never keeps the keyboard. The launch command is the session's own
+# command (see session_command), never keystrokes written into a shell
+# that is still starting: keys the user types into whatever has focus
+# cannot mix into it (2026-10-04: "actorcd /Users/... && claude" after a
+# new window took focus mid-sentence). Returns the window id and the new
+# session's tty, tab-separated. The separator is `character id 9`: inside
+# `tell application "iTerm2"` a bare `tab` is iTerm2's tab class and comes
+# out as the word "tab".
 OPEN_WINDOW_SCRIPT_LINES = [
     "on run argv",
+    "  set targetProfile to item 1 of argv",
+    "  set targetCommand to item 2 of argv",
+    '  set frontName to ""',
+    "  try",
+    '    tell application "System Events" to set frontName to name of first application process whose frontmost is true',
+    "  end try",
+    "  set prevWindow to missing value",
+    '  if frontName is "iTerm2" then',
+    "    try",
+    '      tell application "iTerm2" to set prevWindow to id of current window',
+    "    end try",
+    "  end if",
     '  tell application "iTerm2"',
-    "    set targetProfile to item 1 of argv",
-    "    set targetCommand to item 2 of argv",
-    "    if targetProfile is \"\" then",
-    "      set w to (create window with default profile)",
-    "    else",
+    '    if targetProfile is "" then set targetProfile to "Default"',
+    '    if targetCommand is "" then',
     "      set w to (create window with profile targetProfile)",
+    "    else",
+    "      set w to (create window with profile targetProfile command targetCommand)",
     "    end if",
-    "    if targetCommand is not \"\" then",
-    "      tell current session of w to write text targetCommand",
-    "    end if",
-    "    return ((id of w) as text) & (character id 9) & (tty of current session of w)",
+    "    set result_ to ((id of w) as text) & (character id 9) & (tty of current session of w)",
     "  end tell",
+    "  try",
+    '    if frontName is "iTerm2" then',
+    "      if prevWindow is not missing value then",
+    '        tell application "iTerm2" to select (first window whose id is prevWindow)',
+    "      end if",
+    '    else if frontName is not "" then',
+    '      tell application "System Events" to set frontmost of process frontName to true',
+    "    end if",
+    "  end try",
+    "  return result_",
     "end run",
 ]
 
 
+def session_command(command: str) -> str:
+    """`command` as a session command: run by a login shell, which then
+    stays as the window's shell so the window outlives the command."""
+    return f"/bin/zsh -lic {shlex.quote(command + '; exec /bin/zsh -l')}"
+
+
 def open_window_with_tty(command: str | None = None, profile: str | None = None) -> tuple[str, str] | None:
-    """Create a new iTerm2 window (default profile, or `profile` by name)
-    and return (window id, tty of its session) -- the id in the same space
-    as WindowInfo.window_id -- or None if iTerm2 couldn't be reached.
-    `command`, if given, is written into the new window's session after
-    creation, not passed to `create window`, so the shell survives the
-    command."""
+    """Create a new iTerm2 window in the background (profile `profile` by
+    name, else "Default") and return (window id, tty of its session) -- the
+    id in the same space as WindowInfo.window_id -- or None if iTerm2
+    couldn't be reached. `command`, if given, runs as the session's command
+    and then leaves a shell, so the window survives it."""
     cmd = ["osascript"]
     for line in OPEN_WINDOW_SCRIPT_LINES:
         cmd += ["-e", line]
-    cmd += [profile or "", command or ""]
+    cmd += [profile or "", session_command(command) if command else ""]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=SCRIPT_TIMEOUT)
     except (subprocess.SubprocessError, OSError):

@@ -131,12 +131,11 @@ def test_open_skips_a_terminal_stuck_on_a_continuation_line(tmp_path, monkeypatc
 
 def test_open_takes_a_new_window_when_no_terminal_is_at_a_prompt(tmp_path, monkeypatch):
     stuck = _shell("stuck", "/dev/ttys007")
+    started = _selection_session("new", datetime.now(), tty="/dev/ttys009")
+    started.cwd = str(tmp_path)
+    scans = [[stuck]]
     screens = {"/dev/ttys007": "> ", "/dev/ttys009": ""}
-    sent, windows = _patch_open(monkeypatch, tmp_path, lambda: [stuck], screens)
-    # The banner below the typed command counts as up before the registry has it.
-    marker = []
-    monkeypatch.setattr(app_mod, "_write_prompt_file", lambda prompt, directory=None: marker.append(tmp_path / "p-1.txt") or marker[0])
-    screens["/dev/ttys009"] = f"{ZSH_PROMPT}claude \"$(cat {tmp_path}/p-1.txt)\"\n ✻ Welcome to Claude Code\n"
+    sent, windows = _patch_open(monkeypatch, tmp_path, lambda: scans.pop(0) if scans else [stuck, started], screens)
 
     app_mod.cmd_open(str(tmp_path), None, None, "Hello.", wait=5)
 
@@ -170,6 +169,48 @@ def test_open_window_with_tty_reads_id_and_tty(monkeypatch):
     monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: Done())
     assert iterm.open_window_with_tty("ls") == ("4242", "/dev/ttys011")
     assert iterm.open_window("ls") == "4242"
+
+
+def test_the_launch_command_is_the_session_command_not_keystrokes(monkeypatch):
+    seen = {}
+
+    class Done:
+        returncode = 0
+        stdout = "1\t/dev/ttys011\n"
+
+    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd) or Done())
+    iterm.open_window_with_tty("cd /x && claude -n it")
+    script = "\n".join(seen["cmd"])
+    assert "write text" not in script and "activate" not in script
+    assert seen["cmd"][-1] == "/bin/zsh -lic 'cd /x && claude -n it; exec /bin/zsh -l'"
+
+
+def test_a_window_that_failed_to_launch_is_closed(tmp_path, monkeypatch, capsys):
+    screens = {"/dev/ttys009": ZSH_PROMPT}
+    _patch_open(monkeypatch, tmp_path, lambda: [], screens)
+    closed = []
+    monkeypatch.setattr(app_mod.iterm_mod, "close_tty", lambda tty: closed.append(tty) or True)
+    ticks = iter(range(0, 1000, 10))
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(SystemExit):
+        app_mod.cmd_open(str(tmp_path), None, None, "", wait=30)
+
+    assert closed == ["/dev/ttys009"]
+
+
+def test_a_reused_terminal_is_not_closed_on_failure(tmp_path, monkeypatch):
+    free = _shell("free", "/dev/ttys008")
+    _patch_open(monkeypatch, tmp_path, lambda: [free], {"/dev/ttys008": ZSH_PROMPT})
+    closed = []
+    monkeypatch.setattr(app_mod.iterm_mod, "close_tty", lambda tty: closed.append(tty) or True)
+    ticks = iter(range(0, 1000, 10))
+    monkeypatch.setattr(app_mod.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(SystemExit):
+        app_mod.cmd_open(str(tmp_path), None, None, "", wait=30)
+
+    assert closed == []
 
 
 def test_a_model_goes_to_claude_as_model(tmp_path):

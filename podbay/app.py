@@ -1814,12 +1814,14 @@ def cmd_open(
             print("could not type into the free terminal", file=sys.stderr)
             sys.exit(1)
         tty, where = target.tty, f"terminal #{target.terminal or '?'} ({target.tty})"
+        created = False
     else:
         opened = iterm_mod.open_window_with_tty(command=command)
         if not opened or not opened[1]:
             print("could not open a new iTerm2 window", file=sys.stderr)
             sys.exit(1)
         tty, where = opened[1], f"a new window ({opened[1]})"
+        created = True
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     opened_at = datetime.now()
     opened_mod.record(tty, name, caller.name if caller else None, opened_at, prompt=prompt, model=model)
@@ -1827,7 +1829,9 @@ def cmd_open(
         print(f"typed into {where} as {account.label}{voice.model_note(model)}: {launch_dir}")
         return
     print(f"waiting up to {wait} s for claude in {where}", flush=True)
-    marker = prompt_file.name if prompt_file else None
+    # A new window runs the command as its session command, so the screen
+    # never shows the typed line the marker looks for.
+    marker = prompt_file.name if prompt_file and not created else None
     problem = _wait_for_claude(tty, before, marker, wait, launch_dir)
     if problem is None:
         print(voice.open_started(where, account.label, launch_dir, model), flush=True)
@@ -1844,6 +1848,9 @@ def cmd_open(
     print(message, file=sys.stderr)
     tail = [line for line in screen.splitlines() if line.strip()][-15:]
     print("\n".join(tail) or "(nothing readable)", file=sys.stderr)
+    if created:
+        # A window this call made and could not use is not left behind.
+        iterm_mod.close_tty(tty)
     sys.exit(1)
 
 

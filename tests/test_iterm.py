@@ -165,7 +165,7 @@ def test_open_window_passes_command_and_profile_as_argv(monkeypatch):
 
     monkeypatch.setattr(iterm.subprocess, "run", fake_run)
     iterm.open_window(command="echo 'hi \" there'", profile="Podbay")
-    assert calls[0][-2:] == ["Podbay", "echo 'hi \" there'"]
+    assert calls[0][-2:] == ["Podbay", iterm.session_command("echo 'hi \" there'")]
     script = "\n".join(cmd for flag, cmd in zip(calls[0], calls[0][1:]) if flag == "-e")
     assert "create window with profile targetProfile" in script
     # never passed through create window's own `command` param -- that
