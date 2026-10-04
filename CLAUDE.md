@@ -53,6 +53,8 @@ podbay/
   screens.py        display bounds from CoreGraphics
   logs.py           the rotating application log
   notifications.py  the history behind `h`
+  notify.py         `podbay notify`: one line to the user's phone through
+                      the configured command (config notify-command)
 tests/              pytest; conftest pins one account and a home base
 scripts/shots.py    the site's screenshots: the real TUI and board over
                       made-up sessions, rendered by Playwright

@@ -57,6 +57,7 @@ podbay --no-splash     # without the HAL startup and shutdown sequences
 podbay list
 podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>
+podbay notify <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay excerpt <sessionName|pid|id> [--turns N]
 podbay open <dir> [--account LABEL] [--name NAME] [--wait SECONDS] [first prompt...]
@@ -73,6 +74,7 @@ podbay config voice off          # HAL stops remarking on what changed (on | off
 podbay config head-jeeves on     # keep a Head Jeeves session running and send it work (default off)
 podbay config head-jeeves-account personal   # the account he runs as (default: the default account)
 podbay config review-model sonnet   # the model Head Jeeves runs on (default: the account's own)
+podbay config notify-command "~/bin/push --tag ''"   # what `podbay notify` runs; empty (default) means off
 podbay config                    # show every setting
 ```
 
@@ -264,6 +266,22 @@ an artifact with the `comments` capability, so it costs him no context, and
 you read it on the phone. Tapping a question or a session opens a composer;
 what you type reaches him as a comment addressed `#6 sora: <text>`, he
 passes it on with `podbay send` and answers in the thread.
+
+### Pushes to your phone
+
+podbay has no push transport of its own. Give it one with `podbay config
+notify-command <command>`: a script, with any fixed arguments, that takes
+the message as its last argument. `podbay notify "<text>"` then runs it
+with the text appended, waits up to 30 seconds, and prints one line: `sent`,
+or on stderr why not (exit 1). A failing or missing command is logged in
+`podbay.log`, never a traceback. With no command set, nothing is sent and
+`podbay notify` says so.
+
+Head Jeeves uses it for two things only: a decision only you can make (the
+question with its options) and shipped work ready for you to test (what to
+test, with its full URL). One push per item, nothing for progress or
+routine events, and none between 23:00 and 07:00 local time unless it is
+urgent. The rules are in his skill.
 
 His instructions are the skill in `skills/head-jeeves/`; `make install-skill
 HOME_REPO=~/Repositories/jeeves` links it into the home repo's

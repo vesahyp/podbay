@@ -20,6 +20,10 @@ Keys:
   head_jeeves_account  the account label he runs as (see accounts.py), so
               he is the session your phone shows when that account bridges
               at startup. Default: the default account.
+  notify_command  the command `podbay notify <text>` runs with the text as
+              its last argument, to push one line to the user's phone (a
+              script with fixed arguments, split like a shell line). Empty,
+              the default, means off: nothing is sent.
 
 PODBAY_HOME_REPO in the environment overrides the file, for a one-off run.
 """
@@ -38,6 +42,7 @@ KEYS = {
     "head-jeeves": "head_jeeves",
     "head-jeeves-account": "head_jeeves_account",
     "review-model": "review_model",
+    "notify-command": "notify_command",
 }
 
 
@@ -94,6 +99,10 @@ def review_model(path: Path | None = None) -> str | None:
 
 def head_jeeves_account(path: Path | None = None) -> str | None:
     return str(read(path).get("head_jeeves_account") or "") or None
+
+
+def notify_command(path: Path | None = None) -> str:
+    return str(read(path).get("notify_command") or "")
 
 
 def home_repo(path: Path | None = None) -> str:

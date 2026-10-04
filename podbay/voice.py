@@ -397,3 +397,16 @@ SPLASH_HAL_LINE = "I'm sorry, Dave. I'm afraid I can't do that."
 # eye before it dissolves for good.
 SHUTDOWN_HAL_SPEAKER = "HAL "
 SHUTDOWN_HAL_LINE = "My mind is going, Dave. I can feel it."
+
+
+# `podbay notify`, the one line it prints.
+def notify_sent() -> str:
+    return "sent"
+
+
+def notify_off() -> str:
+    return "nothing sent: no notify command is set (podbay config notify-command <command>)"
+
+
+def notify_failed(reason: str) -> str:
+    return f"not sent: {reason}"

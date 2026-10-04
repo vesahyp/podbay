@@ -45,6 +45,7 @@ from .accounts import Account, by_label, discover
 from . import layout
 from . import logs
 from . import notifications
+from . import notify as notify_mod
 from . import opened as opened_mod
 from . import screens
 from . import sources
@@ -2794,6 +2795,18 @@ def cmd_config(key: str | None, value: str | None) -> None:
     print(f"{key} = {data.get(config.KEYS[key], '')}  ({config.CONFIG_PATH}; restart podbay to apply)")
 
 
+def cmd_notify(text: str) -> int:
+    """`podbay notify <text>`: push one line to the user's phone through the
+    configured notify command. One line out; exit 1 when nothing was sent,
+    never a traceback."""
+    sent, reason = notify_mod.send(text)
+    if sent:
+        print(voice.notify_sent())
+        return 0
+    print(voice.notify_off() if reason == "off" else voice.notify_failed(reason), file=sys.stderr)
+    return 1
+
+
 def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
     """Print the deterministic session inventory. Never touches the TUI.
     Default (no --table/--status) is JSON, one gather_sessions() call shared
@@ -2828,6 +2841,9 @@ def main() -> None:
     send_parser = sub.add_parser("send", help="send a message to a session's iTerm2 tab")
     send_parser.add_argument("target", help=target_help)
     send_parser.add_argument("text", nargs="+", help="message text")
+
+    notify_parser = sub.add_parser("notify", help="push one line to the user's phone through `podbay config notify-command` (see podbay/notify.py)")
+    notify_parser.add_argument("text", nargs="+", help="the message, one standalone sentence")
 
     config_parser = sub.add_parser("config", help="show or set a podbay setting (see podbay/config.py)")
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
@@ -2873,6 +2889,8 @@ def main() -> None:
         cmd_focus(args.target)
     elif args.command == "send":
         cmd_send(args.target, " ".join(args.text))
+    elif args.command == "notify":
+        sys.exit(cmd_notify(" ".join(args.text)))
     elif args.command == "board":
         cmd_board(Path(args.out) if args.out else None)
     elif args.command == "excerpt":
