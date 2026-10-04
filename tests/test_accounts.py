@@ -305,7 +305,7 @@ def _head(now, **overrides):
 
 
 @pytest.mark.asyncio
-async def test_exit_interview_goes_to_a_live_head_jeeves_and_v_shows_what_he_wrote(tmp_path, monkeypatch):
+async def test_a_handover_he_writes_is_toasted_and_v_shows_it(tmp_path, monkeypatch):
     from datetime import datetime
 
     from tests.test_app import _selection_session
@@ -337,22 +337,20 @@ async def test_exit_interview_goes_to_a_live_head_jeeves_and_v_shows_what_he_wro
         table.move_cursor(row=keys.index("p1"))
         app.action_view_review()
         assert "has not written" in toasts[-1]
-        app.action_exit_interview()
-        assert sent[-1] == "/head-jeeves exit worker p1"
-        # he writes the file; the next scan toasts it and v shows it
+        # he writes the file on his own; the next scan toasts it and v shows it
         reviews.mkdir()
-        (reviews / "p1-exit.md").write_text("# worker: exit interview\n\nIt went south at turn two.\n")
+        (reviews / "p1-handover.md").write_text("# worker: handover\n\nIt went south at turn two.\n")
         app.trigger_refresh()
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert any("exit interview of" in t for t in toasts)
+        assert any("handover of" in t for t in toasts)
         app.action_view_review()
         await pilot.pause()
         assert isinstance(app.screen, app_mod.ReviewScreen)
         await pilot.press("escape")
         await pilot.pause()
 
-    assert sent == ["/head-jeeves exit worker p1"]  # nothing goes to him unasked
+    assert sent == []  # nothing goes to him unasked: the TUI has no key that does
 
 
 @pytest.mark.asyncio

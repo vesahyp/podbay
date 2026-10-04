@@ -7,13 +7,13 @@ Keys:
               there says nothing about where the work is, so it counts in the
               Repos column only when edited. Empty when no repo plays that role.
   voice       on | off: whether HAL remarks on what changed (a session
-              finished, asked, stalled, came due, a quota ran hot) as
-              toasts. Default on.
+              finished, asked, stalled, ended, a quota ran hot) as toasts.
+              Default on.
   head_jeeves  on | off: whether podbay keeps a Head Jeeves session running
               (a Claude Code session named head-jeeves, started from the home
-              repo, see skills/head-jeeves) and sends it work: a checkup when
-              a session turns heated, a watch round every half hour, an exit
-              interview on E. Default off: it is a session that spends tokens.
+              repo, see skills/head-jeeves) and sends it work: every event
+              HAL toasts, and a checkup when a session turns heated.
+              Default off: it is a session that spends tokens.
   review_model  the model Head Jeeves runs on (`claude --model`). Empty, the
               default, means the account's own default model: he carries
               every conversation with you, so he gets the brains.

@@ -164,7 +164,6 @@ RECAP_MIN_WIDTH = 12
 ACTIONS = [
     ("t", "toggle_transcript", "Transcript"),
     ("h", "history", "History"),
-    ("E", "exit_interview", "Exit interview"),
     ("v", "view_review", "Review"),
     ("r", "refresh", "Refresh"),
     ("q", "quit", "Quit"),
@@ -455,7 +454,7 @@ def _render_transcript(entries: list[dict]) -> RenderableType:
 
 
 class ReviewScreen(ModalScreen[None]):
-    """A saved Head Jeeves review (exit interview or checkup), as Markdown,
+    """A saved Head Jeeves review (a checkup or a handover), as Markdown,
     scrollable. Escape or v closes it."""
 
     DEFAULT_CSS = """
@@ -1017,18 +1016,10 @@ class PodbayApp(App):
         for name, mtime in sorted(current.items(), key=lambda item: item[1]):
             if previous.get(name) == mtime:
                 continue
-            session_id = name.rsplit("-", 1)[0] if name != "watch.md" else ""
+            session_id = name.rsplit("-", 1)[0]
             session = by_id.get(session_id)
             title = session.title if session is not None else session_id[:8]
             self.notify(voice.review_ready(name, title), title=voice.SHIP_NAME, timeout=15)
-
-    def action_exit_interview(self) -> None:
-        session = self._selected_session()
-        if session is None or not self._require_claude_session(session, "Exit interview"):
-            return
-        if is_head_jeeves(session):
-            return
-        self._send_to_head_jeeves(f"/head-jeeves exit {session.name} {session.session_id}")
 
     def action_view_review(self) -> None:
         session = self._selected_session()

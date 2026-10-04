@@ -41,7 +41,9 @@ def test_review_paths_and_newest_files(tmp_path):
     d.mkdir()
     (d / "abc-checkup.md").write_text("one")
     assert reviewer.latest("abc", d) == d / "abc-checkup.md"
-    assert set(reviewer.newest_files(d)) == {"abc-checkup.md"}
+    (d / "abc-handover.md").write_text("two")
+    assert reviewer.latest("abc", d) == d / "abc-handover.md"
+    assert set(reviewer.newest_files(d)) == {"abc-checkup.md", "abc-handover.md"}
     assert reviewer.newest_files(tmp_path / "missing") == {}
 
 

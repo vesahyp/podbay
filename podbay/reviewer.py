@@ -5,7 +5,10 @@ podbay; this module holds the two things podbay and that session share:
   excerpt      a session's last turns as plain text, `podbay excerpt <name>`,
                the one way Head Jeeves reads a transcript
   reviews      the files he writes under ~/.local/state/podbay/reviews/,
-               <session-id>-<kind>.md, which podbay watches and shows with v
+               <session-id>-<kind>.md, which podbay watches and shows with v.
+               The kinds: a checkup (podbay asks for it when a session's
+               prompts turn heated) and a handover (his own step before he
+               restarts a session, see the skill)
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ REVIEWS_DIR = Path.home() / ".local" / "state" / "podbay" / "reviews"
 TURNS = 80  # conversation entries in an excerpt, newest last
 ENTRY_CHARS = 1500  # one entry is cut to this many characters
 EXCERPT_CHARS = 60_000  # and the whole excerpt to this many
-KINDS = ("exit", "checkup")
+KINDS = ("checkup", "handover")
 
 
 def excerpt(transcript_path: Path, turns: int = TURNS) -> str:

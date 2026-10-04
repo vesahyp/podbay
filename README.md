@@ -132,8 +132,8 @@ With one config dir nothing changes: no label, no Acct value.
 
 - `t` toggles keyboard focus between the table and the transcript pane
   (arrow keys and PageUp/PageDown scroll it); `Escape` returns to the table
-- `E` sends the highlighted session to Head Jeeves for its exit interview
-  (see Head Jeeves); `v` shows the newest review of it
+- `v` shows the newest file Head Jeeves wrote about the highlighted session
+  (a checkup or a handover, see Head Jeeves)
 - `h` shows today's notification history
 - `r` refreshes now
 - `q` quits through the shutdown eye (again to skip it). When a background
@@ -216,10 +216,12 @@ and sends him work as prompts:
   most 150 words on what the friction is and the one sentence that gets the
   session back on track. If the agent is the problem and one sentence would
   fix it, he sends that sentence to the agent himself
-- `E` on a row: `/head-jeeves exit`, the exit interview before you replace
-  an agent: what was asked, where and when it went south, which of your
-  prompts were ambiguous or short of a fact the agent needed (quoted), the
-  agent's own failures, and a handover prompt for the next agent
+- on his own, when a session stalls or goes wrong: the handover. He writes
+  what was asked, where and when it went south, which of your prompts were
+  ambiguous or short of a fact the agent needed (quoted), the agent's own
+  failures, and the opening prompt for the next agent; then he starts the
+  replacement session with that prompt and closes the old one. You never
+  trigger it
 
 He is also the operator you talk to from elsewhere. Run him as the account
 that bridges at startup (`podbay config head-jeeves-account personal` with
