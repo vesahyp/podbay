@@ -77,3 +77,21 @@ def test_an_account_at_85_percent_of_any_window_is_never_suggested(tmp_path):
     assert {o["account"] for o in data["options"]} == {"personal"}
     assert quota.payload([full])["suggested"] == {"heavy": None, "routine": None}
     assert "nothing under 85%" in quota.render(quota.payload([full]))
+
+
+def test_fable_is_never_suggested_on_an_account_that_does_not_list_it(tmp_path):
+    listed = quota.account_entry(_account(tmp_path, "claude", "default_claude_max_5x"), _limits(90, 10), _usage(("Fable", 10)), NOW)
+    plain = quota.account_entry(_account(tmp_path, "personal", "default_claude_ai"), _limits(5, 5), None, NOW)
+    data = quota.payload([listed, plain])
+    # personal has more room, but only claude may run Fable; claude is full at 5h, so opus on personal.
+    assert data["suggested"]["heavy"]["account"] == "personal"
+    assert data["suggested"]["heavy"]["model"] == "opus"
+    assert {o["account"] for o in data["options"] if o["model"] == "fable"} == set()
+    assert quota.best_model([plain], "personal") == "opus"
+
+
+def test_fable_stays_available_where_it_is_listed(tmp_path):
+    listed = quota.account_entry(_account(tmp_path, "claude", "default_claude_max_5x"), _limits(10, 10), _usage(("Fable", 10)), NOW)
+    plain = quota.account_entry(_account(tmp_path, "personal", "default_claude_ai"), _limits(1, 1), None, NOW)
+    heavy = quota.payload([listed, plain])["suggested"]["heavy"]
+    assert (heavy["account"], heavy["model"]) == ("claude", "fable")

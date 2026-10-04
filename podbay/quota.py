@@ -10,7 +10,8 @@ says how large the account's quota is: "default_claude_max_5x" is five
 times the base plan.
 
 The suggestion: an account or a model at or above LIMIT_PCT of any window
-is never suggested. Among the rest, the one with the most room left wins,
+is never suggested, and neither is a LISTED_ONLY model on an account whose
+/usage does not list it. Among the rest, the one with the most room left wins,
 counted in base-plan units (percent left times the plan multiplier), so a
 larger quota wins over a smaller one with the same percentage left.
 """
@@ -29,6 +30,11 @@ LIMIT_PCT = 85.0
 # looking at the first one, a routine job at ROUTINE_FROM.
 MODELS = ["fable", "opus", "sonnet", "haiku"]
 ROUTINE_FROM = "sonnet"
+# Models a plan does not include. Claude Code refuses them with "Requires
+# usage credits" on an account that lacks them. /usage lists a per-model
+# weekly window only for an account that has the model, so these are
+# suggested only where that window is listed.
+LISTED_ONLY = {"fable"}
 
 _MULTIPLIER_RE = re.compile(r"_(\d+)x$")
 
@@ -123,6 +129,8 @@ def options(entries: list[dict]) -> list[dict]:
     for e in entries:
         per_model = {m["alias"]: m["seven_day"] for m in e["models"]}
         for alias in MODELS:
+            if alias in LISTED_ONLY and alias not in per_model:
+                continue
             left = _left([e["five_hour"], e["seven_day"], per_model.get(alias)])
             if left is None:
                 continue
