@@ -210,15 +210,28 @@ on the board and each reply you write must be complete in itself:
 
 ### Messages from the board
 
-Tapping a question or a machine room row opens a one-line composer; what
-the user types reaches you as a comment on the artifact addressed `#6 sora:
-<text>`, the terminal number and repo of that session, or its name and repo
-(`jeeves-64 sora: <text>`) when the terminal number is unknown. Treat it as
-an order for that session: `podbay send '#6' "<text>"` (the first word
-alone resolves the session), then reply in the thread with the
-ArtifactComments tool in one line: what you passed on, or why you could
-not. If the text is a question for you rather than an order ("how is this
-going?"), answer it in the thread. Then refresh the board.
+Every line on the board opens a one-line composer when tapped: a
+decision, a line to test, a finished line, a progress line and a machine
+room row. What the user types reaches you as a comment on the artifact,
+addressed to that line's session and quoting the line:
+`#6 sora, on "Six improvements live": the lap counter is wrong`. The
+address is the terminal number and repo, or the name and repo
+(`jeeves-64 sora, on "..."`) when the terminal number is unknown. The
+quote says what the comment is about, so the user does not type the
+context.
+
+- A live session: treat the text as an order or a remark for it and pass
+  it on with the quote, `podbay send '#6' 'About "Six improvements live":
+  the lap counter is wrong'` (the first word alone resolves the session).
+- `sora (session ended), on "...": <text>`: the line is a shipped item
+  whose session is gone. Open a new session in that repo with `podbay
+  open`, and make its first prompt the quoted line, the link and steps from
+  your headline for it, and the user's text, so it starts with the context.
+- A question for you rather than for the session ("how is this going?"):
+  answer it in the thread.
+
+Then reply in the thread with the ArtifactComments tool in one line: what
+you passed on or started, or why you could not. Then refresh the board.
 
 ## Pushing to the phone
 

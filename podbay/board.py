@@ -6,8 +6,7 @@ It reads like a status page for the person who owns the work, grouped by
 project, never by session, and every line stands alone: no line refers to
 an earlier message, and a link is the full URL.
 
-- Decisions for you: only the real questions a session asks. Tapping one
-  opens the composer to answer it.
+- Decisions for you: only the real questions a session asks.
 - Ready for you to test: one line per project that shipped today, its full
   URL, and the steps to check it.
 - In progress: one line per project, with roughly when.
@@ -21,9 +20,12 @@ HEADLINES_PATH and the head-jeeves skill for the format). A session with no
 headline falls back to the first sentence of its recap, cleaned of
 markdown and never cut mid-word.
 
-Sending from the composer posts a comment on the artifact addressed
-`#6 sora: <text>` (the session name stands in when the terminal number is
-unknown) and sends it to the Claude session that published the page, Head
+Every line opens the composer when tapped: a decision, a line to test, a
+finished line, a progress line and a machine room row. Sending posts a
+comment on the artifact addressed to that line's session and quoting the
+line, `#6 sora, on "<line>": <text>` (the session name stands in when the
+terminal number is unknown; a shipped line whose session has ended says
+`sora (session ended)`), and sends it to the Claude session that published the page, Head
 Jeeves, who passes it on with `podbay send`. That path is the artifact
 `comments` capability (sendToClaude), so the page must be published with
 `capabilities: {comments: {}}`; without it the composer says so instead of
@@ -104,6 +106,8 @@ h2 .n { font: 500 12px var(--mono); color: var(--muted); letter-spacing: 0; }
 .prog { --c: var(--prog); }
 .done { --c: var(--muted); }
 ul.lines > li > div + div { margin-top: 8px; }
+ul.lines > li > div.tap { margin: -4px -6px; padding: 4px 6px; border-radius: 8px; }
+ul.lines > li > div.tap + div.tap { margin-top: 4px; }
 ul.lines { list-style: none; margin: 0; padding: 0; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 12px; overflow: hidden; }
 ul.lines > li { padding: 12px 14px; border-top: 1px solid var(--line); }
 ul.lines > li:first-child { border-top: 0; }
@@ -158,6 +162,8 @@ _JS = """
     const input = form.querySelector("input");
     const status = item.querySelector(".status");
     const target = item.dataset.target;
+    const quote = item.dataset.quote;
+    const message = (text) => quote ? `${target}, on "${quote}": ${text}` : `${target}: ${text}`;
     const toggle = () => {
       const open = item.classList.toggle("open");
       if (open) {
@@ -175,7 +181,7 @@ _JS = """
       status.className = "status"; status.textContent = "Sending…";
       try {
         const anchor = await comments.anchorFor(item);
-        await comments.sendToClaude({ anchor, text: target + ": " + text });
+        await comments.sendToClaude({ anchor, text: message(text) });
         status.className = "status ok"; status.textContent = "Sent to Head Jeeves.";
         input.value = "";
       } catch (err) {
@@ -348,9 +354,24 @@ def _steps(steps: object) -> str:
     return f'<ol class="steps">{items}</ol>' if items else ""
 
 
+def _ended_target(repo: str) -> str:
+    """How the composer addresses a shipped line whose session has ended:
+    the repo, and that the session is gone, so Head Jeeves opens a new one."""
+    return f"{repo} (session ended)"
+
+
+def _tap(target: str, quote: str | None) -> str:
+    """The attributes that make an element open the composer: who the
+    message is for, and the line it quotes so Head Jeeves knows what it is
+    about."""
+    line = clean_line(quote, LINE_CHARS) if quote else ""
+    quoted = f' data-quote="{_esc(line)}"' if line else ""
+    return f'class="tap" data-target="{_esc(target)}"{quoted} tabindex="0"'
+
+
 def _decision_item(item: dict) -> str:
     return (
-        f'<li class="tap" data-target="{_esc(_target(item["session"]))}" tabindex="0">'
+        f'<li {_tap(item["target"], item["text"])}>'
         f'<span class="proj">{_esc(item["project"])}</span><span class="text">{_esc(item["text"])}</span>'
         f'{_link(item.get("link"))}{_composer()}</li>'
     )
@@ -361,8 +382,13 @@ def _project_item(project: str, items: list[dict]) -> str:
     for item in items:
         tag = f' <span class="when-tag">{_esc(item["when"])}</span>' if item.get("when") else ""
         line = f'<span class="text">{_esc(item["text"])}</span>{tag}{_link(item.get("link"))}{_steps(item.get("steps"))}'
-        parts.append(line if len(items) == 1 else f"<div>{line}</div>")
-    return f'<li><span class="proj">{_esc(project)}</span>{"".join(parts)}</li>'
+        parts.append(line + _composer("Comment on this line…"))
+    proj = f'<span class="proj">{_esc(project)}</span>'
+    if len(items) == 1:
+        # One line: the whole row is the tap target, the project inline.
+        return f'<li {_tap(items[0]["target"], items[0]["text"])}>{proj}{parts[0]}</li>'
+    divs = "".join(f'<div {_tap(item["target"], item["text"])}>{part}</div>' for item, part in zip(items, parts))
+    return f"<li>{proj}{divs}</li>"
 
 
 def _section(css: str, heading: str, body: str, count: int) -> str:
@@ -426,7 +452,7 @@ def _room_row(session: dict, now: datetime) -> str:
         pill = "never used"
     meta = " · ".join(x for x in (repo, pill, _age(session, now)) if x)
     return (
-        f'<li class="tap" data-target="{_esc(_target(session))}" tabindex="0"><div class="row">'
+        f'<li {_tap(_target(session), session.get("title") or session.get("name"))}><div class="row">'
         f'<span class="tab">{_esc(tab)}</span><span class="title">{_esc(session.get("title") or session.get("name"))}</span>'
         f'{_ctx(session)}</div><div class="meta">{_esc(meta)}</div>{_composer("Message for this session…")}</li>'
     )
@@ -457,7 +483,7 @@ def render(
         kind = _classify(s, headline, now)
         if kind is None:
             continue
-        item = {"session": s, "project": _project(s, headline), "link": None, "steps": None, "when": ""}
+        item = {"session": s, "target": _target(s), "project": _project(s, headline), "link": None, "steps": None, "when": ""}
         if headline and headline.get("text"):
             item.update(text=clean_line(headline["text"], 2 * LINE_CHARS), link=headline.get("link"), steps=headline.get("steps"))
         else:
@@ -475,7 +501,8 @@ def render(
         if key in live or headline.get("kind") != "shipped" or not headline.get("repo"):
             continue
         if _same_day(headline.get("at"), now):
-            found["shipped"].append({"session": {}, "project": str(headline["repo"]), "when": "",
+            found["shipped"].append({"session": {}, "target": _ended_target(str(headline["repo"])),
+                                     "project": str(headline["repo"]), "when": "",
                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
                                      "link": headline.get("link"), "steps": headline.get("steps")})
 
@@ -494,6 +521,7 @@ def render(
         if not groups and not empty:
             continue
         body = (f'<ul class="lines">\n{chr(10).join(_project_item(p, i) for p, i in groups)}\n</ul>'
+                '\n<p class="hint">Tap a line to comment on it.</p>'
                 if groups else f'<p class="none">{empty}</p>')
         sections.append(_section(css, heading, body, len(groups)))
 

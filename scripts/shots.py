@@ -90,6 +90,8 @@ def demo_sessions() -> list[Session]:
         s(7, "ledger", "Ledger migration", account="personal", model="Opus 5.5", context_pct=52,
           idle=timedelta(minutes=38), seen_at=ago(hours=5),
           recap="The migration ran on staging. 3 rows need a manual fix."),
+        s(8, "recipes", "Recipe search", model="Sonnet 5.5", context_pct=33, idle=timedelta(minutes=25),
+          recap="Recipe search answers in under 200 ms now. Committed and pushed."),
     ]
 
 
@@ -112,6 +114,11 @@ HEADLINES = {
     },
     f"{2:08x}-demo-0000-0000-000000000000": {
         "kind": "progress", "text": "Latency charts for the tile server, ready in about an hour",
+    },
+    # Shipped earlier today by a session that has ended since.
+    "ended-demo": {
+        "kind": "shipped", "text": "Invoice PDFs render on the phone", "repo": "billing", "at": NOW.isoformat(),
+        "link": "https://billing.example.com/invoices",
     },
 }
 

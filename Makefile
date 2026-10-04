@@ -1,4 +1,4 @@
-.PHONY: help run list test check install ship install-skill shots plan apply outputs deploy analytics
+.PHONY: help run list test check install ship install-skill shots board-check plan apply outputs deploy analytics
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -22,6 +22,7 @@ help:
 	@echo "make ship      push main to origin, then make install: the one way a change reaches the installed copy"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
+	@echo "make board-check  tap every board line on a phone, check what reaches Head Jeeves"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
 	@echo "make apply     terraform apply the saved plan"
 	@echo "make deploy    ship site/ to podbay.tienoo.com"
@@ -77,6 +78,9 @@ install-skill:
 shots:
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(PODBAY) --with playwright python scripts/shots.py
+
+board-check:
+	@$(PODBAY) --with playwright python scripts/board_check.py
 
 plan:
 	$(TF) init -input=false -backend-config="bucket=$(TFSTATE_BUCKET)"

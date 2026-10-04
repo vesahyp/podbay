@@ -54,7 +54,7 @@ def test_board_leads_with_outcomes_grouped_by_project():
     assert "podbay-fix-close" in room and "<b>claude</b> 5H 36%  7D 17%" in room and "never used" in room
     assert '<span class="ctx hot">ctx 73%</span>' in room and "Head Jeeves <span class=\"ctx\">ctx 7%</span>" in room
     assert "head-jeeves</span>" not in html and "#?" not in html
-    assert "sendToClaude" in html and 'target + ": " + text' in html
+    assert "sendToClaude" in html and '${target}, on "${quote}": ${text}' in html
 
 
 def test_head_jeeves_headlines_win_and_stale_questions_drop():
@@ -156,3 +156,36 @@ def test_a_card_age_never_contradicts_its_state():
     assert board._age(_session(state="shell_pane", age_seconds=10), NOW) == ""
     for state in ("working", "watching", "stalled"):
         assert "idle" not in board._age(_session(state=state, age_seconds=7200), NOW)
+
+
+def test_every_line_opens_the_composer_addressed_and_quoted():
+    payload = {"sessions": [
+        _session(session_id="s-sora", state="needs_you", last_text="Everything is committed."),
+        _session(session_id="s-done", name="e", tab="11", work_repo="keitos", repo="keitos", state="needs_you",
+                 age_seconds=600, last_text="Recipe search is faster."),
+        _session(session_id="s-prog", name="f", tab="12", work_repo="atlas", repo="atlas", state="working",
+                 last_text="Building the tile cache."),
+        _session(session_id="s-a1", name="g", tab="13", work_repo="ledger", repo="ledger", state="working", last_text="Export first."),
+        _session(session_id="s-a2", name="ledger-two", tab="", work_repo="ledger", repo="ledger", state="working", last_text="Import second."),
+    ]}
+    headlines = {
+        "s-sora": {"kind": "shipped", "text": "Six improvements live", "link": "vesahyp.github.io/sora"},
+        "gone": {"kind": "shipped", "text": "Stats board live", "repo": "podbay", "at": "2026-10-03T12:00"},
+    }
+    html = board.render(payload, NOW, headlines=headlines)
+    ready = html[html.index("Ready for you to test"):html.index("Finished today")]
+    assert 'data-target="#6 sora" data-quote="Six improvements live"' in ready
+    assert 'data-target="podbay (session ended)" data-quote="Stats board live"' in ready
+    done = html[html.index("Finished today"):html.index("In progress")]
+    assert 'data-target="#11 keitos" data-quote="Recipe search is faster."' in done
+    progress = html[html.index("In progress"):html.index("Machine room")]
+    assert 'data-target="#12 atlas" data-quote="Building the tile cache."' in progress
+    # two sessions in one project: each line is its own target, the tab-less one by name
+    assert 'data-target="#13 ledger" data-quote="Export first."' in progress
+    assert 'data-target="ledger-two ledger" data-quote="Import second."' in progress
+    assert progress.count('class="proj">ledger<') == 1
+    for section in (ready, done, progress):
+        assert section.count('<form class="say">') == section.count('class="tap"')
+        assert "Tap a line to comment on it." in section
+    room = html[html.index("Machine room"):]
+    assert 'data-target="#12 atlas" data-quote="' in room
