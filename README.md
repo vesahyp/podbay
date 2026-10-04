@@ -9,7 +9,7 @@ iTerm2 tab, so one screen says what every session is doing, which ones need
 you and how much of each account's quota is left. Themed as a HAL 9000 ship
 console.
 
-The screen is read-only: you look, you do not drive sessions from it. The
+The screen mostly shows: you do not start or close sessions from it. The
 driving is done by Head Jeeves, a Claude Code session of its own that
 podbay keeps running and feeds with every event, and that you talk to from
 your phone (see Head Jeeves). The CLI subcommands are his instrument.
@@ -70,6 +70,7 @@ by hand from any shell):
 podbay                 # the TUI
 podbay --no-splash     # without the HAL startup and shutdown sequences
 podbay list
+podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>   # any length, arrives as one prompt
 podbay notify <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
@@ -158,6 +159,8 @@ The screen shows. It changes a session in two ways only: the message you type an
 
 - arrow keys move the highlight; the lower half follows it: the session's
   details on the left, its last turns on the right
+- `Enter` focuses the selected session's iTerm2 tab. This is the only action
+  that switches to iTerm2
 - `p` parks (snoozes) the selected session: `+2h`, `+3d`, `today 14`,
   `tomorrow`, `tomorrow 9`, `fri 14`, `2026-09-12`, `2026-09-12 09:00`,
   `14:30`, `14`. A parked session sorts to the bottom until it is due
