@@ -191,6 +191,12 @@ def agent_text(session: Session, entries: list[dict], sent: list[dict]) -> set[s
     found = launch(session, entries)
     if found and found.get("prompt"):
         texts.add(str(found["prompt"]).strip())
+    # In its first seconds a session may not be joined to its launch yet (no
+    # tty, no session id), and the first scan would score the prompt as the
+    # user's. A launch prompt nobody has claimed is matched by its text.
+    for e in entries:
+        if e.get("prompt") and e.get("session_id") in (None, session.session_id):
+            texts.add(str(e["prompt"]).strip())
     for e in sent:
         if e.get("session_id") == session.session_id and e.get("text"):
             texts.add(str(e["text"]).strip())

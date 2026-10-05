@@ -67,3 +67,34 @@ def test_send_from_a_claude_session_is_recorded_and_from_a_shell_is_not(monkeypa
     assert [text for _, text in typed] == ["stop and run the tests", "ship it"]
     (entry,) = opened_mod.read_sent()
     assert (entry["session_id"], entry["text"], entry["by"]) == (target.session_id, "stop and run the tests", "head-jeeves")
+
+
+def test_a_session_not_yet_joined_to_its_launch_still_has_the_first_prompt_dropped():
+    # The first scan after `podbay open` can see the session before it has a
+    # tty or a recorded id. Its one prompt is Head Jeeves' task, relaying the
+    # user's feedback in quotes, and one agent turn follows: nothing is heated.
+    from podbay import mood
+
+    task = (
+        "The work is in a repo.\n\nthe game: the starting car understeers. The user played it and says: "
+        "the basic car really just understeers right now. The speed now is like a really upgraded car, "
+        "STILL too fast?! again!!"
+    )
+    at = datetime.now()
+    opened_mod.record("/dev/ttys008", "early-pace", "head-jeeves", at, prompt=task)
+    session = _selection_session("abc", at, tty=None, started_at=at)
+
+    assert opened_mod.launch(session, opened_mod.read()) is None  # not joined yet
+    assert mood.is_hot([task])  # the text alone would read heated
+    marked = opened_mod.agent_text(session, opened_mod.read(), opened_mod.read_sent())
+    assert not mood.is_hot(opened_mod.user_prompts([task], marked))
+    # a prompt the user types after the agent answered is still judged
+    assert mood.is_hot(opened_mod.user_prompts([task, "what the fuck"], marked))
+
+
+def test_a_launch_prompt_claimed_by_another_session_is_not_dropped_here():
+    at = datetime.now()
+    opened_mod.record("/dev/ttys008", "one", "head-jeeves", at, prompt=FIRST)
+    opened_mod.set_session("/dev/ttys008", at, "other")
+    session = _selection_session("abc", at, tty="/dev/ttys009", started_at=at)
+    assert opened_mod.agent_text(session, opened_mod.read(), []) == set()
