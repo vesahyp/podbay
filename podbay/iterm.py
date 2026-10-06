@@ -8,13 +8,17 @@ never shell out to osascript once per row.
 
 from __future__ import annotations
 
+import fcntl
+import json
 import logging
 import os
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -240,7 +244,7 @@ def get_tty_for_pid(pid: int) -> str | None:
     try:
         out = subprocess.run(
             ["ps", "-o", "tty=", "-p", str(pid)],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True, text=True, timeout=5,
         ).stdout.strip()
     except (subprocess.SubprocessError, OSError):
         return None
@@ -284,26 +288,86 @@ def get_ttys_for_pids(pids: list[int]) -> dict[int, str]:
     return result
 
 
-# Every script here walks iTerm2's windows, tabs and sessions; with a dozen
-# sessions and the TUI polling the listing too, iTerm2 has taken six seconds
-# to answer, and a call that gives up early reads as "no such tab". So every
-# call gets a long leash: a CLI run has no cache to fall back on, and the
-# TUI runs the listing from a worker thread.
+# Every script here walks iTerm2's windows, tabs and sessions, and iTerm2
+# answers one Apple event at a time. Every podbay process (the screen, each
+# CLI call an agent makes, a `podbay open` waiting for its tab) used to send
+# its own at once; on 2026-10-06 the queue grew past two minutes, a send
+# timed out and read as "no such tab", and `inventory` hung on the listing.
+# So all of them take one machine-wide gate (GATE_PATH, a flock) before they
+# talk to iTerm2 and give up after GATE_WAIT; a listing is shared through
+# CACHE_PATH, and a failed one is not retried for FAIL_BACKOFF seconds. A
+# call that gives up raises ItermBusy, which callers read as "could not
+# reach iTerm2", never as "no such tab".
 SCRIPT_TIMEOUT = 20.0
-LIST_TIMEOUT = SCRIPT_TIMEOUT
+LIST_TIMEOUT = 12.0
+GATE_WAIT = 10.0
+FAIL_BACKOFF = 30.0
+_TMP = Path(tempfile.gettempdir())
+GATE_PATH = _TMP / f"podbay-iterm-{os.getuid()}.lock"
+CACHE_PATH = _TMP / f"podbay-iterm-{os.getuid()}.json"
+
+
+class ItermBusy(subprocess.SubprocessError):
+    """iTerm2 did not answer in time, or the gate stayed taken."""
+
+
+class GateBusy(ItermBusy):
+    """The gate stayed taken: the script never started, so nothing happened."""
+
+
+def _gated_run(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """subprocess.run for an osascript call, one at a time machine-wide.
+    Raises ItermBusy when the gate is not free within GATE_WAIT, and when
+    iTerm2 does not answer within `timeout`."""
+    try:
+        fd = os.open(GATE_PATH, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        fd = None  # no gate: run ungated rather than not at all
+    try:
+        if fd is not None:
+            deadline = time.monotonic() + GATE_WAIT
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise GateBusy(f"another podbay call kept the iTerm2 gate for {GATE_WAIT:g} s") from None
+                    time.sleep(0.05)
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise ItermBusy(f"iTerm2 did not answer in {timeout:g} s") from None
+    finally:
+        if fd is not None:
+            os.close(fd)  # closing the descriptor drops the lock
 
 
 def _run_applescript(script: str, timeout: float = SCRIPT_TIMEOUT) -> str:
     """stdout of the script. A script that fails with nothing on stdout
     raises CalledProcessError, so a caller can tell iTerm2 refusing from
     iTerm2 answering with nothing (no windows, no matching tty)."""
-    result = subprocess.run(
-        ["osascript", "-e", script],
-        capture_output=True, text=True, timeout=timeout,
-    )
+    result = _gated_run(["osascript", "-e", script], timeout)
     if result.returncode != 0 and not result.stdout:
         raise subprocess.CalledProcessError(result.returncode, "osascript", result.stdout, result.stderr)
     return result.stdout
+
+
+def _read_cache() -> dict | None:
+    try:
+        data = json.loads(CACHE_PATH.read_text())
+        return data if isinstance(data.get("at"), (int, float)) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _write_cache(ok: bool, out: str = "") -> None:
+    tmp = CACHE_PATH.with_name(f"{CACHE_PATH.name}.{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps({"at": time.time(), "ok": ok, "out": out}))
+        os.replace(tmp, CACHE_PATH)
+    except OSError:
+        pass
 
 
 class ItermLister:
@@ -316,20 +380,35 @@ class ItermLister:
         self._windows: dict[str, WindowInfo] = {}
         self._last_refresh = 0.0
 
-    def _refresh(self) -> None:
+    def _refresh(self, force: bool = False) -> None:
         # A failed listing keeps the last good one: an empty listing would
-        # strip every session of its terminal number and title.
+        # strip every session of its terminal number and title. A listing
+        # another process took a moment ago is used as it is, and a failure
+        # one took is not repeated within FAIL_BACKOFF unless forced.
+        shared = _read_cache()
+        if shared is not None:
+            age = time.time() - shared["at"]
+            if shared.get("ok") and age < self.refresh_interval:
+                self._tabs, self._windows = _parse_all(shared.get("out", ""))
+                self._last_refresh = time.time()
+                return
+            if not shared.get("ok") and age < FAIL_BACKOFF and not force:
+                self._last_refresh = time.time()
+                return
         try:
             out = _run_applescript(LIST_SCRIPT, timeout=LIST_TIMEOUT)
         except (subprocess.SubprocessError, OSError) as exc:
             log.warning("iTerm2 listing failed: %s", getattr(exc, "stderr", None) or exc)
+            _write_cache(False)
+            self._last_refresh = time.time() - self.refresh_interval + FAIL_BACKOFF
             return
+        _write_cache(True, out)
         self._tabs, self._windows = _parse_all(out)
         self._last_refresh = time.time()
 
     def _maybe_refresh(self, force: bool) -> None:
         if force or (time.time() - self._last_refresh) > self.refresh_interval:
-            self._refresh()
+            self._refresh(force)
 
     def tabs(self, force: bool = False) -> dict[str, TabInfo]:
         self._maybe_refresh(force)
@@ -478,7 +557,7 @@ def open_window_with_tty(command: str | None = None, profile: str | None = None)
         cmd += ["-e", line]
     cmd += [profile or "", session_command(command) if command else ""]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=SCRIPT_TIMEOUT)
+        result = _gated_run(cmd, SCRIPT_TIMEOUT)
     except (subprocess.SubprocessError, OSError):
         return None
     if result.returncode != 0:
@@ -589,25 +668,31 @@ def paste_chunks(text: str, limit: int = PASTE_CHUNK_BYTES) -> list[str]:
     return pieces
 
 
-def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
+def send_text_result(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> str:
     """Write `text` into the iTerm2 session whose tty matches, then Enter
     (submitting a Claude Code prompt, or queuing behind one that is still
     running). Any length arrives whole as one prompt: see paste_chunks.
-    Never selects or activates the tab. Returns True iff a matching tab was
-    found."""
+    Never selects or activates the tab. Returns "sent"; "missing" (iTerm2
+    answered and no session has the tty); "busy" (the gate stayed taken,
+    nothing was typed, safe to retry); or "timeout" (the script started and
+    iTerm2 did not answer, so the text may have arrived)."""
     chunks = paste_chunks(text)
     cmd = ["osascript"]
     for line in SEND_SCRIPT_LINES:
         cmd += ["-e", line]
     cmd += [tty, *chunks]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            timeout=timeout + len(chunks) * PASTE_CHUNK_DELAY,
-        )
+        result = _gated_run(cmd, timeout + len(chunks) * PASTE_CHUNK_DELAY)
+    except GateBusy:
+        return "busy"
     except (subprocess.SubprocessError, OSError):
-        return False
-    return result.stdout.strip().lower() == "true"
+        return "timeout"
+    return "sent" if result.stdout.strip().lower() == "true" else "missing"
+
+
+def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
+    """send_text_result as a yes or no: True iff the text was written."""
+    return send_text_result(tty, text, timeout) == "sent"
 
 
 # argv-based, same reason as SEND_SCRIPT_LINES. Closes the session on the
@@ -664,7 +749,7 @@ def _osascript_lines(lines: list[str], args: list[str], timeout: float) -> str |
         cmd += ["-e", line]
     cmd += args
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.strip()
+        return _gated_run(cmd, timeout).stdout.strip()
     except (subprocess.SubprocessError, OSError):
         return None
 

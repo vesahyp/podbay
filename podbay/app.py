@@ -2115,9 +2115,23 @@ def cmd_send(target: str, text: str) -> None:
         print(f"no live session matches {target!r}", file=sys.stderr)
         sys.exit(1)
 
-    tty = iterm_mod.get_tty_for_pid(match.pid)
-    if not tty or not iterm_mod.send_text(tty, text):
-        print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid})", file=sys.stderr)
+    tty = iterm_mod.get_tty_for_pid(match.pid) or iterm_mod.get_tty_for_pid(match.pid)
+    if not tty:
+        print(f"{target!r} (pid {match.pid}) has no terminal: ps shows no tty for it", file=sys.stderr)
+        sys.exit(1)
+    outcome = iterm_mod.send_text_result(tty, text)
+    if outcome == "busy":
+        # The gate was never passed, so nothing was typed: once more is safe.
+        outcome = iterm_mod.send_text_result(tty, text)
+    if outcome in ("busy", "timeout"):
+        print(
+            f"iTerm2 did not answer in time for {target!r} (pid {match.pid}, {tty})"
+            + ("; the text may have arrived, read the tab before sending again" if outcome == "timeout" else "; nothing was sent, try again"),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if outcome != "sent":
+        print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid}, {tty})", file=sys.stderr)
         sys.exit(1)
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     if caller is not None:

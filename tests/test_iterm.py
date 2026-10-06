@@ -392,3 +392,90 @@ def test_a_short_single_line_is_typed_plain_and_a_multiline_one_is_pasted():
     assert iterm.paste_chunks("stop") == ["stop"]
     assert iterm.paste_chunks("cd /tmp && claude") == ["cd /tmp && claude"]
     assert iterm.paste_chunks("two\nlines") == [iterm.PASTE_START + "two\nlines" + iterm.PASTE_END]
+
+
+# The 2026-10-06 faults: iTerm2 answers one Apple event at a time, and every
+# podbay process queued its own. A send timed out and read as "no such tab",
+# and `inventory` waited on one failed listing after another.
+
+def test_gate_lets_one_osascript_in_at_a_time(monkeypatch):
+    import fcntl
+    import os
+
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(iterm, "GATE_WAIT", 0.2)
+    ran = []
+    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(stdout="x"))
+    fd = os.open(iterm.GATE_PATH, os.O_CREAT | os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        try:
+            iterm._gated_run(["osascript"], 1)
+        except iterm.GateBusy:
+            pass
+        else:
+            raise AssertionError("a taken gate must not let a second call through")
+        assert ran == []
+    finally:
+        os.close(fd)
+    assert iterm._gated_run(["osascript"], 1).stdout == "x"
+
+
+def test_a_timeout_is_iterm_busy_not_a_missing_tab(monkeypatch):
+    import subprocess as real_subprocess
+
+    import podbay.iterm as iterm
+
+    def hang(cmd, **kw):
+        raise real_subprocess.TimeoutExpired(cmd, 1)
+
+    monkeypatch.setattr(iterm.subprocess, "run", hang)
+    assert iterm.send_text_result("/dev/ttys005", "hi") == "timeout"
+    assert iterm.send_text("/dev/ttys005", "hi") is False
+
+
+def test_send_reports_missing_only_when_iterm_answered(monkeypatch):
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess(stdout="false\n"))
+    assert iterm.send_text_result("/dev/ttys005", "hi") == "missing"
+    monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess(stdout="true\n"))
+    assert iterm.send_text_result("/dev/ttys005", "hi") == "sent"
+
+
+def test_a_failed_listing_is_not_retried_by_the_next_lister(monkeypatch):
+    import subprocess as real_subprocess
+
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def hang(script, timeout=3.0):
+        calls.append(timeout)
+        raise iterm.ItermBusy("slow")
+
+    monkeypatch.setattr(iterm, "_run_applescript", hang)
+    first = iterm.ItermLister()
+    first.tabs()
+    first.tabs()
+    second = iterm.ItermLister()  # another process, a moment later
+    assert second.tabs() == {}
+    assert len(calls) == 1
+    assert calls[0] <= 12.0
+    assert real_subprocess  # the failure is a SubprocessError, so callers catch it
+
+
+def test_a_listing_another_process_took_is_shared(monkeypatch):
+    import podbay.iterm as iterm
+
+    calls = []
+
+    def fake(script, timeout=3.0):
+        calls.append(script)
+        return "W | w1 | 0 | 0 | 800 | 600 | 1\nS | /dev/ttys001 | A | w1 | 1 | /x | ✳ one (python)\n"
+
+    monkeypatch.setattr(iterm, "_run_applescript", fake)
+    assert "/dev/ttys001" in iterm.ItermLister().tabs()
+    assert "/dev/ttys001" in iterm.ItermLister().tabs()
+    assert len(calls) == 1

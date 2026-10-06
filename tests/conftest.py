@@ -135,3 +135,13 @@ def _isolated_config(monkeypatch, tmp_path):
     from podbay import config as config_mod
 
     monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_iterm_gate(monkeypatch, tmp_path):
+    """The gate and the shared listing live in the temp dir, and the real
+    ones are used by the running screen and every session on the machine."""
+    from podbay import iterm as iterm_mod
+
+    monkeypatch.setattr(iterm_mod, "GATE_PATH", tmp_path / "iterm.lock")
+    monkeypatch.setattr(iterm_mod, "CACHE_PATH", tmp_path / "iterm.json")

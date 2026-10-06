@@ -57,7 +57,7 @@ def test_send_from_a_claude_session_is_recorded_and_from_a_shell_is_not(monkeypa
     monkeypatch.setattr(app_mod.iterm_mod, "ItermLister", lambda *_a, **_k: None)
     monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys002")
     typed = []
-    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: typed.append((tty, text)) or True)
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text_result", lambda tty, text: typed.append((tty, text)) or "sent")
 
     monkeypatch.setattr(app_mod, "_ancestor_pids", lambda pid: [4242, head.pid, 1])
     app_mod.cmd_send("sora", "stop and run the tests")
@@ -98,3 +98,40 @@ def test_a_launch_prompt_claimed_by_another_session_is_not_dropped_here():
     opened_mod.set_session("/dev/ttys008", at, "other")
     session = _selection_session("abc", at, tty="/dev/ttys009", started_at=at)
     assert opened_mod.agent_text(session, opened_mod.read(), []) == set()
+
+
+def _send_with(monkeypatch, outcomes):
+    target = _selection_session("sora", datetime.now(), tty="/dev/ttys002", pid=502)
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [target])
+    monkeypatch.setattr(app_mod.iterm_mod, "ItermLister", lambda *_a, **_k: None)
+    monkeypatch.setattr(app_mod.iterm_mod, "get_tty_for_pid", lambda pid: "/dev/ttys002")
+    monkeypatch.setattr(app_mod, "_ancestor_pids", lambda pid: [1])
+    tries = []
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text_result", lambda tty, text: tries.append(text) or outcomes.pop(0))
+    return tries
+
+
+def test_send_retries_once_when_the_gate_was_busy_and_nothing_was_typed(monkeypatch):
+    tries = _send_with(monkeypatch, ["busy", "sent"])
+    app_mod.cmd_send("sora", "go")
+    assert tries == ["go", "go"]
+
+
+def test_send_does_not_retry_after_a_timeout_and_says_the_text_may_have_arrived(monkeypatch, capsys):
+    import pytest
+
+    tries = _send_with(monkeypatch, ["timeout", "sent"])
+    with pytest.raises(SystemExit):
+        app_mod.cmd_send("sora", "go")
+    assert tries == ["go"]
+    err = capsys.readouterr().err
+    assert "did not answer" in err and "may have arrived" in err and "could not find" not in err
+
+
+def test_send_says_no_tab_only_when_iterm_answered_with_no_match(monkeypatch, capsys):
+    import pytest
+
+    _send_with(monkeypatch, ["missing"])
+    with pytest.raises(SystemExit):
+        app_mod.cmd_send("sora", "go")
+    assert "could not find an iTerm2 tab" in capsys.readouterr().err
