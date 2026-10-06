@@ -53,7 +53,11 @@ podbay/
   usage.py          `claude -p /usage` per account, cached
   quota.py          `podbay accounts`: the windows per account and the
                       suggested account and model for a new session
-  inventory.py      the JSON/table/status views for other agents
+  inventory.py      the JSON/table/status views for other agents; the
+                      last good scan kept as a snapshot, served stale when
+                      the live scan misses its budget
+  machine.py        load, CPU, memory, pressure, swap, top processes and
+                      their history; what "overloaded" means (see below)
   voice.py          every string HAL says; the header segments
   splash.py         the HAL eye: startup and shutdown sequences
   logs.py           the rotating application log
@@ -89,6 +93,20 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 - The clavesa workspace is local: never run `clavesa deploy` from
   `analytics/`. The nightly is `clavesa pipeline run podbay-traffic` on
   this machine, against a Delta warehouse under `.clavesa/warehouse/`.
+
+## Starved machine
+
+Nightly jobs can push load past 100 with no memory free. Then every
+AppleScript call to iTerm2 is late, and nothing may read that as "no such
+tab". The rules: a call that never started (the gate stayed taken) is tried
+again after 1, 2 and 4 s (`iterm.RETRY_DELAYS`); a call that started and
+timed out is never repeated, because the text may have arrived; a missing
+tab is retried only while `machine.overloaded_now()`. `podbay inventory`
+answers within `inventory.BUDGET_SECONDS` from the last good scan, with
+`"stale": true`. `podbay open` refuses to start under critical memory
+pressure. Errors name the overload through `machine.overload_reason`. The
+screen, `inventory --json` (key `machine`) and the board's machine room
+show the figures and a chart from `machine.jsonl`, one sample a minute.
 
 ## Hard rules
 

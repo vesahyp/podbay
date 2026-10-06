@@ -104,9 +104,9 @@ def _patch_open(monkeypatch, tmp_path, sessions, screens):
     monkeypatch.setattr(app_mod, "_ancestor_pids", lambda *_a, **_k: [])
     monkeypatch.setattr(app_mod.iterm_mod, "get_ttys_for_pids", lambda *_a, **_k: {})
     sent, windows = [], []
-    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text_retrying", lambda tty, text: sent.append((tty, text)) or "sent")
     monkeypatch.setattr(
-        app_mod.iterm_mod, "open_window_with_tty",
+        app_mod.iterm_mod, "open_window_checked",
         lambda command=None, profile=None: windows.append(command) or ("w9", "/dev/ttys009"),
     )
     return sent, windows
@@ -150,7 +150,7 @@ def test_open_reports_failure_with_the_screen_tail(tmp_path, monkeypatch, capsys
     ticks = iter(range(0, 1000, 10))
     monkeypatch.setattr(app_mod.time, "monotonic", lambda: next(ticks))
     screens_after = f"{ZSH_PROMPT}claude\nzsh: command not found: claude\n{ZSH_PROMPT}"
-    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: screens.update({tty: screens_after}) or True)
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text_retrying", lambda tty, text: screens.update({tty: screens_after}) or "sent")
 
     with pytest.raises(SystemExit) as exited:
         app_mod.cmd_open(str(tmp_path), None, None, "", wait=30)
@@ -264,8 +264,8 @@ def test_open_fails_while_the_screen_shows_the_trust_dialog_on_a_reused_terminal
     screens = {"/dev/ttys008": ZSH_PROMPT}
     sent, windows = _fail_open(monkeypatch, tmp_path, screens, lambda: [free])
     monkeypatch.setattr(
-        app_mod.iterm_mod, "send_text",
-        lambda tty, text: sent.append((tty, text)) or screens.update({tty: TRUST_DIALOG.format(marker=tmp_path / "p-1.txt")}) or True,
+        app_mod.iterm_mod, "send_text_retrying",
+        lambda tty, text: sent.append((tty, text)) or screens.update({tty: TRUST_DIALOG.format(marker=tmp_path / "p-1.txt")}) or "sent",
     )
 
     with pytest.raises(SystemExit) as exited:
@@ -281,7 +281,7 @@ def test_open_fails_while_the_screen_shows_the_trust_dialog_in_a_new_window(tmp_
     screens = {}
     sent, windows = _fail_open(monkeypatch, tmp_path, screens, lambda: [])
     monkeypatch.setattr(
-        app_mod.iterm_mod, "open_window_with_tty",
+        app_mod.iterm_mod, "open_window_checked",
         lambda command=None, profile=None: windows.append(command) or screens.update({"/dev/ttys009": TRUST_DIALOG.format(marker=tmp_path / "p-1.txt")}) or ("w9", "/dev/ttys009"),
     )
 

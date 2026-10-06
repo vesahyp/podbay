@@ -42,6 +42,7 @@ from . import hal
 from . import mood
 from . import reviewer
 from . import iterm as iterm_mod
+from . import machine as machine_mod
 from .accounts import Account, by_label, discover
 from . import logs
 from . import notifications
@@ -52,7 +53,7 @@ from . import selfupdate
 from . import sources
 from . import usage
 from . import voice
-from .inventory import inventory_payload, render_status, render_table
+from .inventory import build_payload, inventory_payload, render_status, render_table
 from .model import (
     DUE,
     EMPTY,
@@ -137,6 +138,7 @@ CODE_CHECK_SECONDS = 30
 # `claude -p /usage` costs no tokens but takes ~5.5s of CPU and leaves a
 # transcript behind, and the figure moves in whole percent over minutes.
 USAGE_REFRESH_SECONDS = 600
+MACHINE_REFRESH_SECONDS = 15
 
 SHELL_READ_DEBOUNCE = 0.25
 SHELL_TEXT_TTL = 3.0
@@ -321,6 +323,7 @@ def _wait_label(session: Session) -> str:
 POLL_LIMITS = {
     "session scan": 15.0,
     "usage": 30.0,
+    "machine": 15.0,
 }
 
 
@@ -382,6 +385,32 @@ class QuitWaitScreen(ModalScreen[None]):
     def on_key(self, event) -> None:
         event.stop()
         self._on_force()
+
+
+def machine_text(health: dict) -> Text:
+    """The machine panel: figures, a load sparkline over the recorded hours,
+    and the heaviest processes. Amber when the machine is strained, red when
+    memory pressure is critical."""
+    if not health:
+        return Text("")
+    reason = health.get("overloaded")
+    style = HAL_RED if health.get("pressure") == "critical" else HAL_AMBER if reason else HAL_TEXT
+    history = health.get("history") or []
+    load = machine_mod.sparkline([p.get("load") for p in history], 30, top=max(1.0, (health.get("cores") or 1) * machine_mod.LOAD_FACTOR))
+    free = machine_mod.sparkline([p.get("free") for p in history], 30)
+    text = Text()
+    text.append(voice.machine_line(health), style=style)
+    if load:
+        text.append(f"   load {load}", style=style)
+    if free:
+        text.append(f"   free {free}", style=HAL_HEADER_GRAY)
+    if reason:
+        text.append(f"\noverloaded: {reason}", style=style)
+    for label, key in (("cpu", "cpu"), ("memory", "mem")):
+        line = voice.top_line(label, (health.get("top") or {}).get(key, []), key)
+        if line:
+            text.append(f"\n{line}", style=HAL_HEADER_GRAY)
+    return text
 
 
 def compact_due(
@@ -882,6 +911,11 @@ class PodbayApp(App):
     #transcript:focus {{
         border: solid #ffffff;
     }}
+    #machine {{
+        height: auto;
+        padding: 0 1;
+        color: {HAL_HEADER_GRAY};
+    }}
     """
 
     def __init__(
@@ -946,6 +980,8 @@ class PodbayApp(App):
         self._scanning = False
         self._last_scan_at: datetime | None = None
         self._usage_scanning = False
+        self._machine: dict = {}
+        self._machine_scanning = False
         # account label -> per-model weekly entries from `claude -p /usage`
         self._usage_entries: dict[str, list[dict]] = {}
         self._live_sessions: dict[str, Session] = {}
@@ -973,6 +1009,7 @@ class PodbayApp(App):
     def compose(self) -> ComposeResult:
         yield PodbayHeader(id="header")
         yield DataTable(id="table", cursor_type="row")
+        yield Static(id="machine")
         with Horizontal(id="lower"):
             yield Static(id="detail")
             with VerticalScroll(id="transcript"):
@@ -997,6 +1034,8 @@ class PodbayApp(App):
         self.set_interval(TABLE_REFRESH_SECONDS, self.trigger_refresh)
         self._refresh_usage()
         self.set_interval(USAGE_REFRESH_SECONDS, self._refresh_usage)
+        self._refresh_machine()
+        self.set_interval(MACHINE_REFRESH_SECONDS, self._refresh_machine)
         self.set_interval(CODE_CHECK_SECONDS, self._check_code_version)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
@@ -1101,6 +1140,33 @@ class PodbayApp(App):
             )
         limits = {a.label: sources.newest_limits(snapshots, a.label) for a in self._accounts}
         self.call_from_thread(self._apply_refresh, sessions, now, limits)
+
+    def _refresh_machine(self) -> None:
+        """Read the machine's health in the background (a few short commands,
+        each with a timeout) and redraw its panel; a no-op while one runs."""
+        if self._machine_scanning or self._quitting:
+            return
+        self._machine_scanning = True
+        self._machine_worker()
+
+    @work(thread=True, exclusive=True, group="machine")
+    def _machine_worker(self) -> None:
+        try:
+            with self._polling("machine"):
+                health = machine_mod.snapshot()
+        except Exception:  # noqa: BLE001 -- the panel must never take the screen down
+            log.warning("machine sample failed", exc_info=True)
+            health = {}
+        self.call_from_thread(self._apply_machine, health)
+
+    def _apply_machine(self, health: dict) -> None:
+        self._machine_scanning = False
+        if health:
+            self._machine = health
+        try:
+            self.query_one("#machine", Static).update(machine_text(self._machine))
+        except NoMatches:
+            return  # the screen is already gone
 
     def _refresh_usage(self) -> None:
         """Kick off a background /usage refresh; a no-op while one is
@@ -2001,6 +2067,10 @@ def cmd_open(
     """Start claude in the first terminal sitting at an empty shell prompt,
     or in a new window, and wait until it is up; prints where, or the
     screen's tail and exits 1 when it never came up."""
+    starved = machine_mod.memory_critical()
+    if starved is not None:
+        print(voice.open_refused_memory(starved.get("mem_free_mb")), file=sys.stderr)
+        sys.exit(1)
     accounts = discover()
     account = by_label(accounts, account_label)
     if account is None:
@@ -2016,15 +2086,20 @@ def cmd_open(
     candidates = [s for s in sessions if s.is_shell and s.tty and s.tty not in busy and s.tty not in protected]
     target = next((s for s in candidates if iterm_mod.at_empty_prompt(s.tty)), None)
     if target is not None:
-        if not iterm_mod.send_text(target.tty, command):
-            print("could not type into the free terminal", file=sys.stderr)
+        if iterm_mod.send_text_retrying(target.tty, command) != "sent":
+            print(voice.open_type_failed(machine_mod.overloaded_now()), file=sys.stderr)
             sys.exit(1)
         tty, where = target.tty, f"terminal #{target.terminal or '?'} ({target.tty})"
         created = False
     else:
-        opened = iterm_mod.open_window_with_tty(command=command)
-        if not opened or not opened[1]:
-            print("could not open a new iTerm2 window", file=sys.stderr)
+        try:
+            opened = iterm_mod.open_window_checked(command=command)
+        except (subprocess.SubprocessError, OSError) as exc:
+            timed_out = isinstance(exc, iterm_mod.ItermBusy) and not isinstance(exc, iterm_mod.GateBusy)
+            print(voice.open_window_failed(machine_mod.overloaded_now(), timed_out), file=sys.stderr)
+            sys.exit(1)
+        if not opened[1]:
+            print(voice.open_window_failed(machine_mod.overloaded_now(), False), file=sys.stderr)
             sys.exit(1)
         tty, where = opened[1], f"a new window ({opened[1]})"
         created = True
@@ -2073,6 +2148,7 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
     headlines, problem = board.load_headlines()
     if problem:
         print(f"headlines ignored: {problem}", file=sys.stderr)
+    payload["machine"] = machine_mod.snapshot()
     path = board.write(board.render(payload, limits=limits, headlines=headlines), out)
     print(path)
     published = board.load_url()
@@ -2099,9 +2175,9 @@ def cmd_focus(target: str) -> None:
         print(f"no live session matches {target!r}", file=sys.stderr)
         sys.exit(1)
 
-    tty = iterm_mod.get_tty_for_pid(match.pid)
+    tty = iterm_mod.find_tty(match.pid)
     if not tty or not iterm_mod.focus_tty(tty):
-        print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid})", file=sys.stderr)
+        print(voice.iterm_tab_missing(target, f"pid {match.pid}", machine_mod.overloaded_now()), file=sys.stderr)
         sys.exit(1)
 
 
@@ -2115,23 +2191,18 @@ def cmd_send(target: str, text: str) -> None:
         print(f"no live session matches {target!r}", file=sys.stderr)
         sys.exit(1)
 
-    tty = iterm_mod.get_tty_for_pid(match.pid) or iterm_mod.get_tty_for_pid(match.pid)
+    tty = iterm_mod.find_tty(match.pid)
     if not tty:
         print(f"{target!r} (pid {match.pid}) has no terminal: ps shows no tty for it", file=sys.stderr)
         sys.exit(1)
-    outcome = iterm_mod.send_text_result(tty, text)
-    if outcome == "busy":
-        # The gate was never passed, so nothing was typed: once more is safe.
-        outcome = iterm_mod.send_text_result(tty, text)
-    if outcome in ("busy", "timeout"):
-        print(
-            f"iTerm2 did not answer in time for {target!r} (pid {match.pid}, {tty})"
-            + ("; the text may have arrived, read the tab before sending again" if outcome == "timeout" else "; nothing was sent, try again"),
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    outcome = iterm_mod.send_text_retrying(tty, text)
     if outcome != "sent":
-        print(f"could not find an iTerm2 tab for {target!r} (pid {match.pid}, {tty})", file=sys.stderr)
+        reason = machine_mod.overloaded_now()
+        detail = f"pid {match.pid}, {tty}"
+        if outcome in ("busy", "timeout"):
+            print(voice.iterm_unreachable(target, detail, reason, outcome == "timeout"), file=sys.stderr)
+        else:
+            print(voice.iterm_tab_missing(target, detail, reason), file=sys.stderr)
         sys.exit(1)
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     if caller is not None:
@@ -2232,8 +2303,9 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
     by every rendering, same as cmd_list."""
     state_store = StateStore()
     iterm_lister = iterm_mod.ItermLister()
-    sessions = sources.gather_sessions(state_store, iterm_lister)
-    payload = inventory_payload(sessions, set(exclude))
+    payload = build_payload(lambda: sources.gather_sessions(state_store, iterm_lister), set(exclude))
+    if payload.get("stale"):
+        print(payload.get("stale_note", ""), file=sys.stderr)
 
     if as_table:
         print(render_table(payload))

@@ -145,3 +145,38 @@ def _isolated_iterm_gate(monkeypatch, tmp_path):
 
     monkeypatch.setattr(iterm_mod, "GATE_PATH", tmp_path / "iterm.lock")
     monkeypatch.setattr(iterm_mod, "CACHE_PATH", tmp_path / "iterm.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_machine(monkeypatch, tmp_path):
+    """The history and the inventory snapshot live in the temp dir, the
+    retries do not sleep, and `open` does not see this machine's memory
+    pressure: a test that wants one patches it again."""
+    from podbay import inventory as inventory_mod
+    from podbay import iterm as iterm_mod
+    from podbay import machine as machine_mod
+
+    monkeypatch.setattr(machine_mod, "HISTORY_PATH", tmp_path / "machine.jsonl")
+    monkeypatch.setattr(inventory_mod, "SNAPSHOT_PATH", tmp_path / "inventory.json")
+    monkeypatch.setattr(iterm_mod, "RETRY_DELAYS", (0.0, 0.0, 0.0))
+    monkeypatch.setattr(machine_mod, "memory_critical", lambda: None)
+    monkeypatch.setattr(machine_mod, "overloaded_now", lambda: None)
+
+
+FAKE_SAMPLE = {
+    "at": 1_700_000_000.0, "load": {"1m": 1.2, "5m": 1.0, "15m": 0.9}, "cores": 8, "cpu_pct": 14.0,
+    "mem_free_mb": 2048, "mem_total_mb": 16384, "pressure": "normal", "swap_used_mb": 0,
+    "top": {"cpu": [{"pid": 1, "name": "node", "cpu": 40.0, "mem_mb": 300}], "mem": [{"pid": 2, "name": "claude", "cpu": 3.0, "mem_mb": 900}]},
+}
+
+
+@pytest.fixture(autouse=True)
+def _no_real_machine_sample(monkeypatch):
+    """The screen samples the machine on a timer; the suite never runs ps,
+    vm_stat or sysctl for it. A test of sample() itself patches
+    machine._run."""
+    import time
+
+    from podbay import machine as machine_mod
+
+    monkeypatch.setattr(machine_mod, "sample", lambda: {**FAKE_SAMPLE, "at": time.time()})

@@ -488,3 +488,75 @@ def notify_off() -> str:
 
 def notify_failed(reason: str) -> str:
     return f"not sent: {reason}"
+
+
+# ---- machine health and overload -------------------------------------------------
+
+
+def _overload_clause(reason: str | None) -> str:
+    return f" The machine is overloaded ({reason})." if reason else ""
+
+
+def iterm_unreachable(target: str, detail: str, reason: str | None, text_may_have_arrived: bool) -> str:
+    """One line: iTerm2 did not answer, and why, when the machine is the
+    cause. `detail` is "pid 12, /dev/ttys001"."""
+    tail = "the text may have arrived, read the tab before sending again" if text_may_have_arrived else "nothing was sent, try again in a minute"
+    return f"iTerm2 did not answer in time for {target!r} ({detail}).{_overload_clause(reason)} {tail}."
+
+
+def iterm_tab_missing(target: str, detail: str, reason: str | None) -> str:
+    return f"could not find an iTerm2 tab for {target!r} ({detail}).{_overload_clause(reason)}".rstrip()
+
+
+def open_window_failed(reason: str | None, timed_out: bool) -> str:
+    base = "could not open a new iTerm2 window"
+    if timed_out:
+        return f"{base}: iTerm2 did not answer in time.{_overload_clause(reason)} A window may have opened, look before trying again."
+    return f"{base}: iTerm2 stayed busy.{_overload_clause(reason)} Nothing was opened, try again in a minute."
+
+
+def open_type_failed(reason: str | None) -> str:
+    return f"could not type into the free terminal.{_overload_clause(reason)}".rstrip()
+
+
+def open_refused_memory(free_mb: int | None) -> str:
+    free = f", {free_mb} MB free" if free_mb is not None else ""
+    return f"I'm sorry, {USER_NAME}. Memory pressure is critical{free}; a new session would only make it worse. Nothing was started."
+
+
+def inventory_stale(age_seconds: float, reason: str | None) -> str:
+    minutes = max(1, round(age_seconds / 60))
+    cause = f"the machine is overloaded ({reason})" if reason else "the live scan did not finish in time"
+    return f"inventory is a snapshot from {minutes} min ago: {cause}"
+
+
+def inventory_unavailable(reason: str | None) -> str:
+    cause = f"the machine is overloaded ({reason})" if reason else "the live scan did not finish in time"
+    return f"inventory has no snapshot to show: {cause}"
+
+
+def machine_line(s: dict) -> str:
+    """The machine in one line: load, CPU, memory, pressure, swap."""
+    load = (s.get("load") or {}).get("1m")
+    parts = []
+    if load is not None:
+        load5 = (s.get("load") or {}).get("5m")
+        parts.append(f"load {load:.1f}" + (f"/{load5:.1f}" if load5 is not None else "") + f" on {s.get('cores', '?')}")
+    if s.get("cpu_pct") is not None:
+        parts.append(f"cpu {s['cpu_pct']:.0f}%")
+    if s.get("mem_free_mb") is not None:
+        parts.append(f"free {s['mem_free_mb']} MB")
+    if s.get("pressure"):
+        parts.append(f"pressure {s['pressure']}")
+    if s.get("swap_used_mb") is not None:
+        parts.append(f"swap {s['swap_used_mb']} MB")
+    return " · ".join(parts)
+
+
+def top_line(label: str, procs: list[dict], key: str) -> str:
+    """`top cpu: node 40%, ...` for key "cpu", `top memory: claude 900 MB, ...`
+    for key "mem"."""
+    shown = ", ".join(
+        f"{p['name'][:28]} {p['cpu']:.0f}%" if key == "cpu" else f"{p['name'][:28]} {p['mem_mb']} MB" for p in procs
+    )
+    return f"top {label}: {shown}" if shown else ""

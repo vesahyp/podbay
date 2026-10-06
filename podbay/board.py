@@ -42,7 +42,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import voice
+from . import machine, voice
 from .model import DUE, EMPTY, HOME_BASE, NEEDS_YOU, PARKED, SHELL, STALLED, WATCHING, WORKING, humanize_age
 
 STATE_DIR = Path.home() / ".local" / "state" / "podbay"
@@ -141,6 +141,13 @@ details.room[open] > summary { margin-bottom: 12px; }
 .ctx.hot { color: var(--ask); } .ctx.full { color: var(--bad); }
 .quotas { margin: 0 0 8px; display: grid; gap: 2px; font: 500 13px var(--mono); color: var(--muted); }
 .quotas b { font-weight: 500; color: var(--fg); }
+.mach { margin: 0 0 12px; display: grid; gap: 6px; font: 500 13px var(--mono); color: var(--muted); }
+.mach .now { color: var(--fg); } .mach .now.bad { color: var(--bad); }
+.mach figure { margin: 0; } .mach figcaption { display: flex; justify-content: space-between; gap: 8px; }
+.mach svg { width: 100%; height: 56px; display: block; }
+.mach .ln { fill: none; stroke: var(--prog); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.mach .lim { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.mach .top { font-weight: 400; }
 """
 
 _JS = """
@@ -423,6 +430,60 @@ def _quotas(limits: dict[str, dict] | None, now: datetime) -> str:
     return f'<div class="quotas">{"".join(lines)}</div>' if lines else ""
 
 
+def _chart(points: list[tuple[float, float]], t0: float, t1: float, top: float, limit: float | None = None) -> str:
+    """A line over time as inline SVG, 300 x 56 units, scaled to `top`;
+    `limit` draws the dashed line a reading should stay under (or, for free
+    memory, over)."""
+    if len(points) < 2 or t1 <= t0:
+        return '<svg viewBox="0 0 300 56" role="img" aria-label="not enough samples yet"></svg>'
+    top = top or 1.0
+
+    def xy(t: float, v: float) -> str:
+        return f"{(t - t0) / (t1 - t0) * 300:.1f},{54 - min(max(v, 0.0), top) / top * 52:.1f}"
+
+    line = " ".join(xy(t, v) for t, v in points)
+    lim = ""
+    if limit is not None and 0 <= limit <= top:
+        y = 54 - limit / top * 52
+        lim = f'<line class="lim" x1="0" x2="300" y1="{y:.1f}" y2="{y:.1f}"/>'
+    return f'<svg viewBox="0 0 300 56" preserveAspectRatio="none" role="img">{lim}<polyline class="ln" points="{line}"/></svg>'
+
+
+def _machine(health: dict | None) -> str:
+    """The machine room's health block: the figures now, a load chart and a
+    free memory chart over the recorded hours, the heaviest processes."""
+    if not health:
+        return ""
+    cores = health.get("cores") or 1
+    history = health.get("history") or []
+    t1 = health.get("at") or (history[-1]["at"] if history else 0)
+    t0 = history[0]["at"] if history else t1
+    hours = max(0.0, (t1 - t0) / 3600)
+    span = f"last {hours:.0f} h" if hours >= 1.5 else f"last {max(1, round(hours * 60))} min"
+    load_pts = [(p["at"], p["load"]) for p in history if p.get("load") is not None]
+    free_pts = [(p["at"], p["free"]) for p in history if p.get("free") is not None]
+    load_top = max([cores * machine.LOAD_FACTOR, *(v for _, v in load_pts)])
+    free_top = max([1024.0, *(v for _, v in free_pts)])
+    bad = " bad" if health.get("overloaded") else ""
+    figures = voice.machine_line(health)
+    tops = "".join(
+        f'<div class="top">{_esc(line)}</div>'
+        for line in (voice.top_line(label, (health.get("top") or {}).get(key, []), key) for label, key in (("cpu", "cpu"), ("memory", "mem")))
+        if line
+    )
+    warn = f'<div class="now bad">Overloaded: {_esc(health["overloaded"])}</div>' if health.get("overloaded") else ""
+    load_now = (health.get("load") or {}).get("1m")
+    free_now = health.get("mem_free_mb")
+    return (
+        f'<div class="mach"><div class="now{bad}">{_esc(figures)}</div>{warn}'
+        f'<figure><figcaption><span>Load, 1 min · dashed: overloaded</span><span>{"" if load_now is None else f"{load_now:.1f}"}</span></figcaption>'
+        f'{_chart(load_pts, t0, t1, load_top, cores * machine.LOAD_FACTOR)}</figure>'
+        f'<figure><figcaption><span>Free memory, MB · dashed: low</span><span>{"" if free_now is None else free_now}</span></figcaption>'
+        f'{_chart(free_pts, t0, t1, free_top, machine.LOW_FREE_MB)}</figure>'
+        f'<div class="top">{_esc(span)}</div>{tops}</div>'
+    )
+
+
 def _age(session: dict, now: datetime) -> str:
     """The age in the state's own words: a working session is active, never
     idle, and says so when the work is its subagents'."""
@@ -529,7 +590,7 @@ def render(
     head_ctx = f'<p class="hint">Head Jeeves {_ctx(head)}</p>' if head and _ctx(head) else ""
     room = (
         f'<details class="room"><summary>Machine room · {_plural(len(sessions), "session", "sessions")}</summary>\n'
-        f"{_quotas(limits, now)}{head_ctx}\n"
+        f"{_machine(payload.get('machine'))}{_quotas(limits, now)}{head_ctx}\n"
         + (f'<ul class="lines">\n{rows}\n</ul>\n<p class="hint">Tap a session to message it.</p>' if rows else '<p class="none">No live sessions.</p>')
         + "</details>"
     )

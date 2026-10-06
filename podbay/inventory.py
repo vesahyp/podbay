@@ -5,10 +5,15 @@ here."""
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
+from . import machine, voice
 from .model import HOME_BASE, Session, is_head_jeeves, repo_groups
 from .sources import REPOS_DIR
 
@@ -111,6 +116,123 @@ def inventory_payload(sessions: list[Session], exclude: set[str]) -> dict:
     }
 
 
+# The last scan that finished, kept so an inventory asked for while the
+# machine is starved answers at once from it, marked stale, instead of
+# waiting minutes on iTerm2 (2026-10-06: 120 s and no answer).
+SNAPSHOT_PATH = machine.STATE_DIR / "inventory.json"
+BUDGET_SECONDS = 20.0
+MACHINE_BUDGET_SECONDS = 6.0
+
+
+def save_snapshot(payload: dict, path: Path | None = None) -> None:
+    path = path or SNAPSHOT_PATH
+    tmp = path.with_name(f"{path.name}.{os.getpid()}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(payload, default=str))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def load_snapshot(path: Path | None = None) -> dict | None:
+    try:
+        data = json.loads((path or SNAPSHOT_PATH).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("sessions"), list) else None
+
+
+def apply_exclude(payload: dict, exclude: set[str]) -> dict:
+    """`payload` without the sessions in `exclude` (matched like
+    inventory_payload does), its waiting list and repo groups cut to match."""
+    if not exclude:
+        return dict(payload)
+    sessions = [
+        s for s in payload["sessions"]
+        if s.get("session_id") not in exclude and s.get("short_id") not in exclude and s.get("name") not in exclude
+    ]
+    names = {s["name"] for s in sessions}
+    groups = [{**g, "sessions": [n for n in g["sessions"] if n in names]} for g in payload.get("repo_groups", [])]
+    return {
+        **payload,
+        "sessions": sessions,
+        "repo_groups": [g for g in groups if len(g["sessions"]) >= 2],
+        "waiting": [n for n in payload.get("waiting", []) if n in names],
+    }
+
+
+def _within(fn: Callable, budget: float):
+    """(finished, value, error): `fn` run on a daemon thread that is left
+    behind when it does not finish within `budget` seconds."""
+    box: dict = {}
+
+    def run() -> None:
+        try:
+            box["value"] = fn()
+        except Exception as exc:  # noqa: BLE001 -- any failure is an answer too
+            box["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(budget)
+    return "value" in box, box.get("value"), box.get("error")
+
+
+def build_payload(
+    gather: Callable[[], list[Session]], exclude: set[str],
+    budget: float = BUDGET_SECONDS, path: Path | None = None,
+    machine_budget: float = MACHINE_BUDGET_SECONDS,
+) -> dict:
+    """The inventory, live when the scan finishes within `budget` seconds
+    (and then saved as the snapshot), otherwise the last saved one with
+    "stale": true, how old it is and why. The machine's health is in it
+    either way, under "machine"."""
+    sample_done, sample, _ = _within(machine.snapshot, machine_budget)
+    health = sample if sample_done and sample else {}
+    done, sessions, error = _within(gather, budget)
+    if done:
+        full = inventory_payload(sessions, set())
+        save_snapshot(full, path)
+        payload = apply_exclude(full, exclude)
+        payload["stale"] = False
+    else:
+        reason = machine.overload_reason(health) or (f"scan failed: {error}" if error else None)
+        snapshot = load_snapshot(path)
+        if snapshot is not None:
+            payload = apply_exclude(snapshot, exclude)
+            try:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(snapshot["generated_at"])).total_seconds()
+            except (KeyError, ValueError, TypeError):
+                age = None
+            payload["stale_age_seconds"] = round(age) if age is not None else None
+            payload["stale_note"] = voice.inventory_stale(age if age is not None else 0, reason)
+        else:
+            payload = {
+                "generated_at": datetime.now(timezone.utc).isoformat(), "self": None,
+                "sessions": [], "repo_groups": [], "waiting": [], "stale_age_seconds": None,
+                "stale_note": voice.inventory_unavailable(reason),
+            }
+        payload["stale"] = True
+        payload["stale_reason"] = reason
+    payload["machine"] = health
+    return payload
+
+
+def machine_lines(payload: dict) -> list[str]:
+    """The machine as plain lines, and the stale note first when there is
+    one: what the table and status views print under or above the sessions."""
+    lines = [payload["stale_note"]] if payload.get("stale") and payload.get("stale_note") else []
+    health = payload.get("machine") or {}
+    if health:
+        lines.append("machine: " + voice.machine_line(health))
+        for label, key in (("cpu", "cpu"), ("memory", "mem")):
+            line = voice.top_line(label, (health.get("top") or {}).get(key, []), key)
+            if line:
+                lines.append(line)
+    return lines
+
+
 def render_table(payload: dict) -> str:
     sessions = payload["sessions"]
     groups = payload["repo_groups"]
@@ -130,6 +252,7 @@ def render_table(payload: dict) -> str:
     lines = ["  ".join(h.ljust(widths[i]) for i, h in enumerate(headers))]
     lines += ["  ".join(str(c).ljust(widths[i]) for i, c in enumerate(row)) for row in rows]
     lines += [f"same repo: {g['repo']} -> {', '.join(g['sessions'])}" for g in groups]
+    lines += machine_lines(payload)
     return "\n".join(lines)
 
 
@@ -179,5 +302,10 @@ def render_status(payload: dict) -> str:
 
     for g in groups:
         lines.append(f"same repo: {g['repo']} ({', '.join(g['sessions'])})")
+
+    if payload.get("stale") and payload.get("stale_note"):
+        lines.append(payload["stale_note"])
+    elif (payload.get("machine") or {}).get("overloaded"):
+        lines.append(f"machine is overloaded ({payload['machine']['overloaded']})")
 
     return "\n".join(lines)

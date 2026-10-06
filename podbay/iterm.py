@@ -315,6 +315,37 @@ class GateBusy(ItermBusy):
     """The gate stayed taken: the script never started, so nothing happened."""
 
 
+# A starved machine answers late, not never: a call that gave up before
+# anything happened is tried again after 1, 2 and 4 s. A call that started
+# and timed out is never repeated blindly, because the text may have arrived.
+RETRY_DELAYS = (1.0, 2.0, 4.0)
+
+
+def _backoff(attempt: int) -> None:
+    time.sleep(RETRY_DELAYS[attempt])
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
+def find_tty(pid: int) -> str | None:
+    """get_tty_for_pid, tried again with backoff while the process is alive:
+    under load `ps` times out and says nothing, which is not "no terminal"."""
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        tty = get_tty_for_pid(pid)
+        if tty or not _pid_alive(pid) or attempt == len(RETRY_DELAYS):
+            return tty
+        _backoff(attempt)
+    return None
+
+
 def _gated_run(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
     """subprocess.run for an osascript call, one at a time machine-wide.
     Raises ItermBusy when the gate is not free within GATE_WAIT, and when
@@ -546,26 +577,41 @@ def session_command(command: str) -> str:
     return f"/bin/zsh -lic {shlex.quote(command + '; exec /bin/zsh -l')}"
 
 
-def open_window_with_tty(command: str | None = None, profile: str | None = None) -> tuple[str, str] | None:
+def open_window_checked(command: str | None = None, profile: str | None = None) -> tuple[str, str]:
     """Create a new iTerm2 window in the background (profile `profile` by
     name, else "Default") and return (window id, tty of its session) -- the
-    id in the same space as WindowInfo.window_id -- or None if iTerm2
-    couldn't be reached. `command`, if given, runs as the session's command
-    and then leaves a shell, so the window survives it."""
+    id in the same space as WindowInfo.window_id. `command`, if given, runs
+    as the session's command and then leaves a shell, so the window survives
+    it. A gate that stays taken is tried again with backoff (nothing was
+    started). Raises GateBusy when it never frees, ItermBusy when iTerm2 did
+    not answer once the script started (a window may exist), and OSError or
+    CalledProcessError when iTerm2 refused."""
     cmd = ["osascript"]
     for line in OPEN_WINDOW_SCRIPT_LINES:
         cmd += ["-e", line]
     cmd += [profile or "", session_command(command) if command else ""]
-    try:
-        result = _gated_run(cmd, SCRIPT_TIMEOUT)
-    except (subprocess.SubprocessError, OSError):
-        return None
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        try:
+            result = _gated_run(cmd, SCRIPT_TIMEOUT)
+            break
+        except GateBusy:
+            if attempt == len(RETRY_DELAYS):
+                raise
+            _backoff(attempt)
     if result.returncode != 0:
-        return None
+        raise subprocess.CalledProcessError(result.returncode, "osascript", result.stdout, result.stderr)
     window_id, _, tty = result.stdout.strip().partition("\t")
     if not window_id:
-        return None
+        raise subprocess.CalledProcessError(1, "osascript", result.stdout, "no window id")
     return window_id, tty
+
+
+def open_window_with_tty(command: str | None = None, profile: str | None = None) -> tuple[str, str] | None:
+    """open_window_checked, None instead of an exception."""
+    try:
+        return open_window_checked(command, profile)
+    except (subprocess.SubprocessError, OSError):
+        return None
 
 
 def open_window(command: str | None = None, profile: str | None = None) -> str | None:
@@ -688,6 +734,22 @@ def send_text_result(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> st
     except (subprocess.SubprocessError, OSError):
         return "timeout"
     return "sent" if result.stdout.strip().lower() == "true" else "missing"
+
+
+def send_text_retrying(tty: str, text: str) -> str:
+    """send_text_result, tried again with backoff while it is safe: "busy"
+    typed nothing, and "missing" on an overloaded machine can be an iTerm2
+    that listed its sessions half-way. "timeout" is returned as it is."""
+    from . import machine
+
+    outcome = send_text_result(tty, text)
+    for attempt in range(len(RETRY_DELAYS)):
+        if outcome == "busy" or (outcome == "missing" and machine.overloaded_now()):
+            _backoff(attempt)
+            outcome = send_text_result(tty, text)
+        else:
+            break
+    return outcome
 
 
 def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
