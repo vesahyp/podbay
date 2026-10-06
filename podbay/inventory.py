@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import machine, voice
+from . import machine, paused as paused_mod, voice
 from .model import HOME_BASE, Session, is_head_jeeves, repo_groups
 from .sources import REPOS_DIR
 
@@ -43,7 +43,7 @@ def work_repo(s: Session) -> str:
     return repo_for_cwd(s.cwd)
 
 
-def _session_dict(s: Session, now: datetime) -> dict:
+def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = None) -> dict:
     # One clock for state and age: activity_at counts the subagents too.
     idle_minutes = round(s.age_seconds(now) / 60, 1) if s.has_transcript else None
     return {
@@ -51,6 +51,9 @@ def _session_dict(s: Session, now: datetime) -> dict:
         "state": s.derive_status(now),
         "age_seconds": s.age_seconds(now),
         "parked_until": s.parked_until.isoformat() if s.parked_until else None,
+        # Head Jeeves paused it under overload (`podbay pause`): {"paused_at",
+        # "by"} until `podbay resume`, else None.
+        "paused": {k: (paused or {})[s.session_id].get(k) for k in ("paused_at", "by")} if s.session_id in (paused or {}) else None,
         # What the session is about: the tab title Claude Code sets from the
         # first prompt. The handle to use when talking about it.
         "title": s.title,
@@ -103,7 +106,8 @@ def inventory_payload(sessions: list[Session], exclude: set[str]) -> dict:
     ]
     kept.sort(key=lambda s: (repo_for_cwd(s.cwd), s.name))
 
-    session_dicts = [_session_dict(s, now) for s in kept]
+    paused = paused_mod.by_id()
+    session_dicts = [_session_dict(s, now, paused) for s in kept]
     groups = repo_groups(kept)
     waiting = [s["name"] for s in session_dicts if s["waiting_on"] is not None]
 
@@ -242,7 +246,7 @@ def render_table(payload: dict) -> str:
         repos = [r + ("*" if r in s["repos_edited"] else "") for r in s["repos_touched"]]
         rows.append([
             f"#{s['tab']}" if s.get("tab") else "-",
-            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"],
+            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"] + (" paused" if s.get("paused") else ""),
             f"{s['idle_minutes']}m" if s["idle_minutes"] is not None else "-",
             f"{s['context_pct']:.0f}" if isinstance(s["context_pct"], (int, float)) else "-",
             s["waiting_on"]["kind"] if s["waiting_on"] else "-",
@@ -299,6 +303,9 @@ def render_status(payload: dict) -> str:
     busy_names = [s["name"] for s in sessions if not s["waiting_on"] and s["turn_ended"] is not True]
     if busy_names:
         lines.append(f"busy: {', '.join(busy_names)}")
+    paused_names = [s["name"] for s in sessions if s.get("paused")]
+    if paused_names:
+        lines.append(f"paused: {', '.join(paused_names)}")
 
     for g in groups:
         lines.append(f"same repo: {g['repo']} ({', '.join(g['sessions'])})")

@@ -78,6 +78,8 @@ podbay accounts [--json]
 podbay excerpt <sessionName|pid|id> [--turns N]
 podbay open <dir> [--account LABEL] [--model ID] [--name NAME] [--wait SECONDS] [first prompt...]
 podbay close <sessionName|#N|title> [--force]
+podbay pause [<sessionName> [text...]]   # finish the step, commit, wait; no name lists the paused sessions
+podbay resume <sessionName> [text...]
 podbay board [--out PATH]
 ```
 
@@ -123,6 +125,18 @@ next to `model`, the one the session runs on now.
 would) and closes its iTerm2 tab, or its window when that tab was the only
 one. A session that is working, watching a background task or stalled stays
 open unless `--force`; Head Jeeves is never closed.
+
+When the CPU stays overloaded (every sample of the last 5 minutes at a
+1-minute load of 3 times the cores or more, with a mean CPU use of 70
+percent or more) and two or more sessions work, podbay sends Head Jeeves
+`/head-jeeves overload` with the working sessions, once per episode. When
+the load has stayed under 2 times the cores for 5 minutes, it sends
+`/head-jeeves overload-cleared`. Free memory and swap are in the event as
+information only. Head Jeeves pauses sessions with `podbay pause`, which
+types the message and records the pause in `~/.local/state/podbay/paused.json`,
+and resumes them with `podbay resume`. A paused session shows `"paused"` in
+`podbay inventory` and "paused" on the board, and when it goes idle podbay
+raises no finished or stalled event for it.
 
 With a home repo set, every session starts there, and a tool call that
 only reads there says nothing about where the work is, so that repo counts

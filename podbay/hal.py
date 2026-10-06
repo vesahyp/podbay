@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from . import mood, opened, voice
+from . import mood, opened, paused, voice
 from .model import DUE, NEEDS_YOU, STALLED, Session, is_head_jeeves
 
 # A quota window at or past this is hot: HAL warns once per window.
@@ -53,6 +53,9 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     lines: list[str] = []
     memory.events = []
     current: dict[str, str] = {}
+    # A session Head Jeeves paused finishes its step and then waits on
+    # purpose: that is no finish and no stall to report.
+    paused_ids = paused.ids()
     attention = False
     for s in sessions:
         if s.is_shell or is_head_jeeves(s):
@@ -71,9 +74,9 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
                 continue  # the turn ended but its agents have not: nothing is finished yet
             if kind in ("ask_user_question", "prompt", "question_text"):
                 line = voice.hal_question(s.title)
-            else:
+            elif s.session_id not in paused_ids:
                 line = voice.hal_finished(s.title)
-        elif derived == STALLED:
+        elif derived == STALLED and s.session_id not in paused_ids:
             minutes = int((now - s.last_turn_ts).total_seconds() // 60) if s.last_turn_ts else 0
             line = voice.hal_stalled(s.title, minutes)
         elif derived == DUE:

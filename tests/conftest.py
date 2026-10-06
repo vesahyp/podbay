@@ -180,3 +180,14 @@ def _no_real_machine_sample(monkeypatch):
     from podbay import machine as machine_mod
 
     monkeypatch.setattr(machine_mod, "sample", lambda: {**FAKE_SAMPLE, "at": time.time()})
+
+
+@pytest.fixture(autouse=True)
+def _isolated_pause_files(monkeypatch, tmp_path):
+    """The pauses Head Jeeves recorded and the overload episode belong to
+    the running screen; the suite neither reads nor writes them."""
+    from podbay import overload as overload_mod
+    from podbay import paused as paused_mod
+
+    monkeypatch.setattr(paused_mod, "PAUSED_PATH", tmp_path / "paused.json")
+    monkeypatch.setattr(overload_mod, "STATE_PATH", tmp_path / "overload.json")

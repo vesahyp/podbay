@@ -364,6 +364,38 @@ could send next to get the session back on track, in a fenced block. If the
 agent is the problem and one sentence would fix it, also `podbay send` that
 sentence to the agent, and say in the file that you did.
 
+### /head-jeeves overload <why>. Working (<n>): <sessions>. Paused already: <names>.
+
+The CPU has stayed overloaded for 5 minutes and two or more sessions work.
+The line gives each working session as its name, its title in quotes, its
+repo, how long it has run and what it does now. Choose from the line alone;
+run no other command first.
+
+1. Keep the sessions that are closest to done, and the sessions the user
+   waits on (an answer due today, urgent work, a fix for something that is
+   broken now). Keep at least one.
+2. Pause each of the others with `podbay pause <name>`. It sends this
+   message and records the pause: "The machine is overloaded and Head
+   Jeeves paused this session. Finish the current step, commit it, then
+   stop and wait. Do not start the next step until a resume message
+   arrives."
+3. Tell the user in one line which sessions you kept, which you paused,
+   and why. No push.
+
+A paused session that stops at its safe point raises no "finished" or
+"stalled" event. `podbay pause` with no name lists the paused sessions, and
+`podbay inventory` shows `"paused"` on each of them. Do not close a paused
+session.
+
+### /head-jeeves overload-cleared The load has been normal for 5 min. Paused: <names>.
+
+The CPU load has stayed normal for 5 minutes. Resume the paused sessions one
+at a time with `podbay resume <name>`, the one closest to done first. Resume
+the next one only when the one before it works again and podbay sends no new
+overload event. Also resume a paused session, one at a time, when a session
+you kept finishes, even when no overload-cleared event came. Tell the user
+in one line which sessions you resumed.
+
 ### /head-jeeves
 
 No argument: say in one line that you are on duty, then wait.

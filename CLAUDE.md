@@ -56,6 +56,11 @@ podbay/
   inventory.py      the JSON/table/status views for other agents; the
                       last good scan kept as a snapshot, served stale when
                       the live scan misses its budget
+  overload.py       when the CPU stays overloaded and two or more sessions
+                      work, the /head-jeeves overload event; overload-cleared
+                      after it; thresholds and why in its header
+  paused.py         the sessions `podbay pause` paused, read by hal.py,
+                      inventory and the board
   machine.py        load, CPU, memory, pressure, swap, top processes and
                       their history; what "overloaded" means (see below)
   voice.py          every string HAL says; the header segments

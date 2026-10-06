@@ -560,3 +560,73 @@ def top_line(label: str, procs: list[dict], key: str) -> str:
         f"{p['name'][:28]} {p['cpu']:.0f}%" if key == "cpu" else f"{p['name'][:28]} {p['mem_mb']} MB" for p in procs
     )
     return f"top {label}: {shown}" if shown else ""
+
+
+# ---- overload: podbay to Head Jeeves, and Head Jeeves to a session ------------
+
+
+def overload_reason(load: float, cores: int, minutes: int, cpu: float | None) -> str:
+    cpu_part = f", cpu {cpu:.0f}%" if cpu is not None else ""
+    return f"load average {load:.0f} on {cores} cores for {minutes} min{cpu_part}"
+
+
+def duration(minutes: int) -> str:
+    """42 min, 2 h 5 min."""
+    if minutes < 60:
+        return f"{minutes} min"
+    return f"{minutes // 60} h {minutes % 60} min"
+
+
+def _one_line(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def overload_command(reason: str, sessions: list[dict], paused: list[str], health: dict) -> str:
+    """The event for Head Jeeves, one line: why, the working sessions with
+    what he needs to choose, and the ones already paused. Free memory and
+    swap are information only; the CPU is the trigger."""
+    info = []
+    if health.get("mem_free_mb") is not None:
+        info.append(f"free {health['mem_free_mb']} MB")
+    if health.get("swap_used_mb") is not None:
+        info.append(f"swap {health['swap_used_mb']} MB")
+    head = reason + (f" ({', '.join(info)})" if info else "")
+    working = "; ".join(
+        f"{s['name']} \"{_one_line(s['title'], 60)}\" in {s['repo'] or '?'}, {duration(s['minutes'])}, now: "
+        f"{_one_line(s['now'], 120) or '?'}"
+        for s in sessions
+    )
+    tail = f" Paused already: {', '.join(paused)}." if paused else ""
+    return f"/head-jeeves overload {head}. Working ({len(sessions)}): {working}.{tail}"
+
+
+def overload_cleared_command(paused: list[str]) -> str:
+    tail = f" Paused: {', '.join(paused)}." if paused else " Nothing is paused."
+    return f"/head-jeeves overload-cleared The load has been normal for 5 min.{tail}"
+
+
+PAUSE_MESSAGE = (
+    "The machine is overloaded and Head Jeeves paused this session. Finish the current step, commit it, "
+    "then stop and wait. Do not start the next step until a resume message arrives."
+)
+RESUME_MESSAGE = "Resume: the machine has capacity again. Continue your task from the step where you stopped."
+
+
+def paused_sent(title: str) -> str:
+    return f"paused {title}: the message is sent and the pause is recorded"
+
+
+def resumed_sent(title: str) -> str:
+    return f"resumed {title}: the message is sent and the pause is removed"
+
+
+def not_paused(title: str) -> str:
+    return f"{title} is not paused; the resume message is sent anyway"
+
+
+def paused_list(entries: list[dict]) -> str:
+    if not entries:
+        return "no session is paused"
+    return "\n".join(f"{e.get('name') or e['session_id'][:8]}  paused {e.get('paused_at', '?')[:16].replace('T', ' ')}"
+                     f"  {e.get('title') or ''}" for e in entries)

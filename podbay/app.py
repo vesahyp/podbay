@@ -49,6 +49,8 @@ from . import logs
 from . import notifications
 from . import notify as notify_mod
 from . import opened as opened_mod
+from . import overload as overload_mod
+from . import paused as paused_mod
 from . import quota
 from . import selfupdate
 from . import sources
@@ -1164,10 +1166,32 @@ class PodbayApp(App):
         self._machine_scanning = False
         if health:
             self._machine = health
+            self._check_overload(health)
         try:
             self.query_one("#machine", Static).update(machine_text(self._machine))
         except NoMatches:
             return  # the screen is already gone
+
+    def _check_overload(self, health: dict) -> None:
+        """Tell Head Jeeves when the CPU stays overloaded while two or more
+        sessions work, and when it is clear again (overload.py)."""
+        if not self._head_jeeves or self._quitting:
+            return
+        try:
+            now = datetime.now()
+            verdict, reason = overload_mod.assess(health.get("history") or [], health.get("cores") or 1, now.timestamp())
+            if verdict is None:
+                return
+            paused = paused_mod.by_id()
+            busy = overload_mod.working(list(self._live_sessions.values()), set(paused), now)
+            state = overload_mod.read_state()
+            command, new_state = overload_mod.step(state, verdict, reason, busy, paused, health, now)
+            if command is not None and not self._send_to_head_jeeves(command):
+                return  # not delivered: the next sample tries again
+            if new_state != state:
+                overload_mod.write_state(new_state)
+        except Exception:  # noqa: BLE001 -- the check must never take the screen down
+            log.warning("overload check failed", exc_info=True)
 
     def _refresh_usage(self) -> None:
         """Kick off a background /usage refresh; a no-op while one is
@@ -1267,16 +1291,18 @@ class PodbayApp(App):
                 return r["session"]
         return None
 
-    def _send_to_head_jeeves(self, command: str) -> None:
+    def _send_to_head_jeeves(self, command: str) -> bool:
+        """True when the command reached him, or waits for his launch."""
         head = self._head_jeeves_session()
         if head is None:
             self._start_head_jeeves(command)
-            return
+            return self._head_jeeves_pending is not None
         if not self._send_to_session(head, command):
             self.notify(voice.no_tab(), severity="warning")
-            return
+            return False
         self._head_jeeves_sent_at = datetime.now()
         self.notify(voice.head_jeeves_sent(command))
+        return True
 
     def _compact_head_jeeves(self, now: datetime) -> None:
         """Send Head Jeeves `/compact` with HEAD_JEEVES_COMPACT when his
@@ -2203,6 +2229,12 @@ def cmd_send(target: str, text: str) -> None:
     """Type `text` into a session's tab. Run from inside a Claude session
     (Head Jeeves passing an order on), the text is recorded as the agent's,
     so the mood gauge does not read it as the user's."""
+    _deliver(target, text)
+
+
+def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
+    """cmd_send's work: the session `target` names, and the Claude session
+    that ran this command (None from a plain shell). Exits 1 on failure."""
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
     match = find_session(sessions, target)
     if match is None:
@@ -2225,6 +2257,27 @@ def cmd_send(target: str, text: str) -> None:
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     if caller is not None:
         opened_mod.record_sent(match.session_id, text, caller.name or caller.session_id, datetime.now())
+    return match, caller
+
+
+def cmd_pause(target: str | None, text: str) -> None:
+    """Tell a session to finish its step, commit and wait, and record the
+    pause (paused.py). No target lists the paused sessions."""
+    if target is None:
+        print(voice.paused_list(paused_mod.read()))
+        return
+    match, caller = _deliver(target, text or voice.PAUSE_MESSAGE)
+    paused_mod.record(match.session_id, match.name, match.title, caller.name if caller else None, datetime.now())
+    print(voice.paused_sent(match.title))
+
+
+def cmd_resume(target: str, text: str) -> None:
+    """Tell a paused session to continue, and remove its pause."""
+    match, _caller = _deliver(target, text or voice.RESUME_MESSAGE)
+    if paused_mod.forget(match.session_id):
+        print(voice.resumed_sent(match.title))
+    else:
+        print(voice.not_paused(match.title))
 
 
 # How long a session gets to exit after SIGTERM before close gives up.
@@ -2393,6 +2446,14 @@ def main() -> None:
     send_parser.add_argument("target", help=target_help)
     send_parser.add_argument("text", nargs="+", help="message text")
 
+    pause_parser = sub.add_parser("pause", help="tell a session to finish its current step, commit and wait, and record the pause; no target lists the paused sessions")
+    pause_parser.add_argument("target", nargs="?", help=target_help)
+    pause_parser.add_argument("text", nargs="*", help="the message (default: finish the step, commit, wait for a resume message)")
+
+    resume_parser = sub.add_parser("resume", help="tell a paused session to continue, and remove its pause")
+    resume_parser.add_argument("target", help=target_help)
+    resume_parser.add_argument("text", nargs="*", help="the message (default: continue from the step where you stopped)")
+
     notify_parser = sub.add_parser("notify", help="push one line to the user's phone through `podbay config notify-command` (see podbay/notify.py)")
     notify_parser.add_argument("text", nargs="+", help="the message, one standalone sentence")
 
@@ -2445,6 +2506,10 @@ def main() -> None:
         cmd_focus(args.target)
     elif args.command == "send":
         cmd_send(args.target, " ".join(args.text))
+    elif args.command == "pause":
+        cmd_pause(args.target, " ".join(args.text))
+    elif args.command == "resume":
+        cmd_resume(args.target, " ".join(args.text))
     elif args.command == "notify":
         sys.exit(cmd_notify(" ".join(args.text)))
     elif args.command == "board":

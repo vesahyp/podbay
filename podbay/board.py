@@ -511,6 +511,8 @@ def _room_row(session: dict, now: datetime) -> str:
         pill = f"parked until {session['parked_until'][5:16].replace('T', ' ')}"
     if state == EMPTY or not session.get("has_transcript"):
         pill = "never used"
+    if session.get("paused"):
+        pill = f"paused · {pill}" if pill else "paused"
     meta = " · ".join(x for x in (repo, pill, _age(session, now)) if x)
     return (
         f'<li {_tap(_target(session), session.get("title") or session.get("name"))}><div class="row">'
