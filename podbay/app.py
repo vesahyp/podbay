@@ -13,6 +13,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -2009,7 +2010,22 @@ def _new_session_on(tty: str, before: set[str]) -> Session | None:
     return next((s for s in sessions if not s.is_shell and s.tty == tty and s.session_id not in before), None)
 
 
-def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int, launch_dir: str) -> str | None:
+def screen_shows_claude(screen: str, account_label: str, name: str | None) -> bool:
+    """True when the screen carries Claude's own status line (`[label] ...
+    ctx:N%`) or its session name bar. Both stay on screen when a busy first
+    turn has scrolled the banner away. The typed command line, which holds
+    `--name`, does not count as a name bar."""
+    if re.search(rf"\[{re.escape(account_label)}\].*ctx:\d+%", screen):
+        return True
+    if name:
+        return any(name in line and "--name" not in line for line in screen.splitlines())
+    return False
+
+
+def _wait_for_claude(
+    tty: str, before: set[str], marker: str | None, wait: int, launch_dir: str,
+    account_label: str = "", name: str | None = None,
+) -> str | None:
     """None once a new Claude session sits on `tty` in the registry, or the
     screen shows the Claude banner below the typed command (`marker` is
     text unique to that command). Otherwise the reason it is not up:
@@ -2028,6 +2044,8 @@ def _wait_for_claude(tty: str, before: set[str], marker: str | None, wait: int, 
         if iterm_mod.screen_waits_for_input(screen):
             return "blocked"
         if marker and marker in screen and "Claude Code" in screen.rsplit(marker, 1)[1]:
+            return None
+        if account_label and screen_shows_claude(screen, account_label, name):
             return None
     return "timeout"
 
@@ -2113,7 +2131,7 @@ def cmd_open(
     # A new window runs the command as its session command, so the screen
     # never shows the typed line the marker looks for.
     marker = prompt_file.name if prompt_file and not created else None
-    problem = _wait_for_claude(tty, before, marker, wait, launch_dir)
+    problem = _wait_for_claude(tty, before, marker, wait, launch_dir, account.label, name)
     if problem is None:
         print(voice.open_started(where, account.label, launch_dir, model), flush=True)
         _record_session_id(tty, before, opened_at)
