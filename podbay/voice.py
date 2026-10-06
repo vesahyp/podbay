@@ -536,7 +536,7 @@ def inventory_unavailable(reason: str | None) -> str:
 
 
 def machine_line(s: dict) -> str:
-    """The machine in one line: load, CPU, memory, pressure, swap."""
+    """The machine in one line: load, CPU, memory, pressure, swap, disk."""
     load = (s.get("load") or {}).get("1m")
     parts = []
     if load is not None:
@@ -550,6 +550,9 @@ def machine_line(s: dict) -> str:
         parts.append(f"pressure {s['pressure']}")
     if s.get("swap_used_mb") is not None:
         parts.append(f"swap {s['swap_used_mb']} MB")
+    if s.get("disk_free_gb") is not None:
+        used = f" ({s['disk_used_pct']}% used)" if s.get("disk_used_pct") is not None else ""
+        parts.append(f"disk {s['disk_free_gb']} GB free{used}")
     return " · ".join(parts)
 
 

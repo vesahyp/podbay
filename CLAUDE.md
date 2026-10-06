@@ -61,7 +61,7 @@ podbay/
                       after it; thresholds and why in its header
   paused.py         the sessions `podbay pause` paused, read by hal.py,
                       inventory and the board
-  machine.py        load, CPU, memory, pressure, swap, top processes and
+  machine.py        load, CPU, memory, pressure, swap, disk, top processes and
                       their history; what "overloaded" means (see below)
   voice.py          every string HAL says; the header segments
   splash.py         the HAL eye: startup and shutdown sequences

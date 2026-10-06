@@ -258,3 +258,17 @@ async def test_the_screen_shows_the_machine_panel():
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert "load 1.2" in str(app.query_one("#machine").render())
+
+
+def test_parse_disk_reads_df_like_powerwatch():
+    out = "Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n/dev/disk3s5 971350180 800000000 16777216 93% 1 2 0% /System/Volumes/Data\n"
+    assert machine.parse_disk(out) == (16, 93)
+    assert machine.parse_disk("") is None
+    assert machine.parse_disk("h\ngarbage") is None
+
+
+def test_low_disk_is_overloaded_at_powerwatchs_threshold():
+    base = {"load": {"1m": 1.0}, "cores": 8, "pressure": "normal", "mem_free_mb": 2000}
+    assert machine.overload_reason({**base, "disk_free_gb": 16}) is None
+    assert machine.overload_reason({**base, "disk_free_gb": 15}) == "disk low, 15 GB free"
+    assert machine.overload_reason({**base, "disk_free_gb": None}) is None

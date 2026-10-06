@@ -1,5 +1,5 @@
-"""The machine's own health: load, CPU, memory, pressure, swap and the
-heaviest processes. podbay breaks when the Mac is starved (2026-10-06: load
+"""The machine's own health: load, CPU, memory, pressure, swap, disk space
+and the heaviest processes. podbay breaks when the Mac is starved (2026-10-06: load
 average 112 with 300 MB free, and every iTerm2 call timed out), so the
 screen, `podbay inventory --json` and the board show it, `podbay open`
 refuses to start a session under critical memory pressure, and the error
@@ -33,6 +33,12 @@ TOP_N = 3
 # kern.memorystatus_vm_pressure_level
 PRESSURE_NAMES = {1: "normal", 2: "warn", 4: "critical"}
 
+# The volume and threshold jeeves' scripts/powerwatch pushes about (its
+# POWERWATCH_DISK and POWERWATCH_DISK_LOW). Keep the two in step; powerwatch
+# owns the push, podbay only shows the same state.
+DISK_PATH = "/System/Volumes/Data"
+DISK_LOW_GIB = 15
+
 _SWAP_RE = re.compile(r"used = ([\d.]+)M")
 
 
@@ -63,6 +69,18 @@ def parse_swap(out: str) -> int | None:
     """Swap in use in MB, from `sysctl -n vm.swapusage`."""
     m = _SWAP_RE.search(out)
     return round(float(m.group(1))) if m else None
+
+
+def parse_disk(out: str) -> tuple[int, int] | None:
+    """(GiB free, percent used) from `df -k <path>`, read the way powerwatch
+    reads it: column 4 is the available 1K blocks, column 5 the capacity."""
+    lines = out.splitlines()
+    if len(lines) < 2:
+        return None
+    fields = lines[-1].split()
+    if len(fields) < 5 or not fields[3].isdigit() or not re.fullmatch(r"\d+%", fields[4]):
+        return None
+    return int(fields[3]) // 1024 // 1024, int(fields[4][:-1])
 
 
 def parse_processes(out: str) -> list[dict]:
@@ -105,6 +123,7 @@ def sample() -> dict:
     procs = parse_processes(_run(["ps", "-Ao", "pid=,pcpu=,rss=,comm="]))
     cpu = min(100.0, sum(p["cpu"] for p in procs) / cores) if procs else None
     total = _run(["sysctl", "-n", "hw.memsize"]).strip()
+    disk = parse_disk(_run(["df", "-k", DISK_PATH]))
     return {
         "at": time.time(),
         "load": {"1m": load[0], "5m": load[1], "15m": load[2]},
@@ -114,6 +133,8 @@ def sample() -> dict:
         "mem_total_mb": round(int(total) / 1_048_576) if total.isdigit() else None,
         "pressure": pressure_level(),
         "swap_used_mb": parse_swap(_run(["sysctl", "-n", "vm.swapusage"])),
+        "disk_free_gb": disk[0] if disk else None,
+        "disk_used_pct": disk[1] if disk else None,
         "top": top_processes(procs),
     }
 
@@ -139,6 +160,9 @@ def overload_reason(s: dict | None) -> str | None:
     free = s.get("mem_free_mb")
     if free is not None and free < LOW_FREE_MB and (s.get("swap_used_mb") or 0) > 0:
         return f"only {free} MB of memory free"
+    disk = s.get("disk_free_gb")
+    if disk is not None and disk <= DISK_LOW_GIB:
+        return f"disk low, {disk} GB free"
     return None
 
 
@@ -168,6 +192,7 @@ def _slim(s: dict) -> dict:
     return {
         "at": s["at"], "load": (s.get("load") or {}).get("1m"), "cpu": s.get("cpu_pct"),
         "free": s.get("mem_free_mb"), "swap": s.get("swap_used_mb"), "p": s.get("pressure"),
+        "disk": s.get("disk_free_gb"), "disk_pct": s.get("disk_used_pct"),
     }
 
 

@@ -211,9 +211,11 @@ its window's first tab (`7.2`). "terminal #N" means the session that
 `podbay inventory` lists with tab N.
 
 The machine's health is on the screen (load, CPU, free memory, memory
-pressure, swap, the three heaviest processes by CPU and by memory, and a
+pressure, swap, free disk space on the data volume, the three heaviest processes by CPU and by memory, and a
 sparkline of the last hours), under `machine` in `podbay inventory --json`,
-and as two charts in the board's machine room. When the machine is starved,
+and as three charts in the board's machine room. Free disk at or under 15 GB
+(powerwatch's threshold) counts as overloaded; podbay sends no event for it,
+jeeves pushes. When the machine is starved,
 `podbay inventory` answers from the last good scan within 20 s and marks it
 `"stale": true`, iTerm2 calls are retried with backoff, errors say the machine
 is overloaded, and `podbay open` refuses to start a session while memory

@@ -451,7 +451,7 @@ def _chart(points: list[tuple[float, float]], t0: float, t1: float, top: float, 
 
 def _machine(health: dict | None) -> str:
     """The machine room's health block: the figures now, a load chart and a
-    free memory chart over the recorded hours, the heaviest processes."""
+    free memory and free disk chart over the recorded hours, the heaviest processes."""
     if not health:
         return ""
     cores = health.get("cores") or 1
@@ -462,6 +462,8 @@ def _machine(health: dict | None) -> str:
     span = f"last {hours:.0f} h" if hours >= 1.5 else f"last {max(1, round(hours * 60))} min"
     load_pts = [(p["at"], p["load"]) for p in history if p.get("load") is not None]
     free_pts = [(p["at"], p["free"]) for p in history if p.get("free") is not None]
+    disk_pts = [(p["at"], p["disk"]) for p in history if p.get("disk") is not None]
+    disk_top = max([machine.DISK_LOW_GIB * 2.0, *(v for _, v in disk_pts)])
     load_top = max([cores * machine.LOAD_FACTOR, *(v for _, v in load_pts)])
     free_top = max([1024.0, *(v for _, v in free_pts)])
     bad = " bad" if health.get("overloaded") else ""
@@ -474,12 +476,17 @@ def _machine(health: dict | None) -> str:
     warn = f'<div class="now bad">Overloaded: {_esc(health["overloaded"])}</div>' if health.get("overloaded") else ""
     load_now = (health.get("load") or {}).get("1m")
     free_now = health.get("mem_free_mb")
+    disk_now = health.get("disk_free_gb")
+    disk_pct = health.get("disk_used_pct")
+    disk_label = "" if disk_now is None else f"{disk_now}" + ("" if disk_pct is None else f" · {disk_pct}% used")
     return (
         f'<div class="mach"><div class="now{bad}">{_esc(figures)}</div>{warn}'
         f'<figure><figcaption><span>Load, 1 min · dashed: overloaded</span><span>{"" if load_now is None else f"{load_now:.1f}"}</span></figcaption>'
         f'{_chart(load_pts, t0, t1, load_top, cores * machine.LOAD_FACTOR)}</figure>'
         f'<figure><figcaption><span>Free memory, MB · dashed: low</span><span>{"" if free_now is None else free_now}</span></figcaption>'
         f'{_chart(free_pts, t0, t1, free_top, machine.LOW_FREE_MB)}</figure>'
+        f'<figure><figcaption><span>Free disk, GB · dashed: low</span><span>{disk_label}</span></figcaption>'
+        f'{_chart(disk_pts, t0, t1, disk_top, machine.DISK_LOW_GIB)}</figure>'
         f'<div class="top">{_esc(span)}</div>{tops}</div>'
     )
 
