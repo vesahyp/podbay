@@ -479,3 +479,8 @@ def test_a_listing_another_process_took_is_shared(monkeypatch):
     assert "/dev/ttys001" in iterm.ItermLister().tabs()
     assert "/dev/ttys001" in iterm.ItermLister().tabs()
     assert len(calls) == 1
+
+
+def test_strip_title_removes_shell_suffix():
+    assert strip_title("✳ rail-tycoon-design (zsh)") == "rail-tycoon-design"
+    assert strip_title("rail-tycoon-design (zsh)") == "rail-tycoon-design"

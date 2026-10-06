@@ -392,7 +392,10 @@ def _agent_records(last_stop_reason: str):
             "type": "assistant",
             "isSidechain": True,
             "timestamp": "2026-09-10T07:10:00Z",
-            "message": {"content": [{"type": "tool_use", "name": "Bash"}], "stop_reason": last_stop_reason},
+            "message": {
+                "content": [{"type": "text", "text": "done"} if last_stop_reason == "end_turn" else {"type": "tool_use", "name": "Bash"}],
+                "stop_reason": last_stop_reason,
+            },
         },
     ]
 
@@ -897,3 +900,38 @@ def test_headless_claude_runs_are_not_sessions(tmp_path, monkeypatch):
     for pid, entrypoint in ((1, "cli"), (2, "sdk-cli")):
         (tmp_path / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": str(pid), "entrypoint": entrypoint}))
     assert [e["pid"] for e in sources.read_registry(tmp_path)] == [1]
+
+
+def test_tail_read_parallel_tool_calls_stamped_end_turn_are_not_a_finish(tmp_path):
+    """Claude Code stamps end_turn on every record of a message that also
+    holds tool_use blocks. The session is working, not finished."""
+    records = [
+        {"type": "user", "timestamp": "2026-10-06T15:15:50Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "t0"}]}},
+        {"type": "assistant", "timestamp": "2026-10-06T15:15:51Z",
+         "message": {"id": "m1", "stop_reason": "end_turn", "content": [{"type": "text", "text": "Research next."}]}},
+        {"type": "assistant", "timestamp": "2026-10-06T15:15:52Z",
+         "message": {"id": "m1", "stop_reason": "end_turn", "content": [{"type": "tool_use", "id": "t1", "name": "WebSearch", "input": {}}]}},
+        {"type": "assistant", "timestamp": "2026-10-06T15:15:53Z",
+         "message": {"id": "m1", "stop_reason": "end_turn", "content": [{"type": "tool_use", "id": "t2", "name": "WebSearch", "input": {}}]}},
+    ]
+    path = tmp_path / "session.jsonl"
+    path.write_text("\n".join(_line(r) for r in records) + "\n")
+
+    result = tail_read_transcript(path)
+
+    assert result["last_turn"] == "in_progress"
+    assert result["newest_assistant"]["stop_reason"] == "tool_use"
+
+
+def test_tail_read_text_only_end_turn_after_a_tool_message_still_finishes(tmp_path):
+    records = [
+        {"type": "assistant", "timestamp": "2026-10-06T15:15:52Z",
+         "message": {"id": "m1", "stop_reason": "tool_use", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]}},
+        {"type": "user", "timestamp": "2026-10-06T15:15:53Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
+        {"type": "assistant", "timestamp": "2026-10-06T15:15:54Z",
+         "message": {"id": "m2", "stop_reason": "end_turn", "content": [{"type": "text", "text": "done"}]}},
+    ]
+    path = tmp_path / "session.jsonl"
+    path.write_text("\n".join(_line(r) for r in records) + "\n")
+
+    assert tail_read_transcript(path)["last_turn"] == "end_turn"

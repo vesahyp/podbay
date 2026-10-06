@@ -141,12 +141,12 @@ def busy_from_title(raw_name: str) -> bool | None:
     return None
 
 
-_TITLE_SUFFIXES = (" (python)", " (claude)")
+_TITLE_SUFFIXES = (" (python)", " (claude)", " (zsh)", " (bash)", " (sh)", " (fish)", " (node)")
 
 
 def strip_title(raw_name: str) -> str:
     """Strip Claude Code's leading status glyph and the trailing process
-    name iTerm2 adds, ' (python)' or ' (claude)'."""
+    name iTerm2 adds, ' (python)', ' (claude)' or a shell's, ' (zsh)'."""
     name = raw_name.strip()
     if name and not name[0].isalnum():
         parts = name.split(" ", 1)

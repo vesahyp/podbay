@@ -279,6 +279,7 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
         "resumed_agents": {},  # agent id -> when a SendMessage resumed it, until its notification
     }
     newest_assistant_ts = None
+    tool_message_ids: set[str] = set()  # assistant messages that asked for a tool
 
     for line in _tail_lines(path, tail_bytes):
         line = line.strip()
@@ -319,6 +320,17 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
             if texts:
                 result["last_assistant_text"] = texts[-1]
 
+            stop_reason = (record.get("message") or {}).get("stop_reason")
+            message_id = (record.get("message") or {}).get("id")
+            has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
+            if has_tool_use and message_id:
+                tool_message_ids.add(message_id)
+            if stop_reason == "end_turn" and (has_tool_use or message_id in tool_message_ids):
+                # Parallel tool calls: Claude Code stamps end_turn on every
+                # record of a message that also holds tool_use blocks. A turn
+                # that asked for a tool has not ended.
+                stop_reason = "tool_use"
+
             if relevant:
                 tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
                 for block in tool_uses:
@@ -327,7 +339,7 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
                 if ts is not None and (newest_assistant_ts is None or ts >= newest_assistant_ts):
                     newest_assistant_ts = ts
                     result["newest_assistant"] = {
-                        "stop_reason": (record.get("message") or {}).get("stop_reason"),
+                        "stop_reason": stop_reason,
                         "text": "\n".join(texts),
                         "tool_uses": tool_uses,
                     }
@@ -347,7 +359,6 @@ def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidec
         # overwriting as we walk forward so the final value is the newest.
         if rtype in ("user", "assistant") and relevant:
             if rtype == "assistant":
-                stop_reason = (record.get("message") or {}).get("stop_reason")
                 turn = "end_turn" if stop_reason == "end_turn" else "in_progress"
                 result["interrupted"] = False
             elif _is_interrupt_record(record):
