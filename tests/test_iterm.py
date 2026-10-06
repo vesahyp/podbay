@@ -484,3 +484,10 @@ def test_a_listing_another_process_took_is_shared(monkeypatch):
 def test_strip_title_removes_shell_suffix():
     assert strip_title("✳ rail-tycoon-design (zsh)") == "rail-tycoon-design"
     assert strip_title("rail-tycoon-design (zsh)") == "rail-tycoon-design"
+
+
+def test_strip_title_removes_any_trailing_process_name():
+    for process in ("git", "node", "uv", "vim", "ssh"):
+        assert strip_title(f"✳ podbay-fix-false-finished ({process})") == "podbay-fix-false-finished"
+    assert strip_title("◐ a name with (a note) inside (git)") == "a name with (a note) inside"
+    assert strip_title("two words (not a process)") == "two words (not a process)"

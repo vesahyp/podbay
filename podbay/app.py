@@ -138,6 +138,10 @@ STATE_STYLES = {
 # cursor to settle and the result stays usable for a moment afterwards.
 TABLE_REFRESH_SECONDS = 3
 CODE_CHECK_SECONDS = 30
+# A new install waits for the running polls to end, and no new poll starts
+# meanwhile. After this long it stops waiting for anything but an `open`,
+# which a restart would cut off half way.
+RESTART_PATIENCE_SECONDS = 120
 # `claude -p /usage` costs no tokens but takes ~5.5s of CPU and leaves a
 # transcript behind, and the figure moves in whole percent over minutes.
 USAGE_REFRESH_SECONDS = 600
@@ -973,6 +977,8 @@ class PodbayApp(App):
         self._quitting = False
         self._force_quit = False
         self._restart = False
+        # monotonic time the installed code moved; no poll starts after it
+        self._restart_waiting_since: float | None = None
         self._code_version = selfupdate.code_version()
         # label -> monotonic start, for each poll whose thread is running
         self._polls: dict[str, float] = {}
@@ -1096,8 +1102,18 @@ class PodbayApp(App):
 
     def _check_code_version(self) -> None:
         """`make install` moved the installed copy to a new commit: leave so
-        run_screen starts the screen again on it, once no poll runs."""
-        if self._quitting or self._polls or not selfupdate.changed(self._code_version, selfupdate.code_version()):
+        run_screen starts the screen again on it. The scan runs every 3 s and
+        takes a good part of that on a loaded Mac, so a moment with no poll
+        running may never come: once the code moved no new poll starts, and
+        after RESTART_PATIENCE_SECONDS only an `open` still holds the restart."""
+        if self._quitting or not selfupdate.changed(self._code_version, selfupdate.code_version()):
+            return
+        now = time.monotonic()
+        if self._restart_waiting_since is None:
+            self._restart_waiting_since = now
+            log.info("installed code changed from %s: waiting for polls: %s", self._code_version, ", ".join(sorted(self._polls)) or "none")
+        patient = now - self._restart_waiting_since < RESTART_PATIENCE_SECONDS
+        if any(patient or label.startswith("open ") for label in self._polls):
             return
         log.info("installed code changed from %s: restarting", self._code_version)
         self._restart = True
@@ -1127,7 +1143,7 @@ class PodbayApp(App):
         timer and by 'r'. A no-op while one is already in flight -- the
         gather (registry + transcripts + iTerm2) runs in a worker thread so
         it never blocks the UI loop."""
-        if self._scanning or self._quitting:
+        if self._scanning or self._quitting or self._restart_waiting_since is not None:
             return
         self._scanning = True
         self._update_header()
@@ -1147,7 +1163,7 @@ class PodbayApp(App):
     def _refresh_machine(self) -> None:
         """Read the machine's health in the background (a few short commands,
         each with a timeout) and redraw its panel; a no-op while one runs."""
-        if self._machine_scanning or self._quitting:
+        if self._machine_scanning or self._quitting or self._restart_waiting_since is not None:
             return
         self._machine_scanning = True
         self._machine_worker()
@@ -1197,7 +1213,7 @@ class PodbayApp(App):
         """Kick off a background /usage refresh; a no-op while one is
         already running -- fetch() takes ~5.5s and must never stall a
         keypress."""
-        if self._usage_scanning or self._quitting:
+        if self._usage_scanning or self._quitting or self._restart_waiting_since is not None:
             return
         self._usage_scanning = True
         self._usage_worker()
