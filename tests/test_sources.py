@@ -17,6 +17,7 @@ from podbay.sources import (
     tail_read_transcript,
     transcript_path_for,
 )
+from podbay.model import WORKING
 from podbay.state import StateStore
 from pathlib import Path
 
@@ -839,6 +840,85 @@ def test_count_running_subagents_counts_a_resumed_agent_once(tmp_path):
     main_turn_ended = resumed_at + timedelta(seconds=5)
 
     assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}) == 1
+
+
+def _launch_records(agent_id: str, launched: datetime, notified: bool = False) -> list[dict]:
+    """An orchestrator launches a background Agent, then ends its turn to
+    wait for it (raide-build-3d-2 on 2026-10-07)."""
+    def iso(dt):
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    records = [
+        {"type": "assistant", "timestamp": iso(launched), "cwd": f"{REPOS}/jeeves",
+         "message": {"id": "m1", "content": [{"type": "tool_use", "id": "tu1", "name": "Agent",
+                                              "input": {"description": "sim", "run_in_background": True}}],
+                     "stop_reason": "tool_use"}},
+        {"type": "user", "timestamp": iso(launched + timedelta(seconds=1)),
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "tu1", "content": "launched"}]},
+         "toolUseResult": {"isAsync": True, "status": "async_launched", "agentId": agent_id}},
+        {"type": "assistant", "timestamp": iso(launched + timedelta(seconds=30)),
+         "message": {"id": "m2", "content": [{"type": "text", "text": "ADR 0003 is committed. "
+                                              "I'm waiting for the sim piece before briefing the renderer."}],
+                     "stop_reason": "end_turn"}},
+    ]
+    if notified:
+        records.append({"type": "user", "timestamp": iso(launched + timedelta(minutes=20)),
+                        "message": {"content": f"<task-notification>\n<task-id>{agent_id}</task-id>\n"
+                                               "<status>completed</status></task-notification>"}})
+    return records
+
+
+def test_tail_read_notes_a_launched_background_agent_until_it_reports(tmp_path):
+    path = tmp_path / "s1.jsonl"
+    launched = datetime.now() - timedelta(minutes=5)
+    path.write_text("\n".join(_line(r) for r in _launch_records("a7fa564ac2aac1a82", launched)) + "\n")
+    assert set(tail_read_transcript(path)["launched_agents"]) == {"a7fa564ac2aac1a82"}
+
+    path.write_text("\n".join(_line(r) for r in _launch_records("a7fa564ac2aac1a82", launched, notified=True)) + "\n")
+    assert tail_read_transcript(path)["launched_agents"] == {}
+
+
+def test_count_running_subagents_drops_launches_before_a_restart_or_too_old(tmp_path):
+    now = datetime.now()
+    launched = {"a1": now - timedelta(minutes=5)}
+    assert count_running_subagents(tmp_path, "s1", now, launched_agents=launched) == 1
+    # A claude restart since the launch killed the agent.
+    assert count_running_subagents(tmp_path, "s1", now, launched_agents=launched, started_at=now - timedelta(minutes=1)) == 0
+    assert count_running_subagents(tmp_path, "s1", now, launched_agents=launched, now=now + timedelta(hours=7)) == 0
+
+
+def test_gather_sessions_a_quiet_background_agent_keeps_the_session_working(tmp_path):
+    # The main turn ended after the launch, and the subagent has written
+    # nothing since (a long tool call or a long reply): its file is older
+    # than the main turn's end. That read as finished and sent Head Jeeves
+    # a false finished event.
+    sessions_dir = tmp_path / "sessions"
+    projects_dir = tmp_path / "projects"
+    _write_registry_entry(sessions_dir, "s1", os.getpid(), cwd=f"{REPOS}/jeeves", status="busy")
+    slug_dir = projects_dir / "-Users-me-jeeves"
+    slug_dir.mkdir(parents=True)
+    launched = datetime.now() - timedelta(minutes=2)
+    (slug_dir / "s1.jsonl").write_text("\n".join(_line(r) for r in _launch_records("a7fa564ac2aac1a82", launched)) + "\n")
+    agent = slug_dir / "s1" / "subagents" / "agent-a7fa564ac2aac1a82.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text("{}\n")
+    quiet_since = (launched + timedelta(seconds=10)).timestamp()
+    os.utime(agent, (quiet_since, quiet_since))
+
+    sessions = gather_sessions(
+        StateStore(tmp_path / "state.json"),
+        _FakeLister({}),
+        sessions_dir=sessions_dir,
+        projects_dir=projects_dir,
+        status_snapshots={},
+        pid_by_tty=lambda: {},
+        cwd_by_pids=lambda pids: {},
+    )
+
+    s = sessions[0]
+    assert s.turn_ended is True
+    assert s.subagents_running == 1
+    assert s.waiting_on == {"kind": "subagents_running", "detail": "1"}
+    assert s.derive_status(datetime.now()) == WORKING
 
 
 def test_gather_sessions_sets_repos_and_waiting_on(tmp_path):

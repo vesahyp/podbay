@@ -16,7 +16,7 @@ from typing import Callable
 from . import iterm as iterm_mod
 from . import opened as opened_mod
 from .accounts import DEFAULT_LABEL, Account, discover
-from .model import Session
+from .model import BACKGROUND_TASK_MAX_AGE, Session
 from .state import SessionState, StateStore
 
 SESSIONS_DIR = Path.home() / ".claude" / "sessions"
@@ -298,6 +298,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         "newest_assistant": None,
         "background_tasks": {},  # id -> {"id", "ts", "timeout_ms", "ended"}
         "resumed_agents": {},  # agent id -> when a SendMessage resumed it, until its notification
+        "launched_agents": {},  # agent id -> when a background Agent call launched it, until its notification
     }
     newest_assistant_ts = None
     tool_message_ids: set[str] = set()  # assistant messages that asked for a tool
@@ -315,10 +316,12 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         if rtype == "user" and not record.get("isSidechain"):
             _note_background_task(record, result["background_tasks"])
             _note_resumed_agent(record, result["resumed_agents"])
+            _note_launched_agent(record, result["launched_agents"])
         if "<task-notification>" in line:
             _end_notified_tasks(line, result["background_tasks"])
             for task_id in _TASK_ID_RE.findall(line):
                 result["resumed_agents"].pop(task_id, None)
+                result["launched_agents"].pop(task_id, None)
         branch = record.get("gitBranch")
         if branch:
             result["git_branch"] = branch
@@ -422,6 +425,15 @@ def _note_resumed_agent(record: dict, resumed: dict) -> None:
     result = record.get("toolUseResult")
     if isinstance(result, dict) and result.get("success") and result.get("resumedAgentId"):
         resumed[result["resumedAgentId"]] = _iso_to_local_dt(record.get("timestamp"))
+
+
+def _note_launched_agent(record: dict, launched: dict) -> None:
+    """A background Agent call answers at once with `async_launched` and
+    the agent id; its <task-notification> carries the same id as task-id.
+    Between the two the agent runs, even while it writes nothing."""
+    result = record.get("toolUseResult")
+    if isinstance(result, dict) and result.get("status") == "async_launched" and result.get("agentId"):
+        launched[result["agentId"]] = _iso_to_local_dt(record.get("timestamp"))
 
 
 def _end_notified_tasks(line: str, tasks: dict) -> None:
@@ -666,18 +678,25 @@ def count_running_subagents(
     last_activity_at: datetime | None,
     resumed_agents: dict | None = None,
     now: datetime | None = None,
+    launched_agents: dict | None = None,
+    started_at: datetime | None = None,
 ) -> int:
     """Subagent transcripts modified since the main turn ended, plus agents
     a SendMessage resumed that have not written since: between the resume
     and the agent's first record the main turn has ended and nothing else
-    says work is under way."""
+    says work is under way. Plus background agents launched and not yet
+    notified: an agent inside a long tool call or a long reply writes
+    nothing for minutes, so its file alone looks finished. A launch from
+    before this claude process started (a restart kills its agents) or
+    older than BACKGROUND_TASK_MAX_AGE does not count."""
     subagents_dir = slug_dir / session_id / "subagents"
     cutoff = last_activity_at.timestamp() if last_activity_at is not None else 0.0
-    count = 0
+    running: set[str] = set()
     if subagents_dir.is_dir():
         for path in subagents_dir.glob("*.jsonl"):
             try:
-                count += path.stat().st_mtime > cutoff
+                if path.stat().st_mtime > cutoff:
+                    running.add(path.stem.removeprefix("agent-"))
             except OSError:
                 continue
     now = now or datetime.now()
@@ -689,8 +708,14 @@ def count_running_subagents(
         except OSError:
             written = 0.0
         if written <= resumed_at.timestamp():
-            count += 1
-    return count
+            running.add(agent_id)
+    for agent_id, launched_at in (launched_agents or {}).items():
+        if launched_at is None or now - launched_at > BACKGROUND_TASK_MAX_AGE:
+            continue
+        if started_at is not None and launched_at < started_at:
+            continue
+        running.add(agent_id)
+    return len(running)
 
 
 def _mark_seen_if_unread(state_store: StateStore, session_id: str, transcript: dict) -> SessionState:
@@ -939,7 +964,9 @@ def gather_sessions(
                 if main_last_turn_ts is not None else None
             )
             subagents_running = count_running_subagents(
-                path.parent, session_id, main_last_turn_ts, transcript.get("resumed_agents"))
+                path.parent, session_id, main_last_turn_ts, transcript.get("resumed_agents"),
+                launched_agents=transcript.get("launched_agents"),
+                started_at=_ms_to_dt(entry.get("startedAt")))
             subagent_written_at = newest_subagent_write(path.parent, session_id)
             waiting_on = compute_waiting_on(transcript, entry.get("status", "idle"), idle_minutes, subagents_running)
             if transcript.get("last_turn") != "in_progress":
