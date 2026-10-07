@@ -535,6 +535,15 @@ def inventory_unavailable(reason: str | None) -> str:
     return f"inventory has no snapshot to show: {cause}"
 
 
+def unlisted_line(terminals: list[dict]) -> str:
+    """The terminals no session row names, in one line."""
+    named = ", ".join(
+        f"#{t['terminal'] or '?'} {t['kind']}" + (f" ({t['tty']})" if t.get("tty") else "")
+        for t in terminals
+    )
+    return f"unlisted terminals: {named}"
+
+
 def machine_line(s: dict) -> str:
     """The machine in one line: load, CPU, memory, pressure, swap, disk."""
     load = (s.get("load") or {}).get("1m")

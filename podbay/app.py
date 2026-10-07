@@ -1157,6 +1157,9 @@ class PodbayApp(App):
             sessions = sources.gather_sessions(
                 self.state_store, self.iterm_lister, status_snapshots=snapshots, accounts=self._accounts
             )
+        # A window with no tab is a blank terminal nothing owns: close it.
+        if self.iterm_lister.empty_windows():
+            iterm_mod.close_empty_windows()
         limits = {a.label: sources.newest_limits(snapshots, a.label) for a in self._accounts}
         self.call_from_thread(self._apply_refresh, sessions, now, limits)
 
@@ -2173,7 +2176,14 @@ def cmd_open(
     # A new window runs the command as its session command, so the screen
     # never shows the typed line the marker looks for.
     marker = prompt_file.name if prompt_file and not created else None
-    problem = _wait_for_claude(tty, before, marker, wait, launch_dir, account.label, name)
+    try:
+        problem = _wait_for_claude(tty, before, marker, wait, launch_dir, account.label, name)
+    except BaseException:
+        # An interrupt or a crash while waiting must not leave the window it
+        # was waiting on behind.
+        if created:
+            iterm_mod.close_tty(tty)
+        raise
     if problem is None:
         print(voice.open_started(where, account.label, launch_dir, model), flush=True)
         _record_session_id(tty, before, opened_at)
@@ -2202,8 +2212,9 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
     if url:
         board.save_url(url)
     snapshots = sources.read_status_snapshots()
-    sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister(), status_snapshots=snapshots)
-    payload = inventory_payload(sessions, set())
+    lister = iterm_mod.ItermLister()
+    sessions = sources.gather_sessions(StateStore(), lister, status_snapshots=snapshots)
+    payload = inventory_payload(sessions, set(), lister.empty_windows())
     limits = {a.label: sources.newest_limits(snapshots, a.label) for a in discover()}
     headlines, problem = board.load_headlines()
     if problem:
@@ -2390,7 +2401,10 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
     by every rendering, same as cmd_list."""
     state_store = StateStore()
     iterm_lister = iterm_mod.ItermLister()
-    payload = build_payload(lambda: sources.gather_sessions(state_store, iterm_lister), set(exclude))
+    payload = build_payload(
+        lambda: sources.gather_sessions(state_store, iterm_lister), set(exclude),
+        empty_windows=iterm_lister.empty_windows,
+    )
     if payload.get("stale"):
         print(payload.get("stale_note", ""), file=sys.stderr)
 

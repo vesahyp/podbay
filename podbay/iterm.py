@@ -450,6 +450,12 @@ class ItermLister:
         self._maybe_refresh(force)
         return self._windows
 
+    def empty_windows(self, force: bool = False) -> list[WindowInfo]:
+        """The windows iTerm2 lists with no tab: blank terminals no session
+        belongs to, in window number order."""
+        found = [w for w in self.windows(force).values() if w.tab_count == 0]
+        return sorted(found, key=lambda w: w.number or 0)
+
     def tab_for_pid(self, pid: int) -> TabInfo | None:
         tty = get_tty_for_pid(pid)
         if tty is None:
@@ -554,7 +560,16 @@ OPEN_WINDOW_SCRIPT_LINES = [
     "    else",
     "      set w to (create window with profile targetProfile command targetCommand)",
     "    end if",
-    "    set result_ to ((id of w) as text) & (character id 9) & (tty of current session of w)",
+    # A window whose id or tty cannot be read is one nobody was told about:
+    # close it before the error leaves the script.
+    "    try",
+    "      set result_ to ((id of w) as text) & (character id 9) & (tty of current session of w)",
+    "    on error errText number errNum",
+    "      try",
+    "        close w",
+    "      end try",
+    "      error errText number errNum",
+    "    end try",
     "  end tell",
     "  try",
     '    if frontName is "iTerm2" then',
@@ -606,10 +621,17 @@ def open_window_checked(command: str | None = None, profile: str | None = None) 
             if attempt == len(RETRY_DELAYS):
                 raise
             _backoff(attempt)
+        except (subprocess.SubprocessError, OSError):
+            # The script started and iTerm2 did not answer: a window may
+            # exist that no one holds the id of. Close the empty ones.
+            close_empty_windows()
+            raise
     if result.returncode != 0:
+        close_empty_windows()
         raise subprocess.CalledProcessError(result.returncode, "osascript", result.stdout, result.stderr)
     window_id, _, tty = result.stdout.strip().partition("\t")
     if not window_id:
+        close_empty_windows()
         raise subprocess.CalledProcessError(1, "osascript", result.stdout, "no window id")
     return window_id, tty
 
@@ -795,18 +817,25 @@ CLOSE_SCRIPT_LINES = [
 # Closing a window's last session leaves the window in iTerm2's AppleScript
 # view with no tabs (verified), and such a window broke the listing once.
 # iTerm2 ignores a close of that window for several seconds (about 7 in a
-# test), even from the same script, so close_tty runs this again until the
-# window is gone. Returns "gone" or "waiting".
-CLOSE_EMPTY_WINDOW_SCRIPT_LINES = [
+# test), even from the same script, and when the machine is starved the
+# close script itself times out, so no one caller can be trusted to finish
+# the job (2026-10-07: six such windows stayed, shown as blank terminals no
+# listing named). This closes every window with no tabs, not one id, and
+# returns how many it asked to close. It runs under the gate, so it never
+# meets a window the open script is still making.
+CLOSE_EMPTY_WINDOWS_SCRIPT_LINES = [
     "on run argv",
     '  tell application "iTerm2"',
-    "    try",
-    "      set w to (first window whose id is ((item 1 of argv) as integer))",
-    "    on error",
-    '      return "gone"',
-    "    end try",
-    "    if (count of tabs of w) is 0 then close w",
-    '    return "waiting"',
+    "    set n to 0",
+    "    repeat with w in (windows as list)",
+    "      try",
+    "        if (count of tabs of w) is 0 then",
+    "          close w",
+    "          set n to n + 1",
+    "        end if",
+    "      end try",
+    "    end repeat",
+    "    return n",
     "  end tell",
     "end run",
 ]
@@ -824,24 +853,42 @@ def _osascript_lines(lines: list[str], args: list[str], timeout: float) -> str |
         return None
 
 
+def close_empty_windows(timeout: float = SCRIPT_TIMEOUT) -> int | None:
+    """Ask iTerm2 to close every window that has no tab. The number asked,
+    or None when iTerm2 could not be reached."""
+    out = _osascript_lines(CLOSE_EMPTY_WINDOWS_SCRIPT_LINES, [], timeout)
+    try:
+        return int(out) if out is not None else None
+    except ValueError:
+        return None
+
+
+def reap_empty_windows(wait: float = EMPTY_WINDOW_WAIT_SECONDS, timeout: float = SCRIPT_TIMEOUT) -> bool:
+    """Close the windows with no tab until none is left or `wait` seconds
+    pass. True iff none is left."""
+    deadline = time.monotonic() + wait
+    while True:
+        left = close_empty_windows(timeout)
+        if left == 0:
+            return True
+        if time.monotonic() >= deadline:
+            log.warning("iTerm2 windows kept with no tabs after %s s", wait)
+            return False
+        time.sleep(0.5)
+
+
 def close_tty(tty: str, timeout: float = SCRIPT_TIMEOUT, wait: float = EMPTY_WINDOW_WAIT_SECONDS) -> bool:
     """Close the iTerm2 session on this tty, and its tab or window when
     nothing else is in it. True iff a session had the tty; False (never
-    raises) when none did or iTerm2 could not be reached."""
+    raises) when none did or iTerm2 could not be reached. Whatever the
+    answer, the windows left with no tab are closed too: a close script that
+    timed out after the session closed would otherwise leave one behind."""
     out = _osascript_lines(CLOSE_SCRIPT_LINES, [tty], timeout) or ""
     parts = out.split()
-    if len(parts) != 3 or parts[0] != "closed":
-        return False
-    _, window_id, rest = parts
-    if rest == "last":
-        deadline = time.monotonic() + wait
-        while time.monotonic() < deadline:
-            if _osascript_lines(CLOSE_EMPTY_WINDOW_SCRIPT_LINES, [window_id], timeout) == "gone":
-                break
-            time.sleep(0.5)
-        else:
-            log.warning("iTerm2 window %s kept with no tabs after %s s", window_id, wait)
-    return True
+    closed = len(parts) == 3 and parts[0] == "closed"
+    if not closed or parts[2] == "last":
+        reap_empty_windows(wait, timeout)
+    return closed
 
 
 # The session podbay itself runs in, found by the UUID half of

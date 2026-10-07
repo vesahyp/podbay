@@ -144,9 +144,10 @@ class _Done:
 
 def test_close_tty_closes_a_window_its_last_session_left_empty(monkeypatch):
     # iTerm2 keeps a window with no tabs after its last session closes, and
-    # ignores a close of it for a few seconds: close_tty asks again.
+    # ignores a close of it for a few seconds: close_tty asks again, for
+    # every empty window, until a pass closes none.
     calls = []
-    answers = iter(["closed 17125 last\n", "waiting\n", "waiting\n", "gone\n"])
+    answers = iter(["closed 17125 last\n", "2\n", "1\n", "0\n"])
 
     def fake_run(cmd, **kw):
         calls.append(cmd[-1])
@@ -155,15 +156,33 @@ def test_close_tty_closes_a_window_its_last_session_left_empty(monkeypatch):
     monkeypatch.setattr(iterm.subprocess, "run", fake_run)
     monkeypatch.setattr(iterm.time, "sleep", lambda s: None)
     assert iterm.close_tty("/dev/ttys015")
-    assert calls == ["/dev/ttys015", "17125", "17125", "17125"]
+    assert len(calls) == 4
+
+
+def test_close_tty_sweeps_empty_windows_when_the_close_script_timed_out(monkeypatch):
+    # The session closed but iTerm2 answered too late: no "closed" line, and
+    # the window it left must still go (2026-10-07: six blank terminals).
+    import subprocess
+    answers = iter([subprocess.TimeoutExpired("osascript", 1), "1\n", "0\n"])
+
+    def fake_run(cmd, **kw):
+        a = next(answers)
+        if isinstance(a, Exception):
+            raise a
+        return _Done(a)
+
+    monkeypatch.setattr(iterm.subprocess, "run", fake_run)
+    monkeypatch.setattr(iterm.time, "sleep", lambda s: None)
+    assert not iterm.close_tty("/dev/ttys015")
+    assert list(answers) == []
 
 
 def test_close_tty_leaves_other_tabs_and_reports_a_missing_tty(monkeypatch):
     calls = []
-    answers = iter(["closed 17125 more\n", "missing\n"])
+    answers = iter(["closed 17125 more\n", "missing\n", "0\n"])
     monkeypatch.setattr(iterm.subprocess, "run", lambda cmd, **kw: calls.append(cmd[-1]) or _Done(next(answers)))
     assert iterm.close_tty("/dev/ttys015")
-    assert calls == ["/dev/ttys015"]
+    assert len(calls) == 1
     assert not iterm.close_tty("/dev/ttys099")
 
 
@@ -182,3 +201,37 @@ def test_close_refuses_a_session_that_shares_the_screens_terminal(monkeypatch, c
         app_mod.cmd_close("x", True)
     assert killed == []
     assert "leave it open" in capsys.readouterr().err
+
+
+def test_unlisted_terminals_name_empty_windows_and_idle_shells_podbay_opened(monkeypatch):
+    from podbay import inventory
+    at = datetime.now()
+    opened_mod.record("/dev/ttys021", "left-over", "head-jeeves", at)
+    shell = _shell("a", "/dev/ttys021")
+    other = _shell("b", "/dev/ttys022")
+    ghost = iterm.WindowInfo(window_id="9", bounds=(0, 0, 1, 1), tab_count=0, number=8)
+    found = inventory.unlisted_terminals([shell, other], [ghost])
+    assert [(t["terminal"], t["kind"]) for t in found] == [("8", "empty window"), (shell.terminal, "idle shell")]
+    assert "unlisted terminals: #8 empty window" in inventory.machine_lines({"unlisted_terminals": found})[0]
+
+
+def test_lister_names_windows_with_no_tab():
+    out = "W | 1 | 0 | 0 | 5 | 5 | 0 | 8\nW | 2 | 0 | 0 | 5 | 5 | 1 | 3\nS | /dev/ttys001 | a | 2 | 1 |  | x\n"
+    lister = iterm.ItermLister()
+    lister._tabs, lister._windows = iterm._parse_all(out)
+    lister._last_refresh = 1e18
+    assert [w.window_id for w in lister.empty_windows()] == ["1"]
+
+
+def test_a_failed_open_closes_the_empty_window(monkeypatch):
+    import subprocess
+    swept = []
+
+    def fake_gated(cmd, timeout):
+        raise subprocess.TimeoutExpired("osascript", timeout)
+
+    monkeypatch.setattr(iterm, "_gated_run", fake_gated)
+    monkeypatch.setattr(iterm, "close_empty_windows", lambda timeout=0: swept.append(1) or 0)
+    with pytest.raises(subprocess.SubprocessError):
+        iterm.open_window_checked("ls")
+    assert swept == [1]

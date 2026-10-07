@@ -449,6 +449,13 @@ def _chart(points: list[tuple[float, float]], t0: float, t1: float, top: float, 
     return f'<svg viewBox="0 0 300 56" preserveAspectRatio="none" role="img">{lim}<polyline class="ln" points="{line}"/></svg>'
 
 
+def _unlisted(terminals: list[dict] | None) -> str:
+    """Terminals open on the screen that no session row names: never hidden."""
+    if not terminals:
+        return ""
+    return f'<div class="mach"><div class="now bad">{_esc(voice.unlisted_line(terminals))}</div></div>'
+
+
 def _machine(health: dict | None) -> str:
     """The machine room's health block: the figures now, a load chart and a
     free memory and free disk chart over the recorded hours, the heaviest processes."""
@@ -599,7 +606,7 @@ def render(
     head_ctx = f'<p class="hint">Head Jeeves {_ctx(head)}</p>' if head and _ctx(head) else ""
     room = (
         f'<details class="room"><summary>Machine room · {_plural(len(sessions), "session", "sessions")}</summary>\n'
-        f"{_machine(payload.get('machine'))}{_quotas(limits, now)}{head_ctx}\n"
+        f"{_unlisted(payload.get('unlisted_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now)}{head_ctx}\n"
         + (f'<ul class="lines">\n{rows}\n</ul>\n<p class="hint">Tap a session to message it.</p>' if rows else '<p class="none">No live sessions.</p>')
         + "</details>"
     )

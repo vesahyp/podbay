@@ -124,7 +124,11 @@ next to `model`, the one the session runs on now.
 `podbay close` ends a finished session (SIGTERM, as closing its terminal
 would) and closes its iTerm2 tab, or its window when that tab was the only
 one. A session that is working, watching a background task or stalled stays
-open unless `--force`; Head Jeeves is never closed.
+open unless `--force`; Head Jeeves is never closed. iTerm2 can keep a window
+with no tab after its last session closes: podbay closes every such window
+after a close or a failed open, and the screen closes them as it finds them.
+`podbay inventory` and the board list any that remain, and any idle shell
+`podbay open` left, as `unlisted_terminals`.
 
 When the CPU stays overloaded (every sample of the last 5 minutes at a
 1-minute load of 3 times the cores or more, with a mean CPU use of 70
