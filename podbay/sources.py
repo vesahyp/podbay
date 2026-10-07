@@ -656,11 +656,6 @@ def compute_waiting_on(
     return None
 
 
-# How long a resumed agent may take to write its first record before the
-# resume no longer counts as work in flight.
-RESUME_GRACE = timedelta(minutes=10)
-
-
 def newest_subagent_write(slug_dir: Path, session_id: str) -> datetime | None:
     """When any of the session's subagent transcripts was last written."""
     newest = 0.0
@@ -682,13 +677,11 @@ def count_running_subagents(
     started_at: datetime | None = None,
 ) -> int:
     """Subagent transcripts modified since the main turn ended, plus agents
-    a SendMessage resumed that have not written since: between the resume
-    and the agent's first record the main turn has ended and nothing else
-    says work is under way. Plus background agents launched and not yet
-    notified: an agent inside a long tool call or a long reply writes
-    nothing for minutes, so its file alone looks finished. A launch from
-    before this claude process started (a restart kills its agents) or
-    older than BACKGROUND_TASK_MAX_AGE does not count."""
+    launched by a background Agent call or resumed by a SendMessage and not
+    yet notified: an agent inside a long tool call or a long reply writes
+    nothing for minutes, so its file alone looks finished. A launch or
+    resume from before this claude process started (a restart kills its
+    agents) or older than BACKGROUND_TASK_MAX_AGE does not count."""
     subagents_dir = slug_dir / session_id / "subagents"
     cutoff = last_activity_at.timestamp() if last_activity_at is not None else 0.0
     running: set[str] = set()
@@ -700,21 +693,13 @@ def count_running_subagents(
             except OSError:
                 continue
     now = now or datetime.now()
-    for agent_id, resumed_at in (resumed_agents or {}).items():
-        if resumed_at is None or now - resumed_at > RESUME_GRACE:
-            continue
-        try:
-            written = (subagents_dir / f"agent-{agent_id}.jsonl").stat().st_mtime
-        except OSError:
-            written = 0.0
-        if written <= resumed_at.timestamp():
+    for agents in (resumed_agents, launched_agents):
+        for agent_id, sent_at in (agents or {}).items():
+            if sent_at is None or now - sent_at > BACKGROUND_TASK_MAX_AGE:
+                continue
+            if started_at is not None and sent_at < started_at:
+                continue
             running.add(agent_id)
-    for agent_id, launched_at in (launched_agents or {}).items():
-        if launched_at is None or now - launched_at > BACKGROUND_TASK_MAX_AGE:
-            continue
-        if started_at is not None and launched_at < started_at:
-            continue
-        running.add(agent_id)
     return len(running)
 
 

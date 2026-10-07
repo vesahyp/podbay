@@ -826,9 +826,65 @@ def test_count_running_subagents_counts_a_resumed_agent_not_yet_writing(tmp_path
     main_turn_ended = resumed_at + timedelta(seconds=5)
 
     assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}) == 1
-    # Long past the grace, a resume that never started is not work.
-    later = resumed_at + timedelta(hours=1)
+    # A claude restart since the resume killed the agent.
+    restarted = resumed_at + timedelta(seconds=1)
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}, started_at=restarted) == 0
+    later = resumed_at + timedelta(hours=7)
     assert count_running_subagents(tmp_path, "s1", main_turn_ended, {"a1": resumed_at}, now=later) == 0
+
+
+def test_gather_sessions_a_resumed_agent_that_went_quiet_keeps_the_session_working(tmp_path):
+    # raide-build-3d-2 on 2026-10-07: the orchestrator resumed a subagent
+    # with SendMessage and ended its turn to wait. The subagent wrote its
+    # first record before the main turn ended, then ran a long tool call
+    # and wrote nothing. The resume stopped counting at that first record
+    # and the file was older than the main turn's end, so the session read
+    # as finished and Head Jeeves got a false finished event.
+    sessions_dir = tmp_path / "sessions"
+    projects_dir = tmp_path / "projects"
+    _write_registry_entry(sessions_dir, "s1", os.getpid(), cwd=f"{REPOS}/jeeves", status="busy")
+    slug_dir = projects_dir / "-Users-me-jeeves"
+    slug_dir.mkdir(parents=True)
+    agent_id = "a10ca55c7a5ea4065"
+
+    def iso(dt):
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    resumed = datetime.now() - timedelta(minutes=2)
+    records = [
+        {"type": "assistant", "timestamp": iso(resumed - timedelta(seconds=1)), "cwd": f"{REPOS}/jeeves",
+         "message": {"id": "m1", "content": [{"type": "tool_use", "id": "tu9", "name": "SendMessage",
+                                              "input": {"to": agent_id, "message": "make them bolder"}}],
+                     "stop_reason": "tool_use"}},
+        {"type": "user", "timestamp": iso(resumed),
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "tu9", "content": "ok"}]},
+         "toolUseResult": {"success": True, "message": "Resuming agent a10ca55", "resumedAgentId": agent_id}},
+        {"type": "assistant", "timestamp": iso(resumed + timedelta(seconds=10)),
+         "message": {"id": "m2", "content": [{"type": "text", "text": "I'll wait for the subagent's "
+                                              "notification rather than poll."}],
+                     "stop_reason": "end_turn"}},
+    ]
+    (slug_dir / "s1.jsonl").write_text("\n".join(_line(r) for r in records) + "\n")
+    agent = slug_dir / "s1" / "subagents" / f"agent-{agent_id}.jsonl"
+    agent.parent.mkdir(parents=True)
+    agent.write_text("{}\n")
+    first_write = (resumed + timedelta(seconds=2)).timestamp()
+    os.utime(agent, (first_write, first_write))
+
+    sessions = gather_sessions(
+        StateStore(tmp_path / "state.json"),
+        _FakeLister({}),
+        sessions_dir=sessions_dir,
+        projects_dir=projects_dir,
+        status_snapshots={},
+        pid_by_tty=lambda: {},
+        cwd_by_pids=lambda pids: {},
+    )
+
+    s = sessions[0]
+    assert s.turn_ended is True
+    assert s.subagents_running == 1
+    assert s.waiting_on == {"kind": "subagents_running", "detail": "1"}
+    assert s.derive_status(datetime.now()) == WORKING
 
 
 def test_count_running_subagents_counts_a_resumed_agent_once(tmp_path):
