@@ -428,7 +428,8 @@ async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tm
     wrong_account.name = "jeeves-99"
     wrong_account.cwd = head.cwd
     wrong_account.started_at = head.started_at
-    batches = [[working, shell], [working, shell, wrong_account], [working, shell, wrong_account, head], [finished, shell, wrong_account, head]]
+    batches = [[working, shell], [working, shell, wrong_account], [working, shell, wrong_account, head], [finished, shell, wrong_account, head], [finished, shell, wrong_account, head]]
+    monkeypatch.setattr(app_mod.hal, "FINISH_HOLD", timedelta(0))  # a finish is relayed once a second refresh confirms it
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: batches.pop(0) if batches else batches)
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
     monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda: set())
@@ -446,7 +447,7 @@ async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tm
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert sent == [f"cd {tmp_path / 'jeeves'} && CLAUDE_CONFIG_DIR=~/.claude-personal claude -n head-jeeves"]
-        for _ in range(3):
+        for _ in range(4):
             app.trigger_refresh()
             await app.workers.wait_for_complete()
             await pilot.pause()

@@ -18,6 +18,12 @@ from .model import DUE, NEEDS_YOU, STALLED, Session, is_head_jeeves
 QUOTA_HOT_PCT = 85.0
 # The quiet-ship remark, at most this often, and only when nothing needs you.
 QUIET_INTERVAL = timedelta(hours=2)
+# A finish is announced only when it still holds at least this long later,
+# on a later refresh. The count of running subagents rests partly on file
+# times: a resumed agent can look finished for the seconds between the main
+# turn's end and its next write, and a false finished event sends Head
+# Jeeves to a session that is still working.
+FINISH_HOLD = timedelta(seconds=10)
 # Voice setting values: on (toasts, the default) or off.
 VOICE_ON, VOICE_OFF = "on", "off"
 
@@ -34,6 +40,8 @@ class Memory:
     # (session name, line) for each session event this refresh: finished,
     # question, stalled, due, ended. What podbay forwards to Head Jeeves.
     events: list[tuple[str, str]] = field(default_factory=list)
+    # session id -> when its finish was first seen, not yet announced (FINISH_HOLD)
+    unconfirmed: dict[str, datetime] = field(default_factory=dict)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
 
@@ -57,6 +65,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     # purpose: that is no finish and no stall to report.
     paused_ids = paused.ids()
     attention = False
+    unconfirmed: dict[str, datetime] = {}
     for s in sessions:
         if s.is_shell or is_head_jeeves(s):
             continue
@@ -65,7 +74,8 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         if derived in (NEEDS_YOU, STALLED, DUE):
             attention = True
         previous = memory.statuses.get(s.session_id)
-        if not memory.primed or previous is None or previous == derived:
+        first_seen = memory.unconfirmed.get(s.session_id) if previous == derived else None
+        if not memory.primed or previous is None or (previous == derived and first_seen is None):
             continue  # a session seen for the first time has no change to report
         line = None
         if derived == NEEDS_YOU and s.unread:
@@ -75,7 +85,10 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
             if kind in ("ask_user_question", "prompt", "question_text"):
                 line = voice.hal_question(s.title)
             elif s.session_id not in paused_ids:
-                line = voice.hal_finished(s.title)
+                if first_seen is not None and now - first_seen >= FINISH_HOLD:
+                    line = voice.hal_finished(s.title)
+                else:
+                    unconfirmed[s.session_id] = first_seen or now
         elif derived == STALLED and s.session_id not in paused_ids:
             minutes = int((now - s.last_turn_ts).total_seconds() // 60) if s.last_turn_ts else 0
             line = voice.hal_stalled(s.title, minutes)
@@ -98,6 +111,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
                 lines.append(line)
                 memory.events.append((gone.name, line))
     memory.statuses = current
+    memory.unconfirmed = unconfirmed
     memory.seen = {s.session_id: s for s in sessions if s.session_id in current}
 
     heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}

@@ -16,6 +16,9 @@ def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on
     )
 
 
+LATER = NOW + hal.FINISH_HOLD
+
+
 def test_first_refresh_only_sets_the_baseline():
     memory = hal.Memory()
     assert hal.remarks(memory, [_session("a")], {}, NOW) == []
@@ -28,13 +31,15 @@ def test_a_session_that_finishes_is_announced_once_and_only_if_unread():
     hal.remarks(memory, [working], {}, NOW)
 
     done = _session("a")
-    lines = hal.remarks(memory, [done], {}, NOW)
-    assert lines == ["A has finished, Frank. It is waiting for you."] or lines[0].startswith("A has finished")
-    assert hal.remarks(memory, [done], {}, NOW) == []  # same state, nothing new
+    assert hal.remarks(memory, [done], {}, NOW) == []  # not yet: the finish must hold
+    lines = hal.remarks(memory, [done], {}, LATER)
+    assert lines[0].startswith("A has finished")
+    assert hal.remarks(memory, [done], {}, LATER) == []  # same state, nothing new
 
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
     seen = _session("a", seen=True)  # the tab was focused as it finished
     assert hal.remarks(memory, [seen], {}, NOW) == []
+    assert hal.remarks(memory, [seen], {}, LATER) == []
 
 
 def test_question_stall_and_due_have_their_own_lines():
@@ -108,8 +113,9 @@ def test_session_events_are_listed_for_head_jeeves():
     memory = hal.Memory()
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
     hal.remarks(memory, [_session("a")], {}, NOW)
+    hal.remarks(memory, [_session("a")], {}, LATER)
     assert memory.events == [("a", "A has finished, Frank. It is waiting for you.")]
-    hal.remarks(memory, [_session("a")], {}, NOW)
+    hal.remarks(memory, [_session("a")], {}, LATER)
     assert memory.events == []
 
 
@@ -128,7 +134,29 @@ def test_a_turn_that_ended_with_agents_still_running_is_not_finished():
     assert memory.events == []
     # once the agents are done and the turn is really over, it counts
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
-    assert memory.events == [] and hal.remarks(memory, [_session("a")], {}, NOW)
+    hal.remarks(memory, [_session("a")], {}, NOW)
+    assert memory.events == [] and hal.remarks(memory, [_session("a")], {}, LATER)
+
+
+def test_a_finish_that_does_not_hold_is_not_announced():
+    # raide-build-3d-2 on 2026-10-07 17:03: the orchestrator resumed a
+    # subagent with SendMessage and ended its turn. For the 3 s between the
+    # main turn's end and the agent's next write, the session read as
+    # finished; Head Jeeves got a false finished event. The next refresh
+    # read it as working again.
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    assert hal.remarks(memory, [_session("a")], {}, NOW) == []  # the false finish
+    delegating = _session("a", waiting_on={"kind": "subagents_running", "detail": "1"})
+    later = NOW + timedelta(seconds=3)
+    assert hal.remarks(memory, [delegating], {}, later) == []
+    assert memory.events == [] and memory.unconfirmed == {}
+    # A second refresh too soon after the first does not confirm it either.
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
+    hal.remarks(memory, [_session("a")], {}, NOW)
+    assert hal.remarks(memory, [_session("a")], {}, NOW + timedelta(seconds=1)) == []
+    assert hal.remarks(memory, [_session("a")], {}, LATER)[0].startswith("A has finished")
 
 
 def test_a_session_whose_claude_exits_is_announced_with_its_last_words(monkeypatch):
