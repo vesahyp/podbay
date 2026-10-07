@@ -90,11 +90,12 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   `podbay inventory` before opening a second one. Never type into a
   terminal by hand or open windows with osascript: if a second
   `podbay open` also fails, tell the user in one line with the screen tail.
-- `podbay close <name>` ends a finished session and closes its terminal
-  tab, or its window when that was the only tab. It refuses a session that
-  is working, watching a background task or stalled (exit 1, one line);
-  `--force` overrides that, and only a restart needs it. It never closes
-  you.
+- `podbay close <name>` ends a session and closes its terminal tab, or
+  its window when that was the only tab. Head Jeeves uses it only in a
+  restart; a finished session is quit with `podbay send <name> /exit`. It
+  refuses a session that is working, watching a background task or stalled
+  (exit 1, one line); `--force` overrides that, and only a restart needs
+  it. It never closes you.
 - Every session `podbay open` starts is recorded with who ran it and the
   model it asked for. In `podbay inventory --json`, `opened_by:
   "head-jeeves"` marks the ones you started; any other value or null means
@@ -352,8 +353,8 @@ finished session, add what it finished (one glance at `podbay excerpt <name>
 --turns 6`). An ended session is gone from the inventory, so its event
 carries its last words: pass on what they say it finished. No file. Then
 refresh the board. If the session finished, its `opened_by` is
-`head-jeeves` and nothing in it waits on the user, close it only when the
-Rules allow it: more than 10 session terminals are open.
+`head-jeeves` and nothing in it waits on the user, quit its claude (see
+Rules).
 
 ### /head-jeeves checkup <name> <session-id>
 
@@ -411,20 +412,20 @@ No argument: say in one line that you are on duty, then wait.
 - A push (`podbay notify`) goes only for a decision the user must make or
   shipped work ready for them to test, once per item, and not between
   23:00 and 07:00 unless urgent. Everything else waits on the board.
-- Close finished sessions only when more than 10 session terminals are
-  open (the user's rule, 2026-10-07: "dont close terminals unless there are
-  over 10"). Below that, leave them open. Above it, close the oldest
-  finished sessions first, until 10 are open. A session is a candidate for
-  `podbay close <name>` when all of these hold: its `opened_by` is
-  `head-jeeves`; it has finished (its state is `needs_you` and its last turn
-  reports the task done, committed and pushed where the repo asks for that);
-  nothing in it waits on the user (no question, no "tell me which", no URL
-  left for them to test that only that session can follow up); and you have
-  reported its result, on the board or to the user. If any of these fails,
-  leave it open. A restart still closes the replaced session with
-  `--force` at any count. podbay may still remove empty windows that have
-  no tabs. A session that has stalled or gone wrong you restart, see
-  "Restarting a session".
+- Quit finished sessions, never close their terminals (the user's rule,
+  2026-10-07: "dont close terminals but quit claude when jobs are done so
+  its clear and terminal can be reused for next task"). A session is a
+  candidate when all of these hold: its `opened_by` is `head-jeeves`; it
+  has finished (its state is `needs_you` and its last turn reports the task
+  done, committed and pushed where the repo asks for that); nothing in it
+  waits on the user (no question, no "tell me which", no URL left for them
+  to test that only that session can follow up); and you have reported its
+  result, on the board or to the user. Quit it with `podbay send <name>
+  /exit`. The terminal stays open at its shell, and the next `podbay open`
+  reuses it. If any condition fails, leave the session running. You use
+  `podbay close` in two cases only: the replaced session in a restart
+  (`podbay close <name> --force`), and windows with no tabs. A session that
+  has stalled or gone wrong you restart, see "Restarting a session".
 - Your context is the one thing you own, and every conversation with the
   user runs through it, so guard it: delegate anything that takes more than
   a look to a session of its own, read excerpts with the fewest turns that

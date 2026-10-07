@@ -93,17 +93,16 @@ def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = No
 
 def unlisted_terminals(sessions: list[Session], empty_windows: list) -> list[dict]:
     """The terminals a view of the sessions would not show: windows iTerm2
-    lists with no tab (`empty_windows`, WindowInfo), and plain shells a
-    `podbay open` started, whose command ended or never ran. Each is a
-    blank terminal on the screen, so each is named here."""
-    entries = opened_mod.read()
-    started = {e.get("tty") for e in entries if e.get("tty")}
-    found = [{"terminal": str(w.number) if w.number else None, "kind": "empty window", "tty": None} for w in empty_windows]
-    found += [
-        {"terminal": s.terminal, "kind": "idle shell", "tty": s.tty}
-        for s in sessions if s.is_shell and s.tty in started
-    ]
-    return found
+    lists with no tab (`empty_windows`, WindowInfo). Each is a blank window
+    nothing owns, so each is named here as a problem."""
+    return [{"terminal": str(w.number) if w.number else None, "kind": "empty window", "tty": None} for w in empty_windows]
+
+
+def free_terminals(sessions: list[Session]) -> list[dict]:
+    """Plain shells a `podbay open` started, whose claude has quit. They are
+    free: the next `podbay open` types into one, so they are not a problem."""
+    started = {e.get("tty") for e in opened_mod.read() if e.get("tty")}
+    return [{"terminal": s.terminal, "tty": s.tty} for s in sessions if s.is_shell and s.tty in started]
 
 
 def inventory_payload(sessions: list[Session], exclude: set[str], empty_windows: list | None = None) -> dict:
@@ -133,6 +132,7 @@ def inventory_payload(sessions: list[Session], exclude: set[str], empty_windows:
         "repo_groups": groups,
         "waiting": waiting,
         "unlisted_terminals": unlisted_terminals(sessions, empty_windows or []),
+        "free_terminals": free_terminals(sessions),
     }
 
 
@@ -246,6 +246,8 @@ def machine_lines(payload: dict) -> list[str]:
     lines = [payload["stale_note"]] if payload.get("stale") and payload.get("stale_note") else []
     if payload.get("unlisted_terminals"):
         lines.append(voice.unlisted_line(payload["unlisted_terminals"]))
+    if payload.get("free_terminals"):
+        lines.append(voice.free_line(payload["free_terminals"]))
     health = payload.get("machine") or {}
     if health:
         lines.append("machine: " + voice.machine_line(health))

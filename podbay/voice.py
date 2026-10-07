@@ -535,6 +535,11 @@ def inventory_unavailable(reason: str | None) -> str:
     return f"inventory has no snapshot to show: {cause}"
 
 
+def free_line(terminals: list[dict]) -> str:
+    """The terminals at an empty shell, ready for the next `podbay open`."""
+    return "free terminals: " + ", ".join(f"#{t['terminal'] or '?'}" for t in terminals)
+
+
 def unlisted_line(terminals: list[dict]) -> str:
     """The terminals no session row names, in one line."""
     named = ", ".join(

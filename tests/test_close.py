@@ -203,16 +203,22 @@ def test_close_refuses_a_session_that_shares_the_screens_terminal(monkeypatch, c
     assert "leave it open" in capsys.readouterr().err
 
 
-def test_unlisted_terminals_name_empty_windows_and_idle_shells_podbay_opened(monkeypatch):
-    from podbay import inventory
+def test_idle_shell_is_free_and_only_an_empty_window_is_unlisted(monkeypatch):
+    from podbay import board, inventory
     at = datetime.now()
     opened_mod.record("/dev/ttys021", "left-over", "head-jeeves", at)
     shell = _shell("a", "/dev/ttys021")
     other = _shell("b", "/dev/ttys022")
     ghost = iterm.WindowInfo(window_id="9", bounds=(0, 0, 1, 1), tab_count=0, number=8)
     found = inventory.unlisted_terminals([shell, other], [ghost])
-    assert [(t["terminal"], t["kind"]) for t in found] == [("8", "empty window"), (shell.terminal, "idle shell")]
-    assert "unlisted terminals: #8 empty window" in inventory.machine_lines({"unlisted_terminals": found})[0]
+    free = inventory.free_terminals([shell, other])
+    assert [(t["terminal"], t["kind"]) for t in found] == [("8", "empty window")]
+    assert [t["tty"] for t in free] == ["/dev/ttys021"]
+    lines = inventory.machine_lines({"unlisted_terminals": found, "free_terminals": free})
+    assert lines[0] == "unlisted terminals: #8 empty window"
+    assert lines[1] == f"free terminals: #{shell.terminal}"
+    html = board._unlisted([], free)
+    assert "free terminals" in html and "bad" not in html
 
 
 def test_lister_names_windows_with_no_tab():
