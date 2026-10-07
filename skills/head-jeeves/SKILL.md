@@ -352,7 +352,8 @@ finished session, add what it finished (one glance at `podbay excerpt <name>
 --turns 6`). An ended session is gone from the inventory, so its event
 carries its last words: pass on what they say it finished. No file. Then
 refresh the board. If the session finished, its `opened_by` is
-`head-jeeves` and nothing in it waits on the user, close it (see Rules).
+`head-jeeves` and nothing in it waits on the user, close it only when the
+Rules allow it: more than 10 session terminals are open.
 
 ### /head-jeeves checkup <name> <session-id>
 
@@ -410,15 +411,19 @@ No argument: say in one line that you are on duty, then wait.
 - A push (`podbay notify`) goes only for a decision the user must make or
   shipped work ready for them to test, once per item, and not between
   23:00 and 07:00 unless urgent. Everything else waits on the board.
-- Leave no stray terminals: a session you started and whose work is done
-  gets closed. Close a session with `podbay close <name>` when all of these
-  hold: its `opened_by` is `head-jeeves`;
-  it has finished (its state is `needs_you` and its last turn reports the
-  task done, committed and pushed where the repo asks for that); nothing
-  in it waits on the user (no question, no "tell me which", no URL left
-  for them to test that only that session can follow up); and you have
+- Close finished sessions only when more than 10 session terminals are
+  open (the user's rule, 2026-10-07: "dont close terminals unless there are
+  over 10"). Below that, leave them open. Above it, close the oldest
+  finished sessions first, until 10 are open. A session is a candidate for
+  `podbay close <name>` when all of these hold: its `opened_by` is
+  `head-jeeves`; it has finished (its state is `needs_you` and its last turn
+  reports the task done, committed and pushed where the repo asks for that);
+  nothing in it waits on the user (no question, no "tell me which", no URL
+  left for them to test that only that session can follow up); and you have
   reported its result, on the board or to the user. If any of these fails,
-  leave it open. A session that has stalled or gone wrong you restart, see
+  leave it open. A restart still closes the replaced session with
+  `--force` at any count. podbay may still remove empty windows that have
+  no tabs. A session that has stalled or gone wrong you restart, see
   "Restarting a session".
 - Your context is the one thing you own, and every conversation with the
   user runs through it, so guard it: delegate anything that takes more than
