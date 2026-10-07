@@ -182,7 +182,10 @@ def test_the_launch_command_is_the_session_command_not_keystrokes(monkeypatch):
     iterm.open_window_with_tty("cd /x && claude -n it")
     script = "\n".join(seen["cmd"])
     assert "write text" not in script and "activate" not in script
-    assert seen["cmd"][-1] == "/bin/zsh -lic 'cd /x && claude -n it; exec /bin/zsh -l'"
+    assert seen["cmd"][-1] == (
+        "/usr/bin/env DISABLE_UPDATE_PROMPT=true DISABLE_AUTO_UPDATE=true "
+        "/bin/zsh -lic 'cd /x && claude -n it; exec /bin/zsh -l'"
+    )
 
 
 def test_a_window_that_failed_to_launch_is_closed(tmp_path, monkeypatch, capsys):
@@ -339,3 +342,11 @@ def test_screen_command_lines():
     assert sources._is_screen_command("/r/.venv/bin/python /r/.venv/bin/podbay --no-splash")
     assert not sources._is_screen_command("uv run --project /r podbay open /x")
     assert not sources._is_screen_command("podbay")
+
+
+def test_the_new_window_shell_cannot_ask_the_oh_my_zsh_update_question():
+    command = iterm.session_command("claude")
+    assert "DISABLE_UPDATE_PROMPT=true" in command
+    assert "DISABLE_AUTO_UPDATE=true" in command
+    # The variables come before the shell, so its startup files see them.
+    assert command.index("DISABLE_UPDATE_PROMPT") < command.index("/bin/zsh")

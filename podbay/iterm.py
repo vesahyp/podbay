@@ -570,10 +570,19 @@ OPEN_WINDOW_SCRIPT_LINES = [
 ]
 
 
+# Shell startup files must not ask questions: the oh-my-zsh update prompt
+# ("Would you like to update? [Y/n]") reads the keyboard and swallowed the
+# launch command (2026-10-07, urbangreen-sms-traficom). Both variables are
+# set for the command's shell and for the shell left behind it.
+NO_STARTUP_PROMPTS = ("DISABLE_UPDATE_PROMPT=true", "DISABLE_AUTO_UPDATE=true")
+
+
 def session_command(command: str) -> str:
     """`command` as a session command: run by a login shell, which then
-    stays as the window's shell so the window outlives the command."""
-    return f"/bin/zsh -lic {shlex.quote(command + '; exec /bin/zsh -l')}"
+    stays as the window's shell so the window outlives the command. The
+    shell starts with oh-my-zsh's update prompt switched off."""
+    env = " ".join(NO_STARTUP_PROMPTS)
+    return f"/usr/bin/env {env} /bin/zsh -lic {shlex.quote(command + '; exec /bin/zsh -l')}"
 
 
 def open_window_checked(command: str | None = None, profile: str | None = None) -> tuple[str, str]:
