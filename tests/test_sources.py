@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from podbay.iterm import TabInfo
 from podbay.sources import (
@@ -434,6 +434,62 @@ def test_subagent_activity_finished_agent_is_none(tmp_path):
 def test_subagent_activity_skips_file_older_than_main_turn(tmp_path):
     main = _write_session_with_agent(tmp_path, "tool_use", agent_mtime=time.time() - 3600)
     assert subagent_activity(main, "s1", datetime.now()) is None
+
+
+def test_subagent_activity_ignores_agents_when_main_turn_unknown(tmp_path):
+    main = _write_session_with_agent(tmp_path, "tool_use")
+    assert subagent_activity(main, "s1", None) is None
+
+
+def test_tail_read_window_grows_past_a_record_larger_than_it(tmp_path):
+    """The newest record (a tool result with a screenshot) is bigger than the
+    window: the turn must still be found, not read as no turn at all."""
+    records = [
+        {"type": "user", "timestamp": "2026-09-09T09:00:00Z", "message": {"content": "hi"}},
+        {"type": "user", "timestamp": "2026-09-09T09:05:00Z",
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x" * 3000}]}},
+    ]
+    path = tmp_path / "session.jsonl"
+    path.write_text("\n".join(_line(r) for r in records) + "\n")
+
+    result = tail_read_transcript(path, tail_bytes=1024)
+
+    assert result["last_turn"] == "in_progress"
+    assert result["last_turn_ts"] == _expected_local("2026-09-09T09:05:00Z")
+
+
+def test_stale_subagent_does_not_stall_a_session_whose_newest_record_is_huge(tmp_path):
+    """Regression: a 1 MB newest record hid the main turn, so a subagent left
+    in progress hours ago set last_turn_ts and HAL said 576 minutes of silence."""
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    projects = tmp_path / "projects"
+    slug = projects / "-tmp"
+    slug.mkdir(parents=True)
+    _write_registry_entry(sessions_dir, "s1", os.getpid(), status="busy")
+    now = datetime.now().astimezone()
+    stamp = lambda dt: dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    main_records = [
+        {"type": "assistant", "timestamp": stamp(now - timedelta(minutes=1)),
+         "message": {"content": [{"type": "text", "text": "x"}], "stop_reason": "end_turn"}},
+        {"type": "user", "timestamp": stamp(now),
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "y" * (600 * 1024)}]}},
+    ]
+    (slug / "s1.jsonl").write_text("\n".join(_line(r) for r in main_records) + "\n")
+    sub_dir = slug / "s1" / "subagents"
+    sub_dir.mkdir(parents=True)
+    old = now - timedelta(hours=9)
+    (sub_dir / "agent-old.jsonl").write_text(_line(
+        {"type": "assistant", "isSidechain": True, "timestamp": stamp(old),
+         "message": {"content": [{"type": "tool_use", "id": "a", "name": "Bash", "input": {}}], "stop_reason": "tool_use"}}) + "\n")
+
+    sessions = gather_sessions(StateStore(tmp_path / "state.json"), _FakeLister({}), sessions_dir=sessions_dir,
+                               projects_dir=projects, status_snapshots={})
+    s = next(x for x in sessions if x.session_id == "s1")
+
+    assert s.last_turn == "in_progress"
+    assert abs((s.last_turn_ts - datetime.now()).total_seconds()) < 120
+    assert s.derive_status(datetime.now()) == "working"
 
 
 def test_subagent_activity_no_subagents_dir(tmp_path):

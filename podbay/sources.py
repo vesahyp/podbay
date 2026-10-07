@@ -253,7 +253,28 @@ def _note_repos(block: dict, result: dict) -> None:
         result["repos_edited"].update(_repos_in_text(path))
 
 
+# How far the tail window may grow when it holds no complete turn record: one
+# tool result with a screenshot runs past 1 MB, so a fixed window can end
+# inside the newest record and hide every turn.
+TAIL_GROW_MAX_BYTES = 16 * 1024 * 1024
+
+
 def tail_read_transcript(path: Path, tail_bytes: int = TAIL_BYTES, include_sidechain: bool = False) -> dict:
+    """`_tail_read_transcript`, with a window that doubles until it holds a
+    complete user or assistant record (or covers the file, or hits the cap)."""
+    while True:
+        result = _tail_read_transcript(path, tail_bytes, include_sidechain)
+        if result["last_turn"] is not None or tail_bytes >= TAIL_GROW_MAX_BYTES:
+            return result
+        try:
+            if path.stat().st_size <= tail_bytes:
+                return result
+        except OSError:
+            return result
+        tail_bytes *= 2
+
+
+def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) -> dict:
     """Read only the tail of a (possibly huge) transcript and extract the
     newest recap, last prompt, last assistant text and git branch, plus (for
     the inventory) repos touched/edited, resolved tool_use ids, and the
@@ -535,9 +556,9 @@ def subagent_activity(
     modified since the main transcript's last turn are skipped: the agent's
     completion notification starts a new main turn, which overtakes them."""
     subagents_dir = transcript_path.parent / session_id / "subagents"
-    if not subagents_dir.is_dir():
-        return None
-    main_ts = main_last_turn_ts.timestamp() if main_last_turn_ts is not None else 0.0
+    if not subagents_dir.is_dir() or main_last_turn_ts is None:
+        return None  # no main turn to compare with: every old agent file would pass the mtime test
+    main_ts = main_last_turn_ts.timestamp()
     newest: tuple[str, datetime] | None = None
     for path in subagents_dir.glob("*.jsonl"):
         try:
