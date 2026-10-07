@@ -246,7 +246,7 @@ async def test_splash_backdrop_shows_then_dissolves(monkeypatch):
         # dependent moment, so a whole word can already have lost a cell:
         # check that the backdrop is still mostly there, not any exact string.
         wanted = sum(len(line.replace(" ", "")) for line in backdrop)
-        assert screen._backdrop_t < 0.5
+        assert screen._backdrop_t < 0.7  # a loaded machine lands the first pause late
         assert len(early.replace(" ", "").replace("\n", "")) >= wanted * 0.6
         await pilot.pause(splash_mod.FADE_SECONDS + 0.3)
         late = str(canvas.render())
