@@ -299,6 +299,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         "background_tasks": {},  # id -> {"id", "ts", "timeout_ms", "ended"}
         "resumed_agents": {},  # agent id -> when a SendMessage resumed it, until its notification
         "launched_agents": {},  # agent id -> when a background Agent call launched it, until its notification
+        "notified_agents": set(),  # agent ids whose <task-notification> is in the tail: they are done
     }
     newest_assistant_ts = None
     tool_message_ids: set[str] = set()  # assistant messages that asked for a tool
@@ -320,6 +321,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         if "<task-notification>" in line:
             _end_notified_tasks(line, result["background_tasks"])
             for task_id in _TASK_ID_RE.findall(line):
+                result["notified_agents"].add(task_id)
                 result["resumed_agents"].pop(task_id, None)
                 result["launched_agents"].pop(task_id, None)
         branch = record.get("gitBranch")
@@ -667,6 +669,27 @@ def newest_subagent_write(slug_dir: Path, session_id: str) -> datetime | None:
     return datetime.fromtimestamp(newest) if newest else None
 
 
+def agent_turn_open(path: Path) -> bool:
+    """Whether a subagent's own newest turn is still open. A finished agent's
+    file ends with its hand-back tool result (`toolEndsTurn`) or an
+    assistant end_turn; anything else (a tool call, a tool result, a reply
+    still streaming) is an agent at work."""
+    for line in _lines_reversed(path, chunk_size=64 * 1024):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rtype = record.get("type")
+        if rtype == "user":
+            return not record.get("toolEndsTurn")
+        if rtype == "assistant":
+            message = record.get("message") or {}
+            content = message.get("content") or []
+            has_tool_use = any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
+            return message.get("stop_reason") != "end_turn" or has_tool_use
+    return False  # no turn at all: nothing to call running
+
+
 def count_running_subagents(
     slug_dir: Path,
     session_id: str,
@@ -675,24 +698,38 @@ def count_running_subagents(
     now: datetime | None = None,
     launched_agents: dict | None = None,
     started_at: datetime | None = None,
+    notified_agents: set | None = None,
 ) -> int:
     """Subagent transcripts modified since the main turn ended, plus agents
     launched by a background Agent call or resumed by a SendMessage and not
     yet notified: an agent inside a long tool call or a long reply writes
     nothing for minutes, so its file alone looks finished. A launch or
     resume from before this claude process started (a restart kills its
-    agents) or older than BACKGROUND_TASK_MAX_AGE does not count."""
+    agents) or older than BACKGROUND_TASK_MAX_AGE does not count.
+
+    The launch record can be out of the main transcript's tail: one pasted
+    screenshot is hundreds of KB. So an agent file written since this claude
+    started, within BACKGROUND_TASK_MAX_AGE, whose own newest turn has not
+    ended (see agent_turn_open) also counts, unless its notification is in
+    the tail. Without this the count flickered with the agent's writes and
+    one turn was announced as finished and then reported again."""
     subagents_dir = slug_dir / session_id / "subagents"
     cutoff = last_activity_at.timestamp() if last_activity_at is not None else 0.0
+    now = now or datetime.now()
+    oldest = max(started_at.timestamp() if started_at is not None else 0.0,
+                 (now - BACKGROUND_TASK_MAX_AGE).timestamp())
     running: set[str] = set()
     if subagents_dir.is_dir():
         for path in subagents_dir.glob("*.jsonl"):
+            agent_id = path.stem.removeprefix("agent-")
             try:
-                if path.stat().st_mtime > cutoff:
-                    running.add(path.stem.removeprefix("agent-"))
+                mtime = path.stat().st_mtime
             except OSError:
                 continue
-    now = now or datetime.now()
+            if mtime > cutoff:
+                running.add(agent_id)
+            elif mtime >= oldest and agent_id not in (notified_agents or ()) and agent_turn_open(path):
+                running.add(agent_id)
     for agents in (resumed_agents, launched_agents):
         for agent_id, sent_at in (agents or {}).items():
             if sent_at is None or now - sent_at > BACKGROUND_TASK_MAX_AGE:
@@ -951,7 +988,8 @@ def gather_sessions(
             subagents_running = count_running_subagents(
                 path.parent, session_id, main_last_turn_ts, transcript.get("resumed_agents"),
                 launched_agents=transcript.get("launched_agents"),
-                started_at=_ms_to_dt(entry.get("startedAt")))
+                started_at=_ms_to_dt(entry.get("startedAt")),
+                notified_agents=transcript.get("notified_agents"))
             subagent_written_at = newest_subagent_write(path.parent, session_id)
             waiting_on = compute_waiting_on(transcript, entry.get("status", "idle"), idle_minutes, subagents_running)
             if transcript.get("last_turn") != "in_progress":

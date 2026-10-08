@@ -1127,3 +1127,47 @@ def test_tail_read_text_only_end_turn_after_a_tool_message_still_finishes(tmp_pa
     path.write_text("\n".join(_line(r) for r in records) + "\n")
 
     assert tail_read_transcript(path)["last_turn"] == "end_turn"
+
+
+def _agent_record(kind: str) -> dict:
+    """The newest record of a subagent's own transcript: a tool call still
+    running, or the hand-back that ends its turn."""
+    if kind == "tool_call":
+        return {"type": "assistant", "timestamp": "2026-10-08T18:50:14.622Z", "isSidechain": True,
+                "message": {"content": [{"type": "tool_use", "id": "tu5", "name": "Bash", "input": {}}], "stop_reason": None}}
+    return {"type": "user", "timestamp": "2026-10-08T17:13:22.755Z", "isSidechain": True, "toolEndsTurn": True,
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "tu6", "content": "Report delivered to your caller."}]}}
+
+
+def test_count_running_subagents_counts_a_quiet_agent_whose_launch_left_the_tail(tmp_path):
+    # raide-build-3d-2, 2026-10-08: the step 5 agent's launch was 800 KB
+    # back, past the 512 KB tail, after two pasted screenshots. Inside a
+    # long tool call its file was older than the main turn's end, so the
+    # count read 0 and the session read as finished between its writes.
+    sub_dir = tmp_path / "s1" / "subagents"
+    sub_dir.mkdir(parents=True)
+    now = datetime.now()
+    quiet = (now - timedelta(minutes=3)).timestamp()
+    running = sub_dir / "agent-a9032d534ed42d37f.jsonl"
+    running.write_text(_line(_agent_record("handback")) + "\n" + _line(_agent_record("tool_call")) + "\n")
+    finished = sub_dir / "agent-aebaad53184610534.jsonl"
+    finished.write_text(_line(_agent_record("tool_call")) + "\n" + _line(_agent_record("handback")) + "\n")
+    for path in (running, finished):
+        os.utime(path, (quiet, quiet))
+    main_turn_ended = now - timedelta(minutes=1)
+    started = now - timedelta(hours=1)
+
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, now=now, started_at=started) == 1
+    # its notification in the tail: done, whatever its file says
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, now=now, started_at=started,
+                                   notified_agents={"a9032d534ed42d37f"}) == 0
+    # written before this claude started (a restart kills its agents) or too long ago
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, now=now, started_at=now - timedelta(minutes=2)) == 0
+    assert count_running_subagents(tmp_path, "s1", main_turn_ended, now=now + timedelta(hours=7), started_at=started) == 0
+
+
+def test_tail_read_notes_notified_agents(tmp_path):
+    path = tmp_path / "s1.jsonl"
+    launched = datetime.now() - timedelta(minutes=5)
+    path.write_text("\n".join(_line(r) for r in _launch_records("a7fa564ac2aac1a82", launched, notified=True)) + "\n")
+    assert tail_read_transcript(path)["notified_agents"] == {"a7fa564ac2aac1a82"}
