@@ -48,9 +48,12 @@ class Memory:
     events: list[tuple[str, str]] = field(default_factory=list)
     # session id -> when its finish was first seen, not yet announced (FINISH_HOLD)
     unconfirmed: dict[str, datetime] = field(default_factory=dict)
-    # session id -> the main turn's end already announced as a report while
-    # its agents ran; dropped once the session moves on
-    reported: dict[str, datetime] = field(default_factory=dict)
+    # session id -> the main turn's end already announced as a report, a
+    # finish or a question. One turn raises one event, whatever the status
+    # reads on a later refresh: the running-agent count can flip, and a
+    # status flip alone once announced the same turn as finished and then
+    # as reported again (raide-build-3d-2, 2026-10-08).
+    announced: dict[str, datetime] = field(default_factory=dict)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
 
@@ -75,7 +78,6 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     paused_ids = paused.ids()
     attention = False
     unconfirmed: dict[str, datetime] = {}
-    reported: dict[str, datetime] = {}
     for s in sessions:
         if s.is_shell or is_head_jeeves(s):
             continue
@@ -87,16 +89,18 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         first_seen = memory.unconfirmed.get(s.session_id) if previous == derived else None
         # A turn that ended while the session's agents still run is a
         # report (a step is live, the next one is delegated), not a finish:
-        # the session reads as working until the agents are done. Kept by
-        # the main turn's end, so each report is announced once.
+        # the session reads as working until the agents are done.
         report = s.main_turn_ts if derived in (WORKING, STALLED) and s.turn_ended and s.subagents_running else None
-        if report is not None:
-            reported[s.session_id] = report
+        turn = s.main_turn_ts or s.last_turn_ts
         if not memory.primed or previous is None:
+            if turn is not None and (report is not None or (derived == NEEDS_YOU and s.unread)):
+                memory.announced[s.session_id] = turn  # the baseline: said before podbay looked
             continue  # a session seen for the first time has no change to report
         line = None
         kind = (s.waiting_on or {}).get("kind")
-        if report is not None and memory.reported.get(s.session_id) != report:
+        said = turn is not None and memory.announced.get(s.session_id) == turn
+        if report is not None and not said:
+            memory.announced[s.session_id] = report
             if s.session_id not in paused_ids and (s.seen_at is None or report > s.seen_at):
                 line = voice.hal_reported(s.title)
         elif previous == derived and first_seen is None:
@@ -110,11 +114,15 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         elif derived == NEEDS_YOU and s.unread:
             if kind == "subagents_running":
                 continue  # the turn ended but its agents have not: nothing is finished yet
+            if said:
+                continue  # this turn was already announced, as a report or a finish
             if kind == "question_text":
                 line = voice.hal_question(s.title)
+                memory.announced[s.session_id] = turn
             elif s.session_id not in paused_ids:
                 if first_seen is not None and now - first_seen >= FINISH_HOLD:
                     line = voice.hal_finished(s.title)
+                    memory.announced[s.session_id] = turn
                 else:
                     unconfirmed[s.session_id] = first_seen or now
         elif derived == STALLED and s.session_id not in paused_ids:
@@ -140,7 +148,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
                 memory.events.append((gone.name, line))
     memory.statuses = current
     memory.unconfirmed = unconfirmed
-    memory.reported = reported
+    memory.announced = {k: v for k, v in memory.announced.items() if k in current}
     memory.seen = {s.session_id: s for s in sessions if s.session_id in current}
 
     heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}

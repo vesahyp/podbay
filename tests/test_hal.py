@@ -285,8 +285,8 @@ def test_each_report_is_announced_once_and_a_finish_still_waits_for_the_agents()
     assert hal.remarks(memory, [_delegating("r", 1, 0, seen=True)], {}, NOW) == []
     # the agents done and the turn over: the finish, held as before
     hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
-    assert hal.remarks(memory, [_session("r")], {}, NOW) == []
-    assert hal.remarks(memory, [_session("r")], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
+    assert hal.remarks(memory, [_session("r", minutes_ago=-2)], {}, NOW) == []
+    assert hal.remarks(memory, [_session("r", minutes_ago=-2)], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
 
 
 def test_a_report_seen_on_the_first_refresh_is_the_baseline():
@@ -294,3 +294,31 @@ def test_a_report_seen_on_the_first_refresh_is_the_baseline():
     assert hal.remarks(memory, [_delegating("r", 5, 0)], {}, NOW) == []
     assert hal.remarks(memory, [_delegating("r", 5, 0)], {}, NOW) == []
     assert memory.events == []
+
+
+def test_one_turn_raises_one_event_while_the_agent_count_flickers():
+    # raide-build-3d-2, 2026-10-08 18:39: the orchestrator sent its running
+    # subagent a SendMessage and ended its turn. The agent count read 1, then
+    # 0 for longer than FINISH_HOLD, then 1 again, and Head Jeeves got
+    # "finished" and then "reported" for that one turn.
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
+    assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]
+    looks_done = _session("r", minutes_ago=0)  # same main turn, no agent counted
+    assert looks_done.main_turn_ts == NOW
+    assert hal.remarks(memory, [looks_done], {}, NOW + timedelta(seconds=3)) == []
+    assert hal.remarks(memory, [looks_done], {}, LATER + timedelta(seconds=3)) == []
+    assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, LATER + timedelta(seconds=6)) == []
+    assert memory.events == []
+    # a new turn is a new event
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=-1)], {}, NOW)
+    assert hal.remarks(memory, [_delegating("r", -1, 0)], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]
+
+
+def test_a_finished_turn_is_not_reported_again_when_agents_appear():
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
+    done = _session("r", minutes_ago=0)
+    hal.remarks(memory, [done], {}, NOW)
+    assert hal.remarks(memory, [done], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
+    assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, LATER) == []
