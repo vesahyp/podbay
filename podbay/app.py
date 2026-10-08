@@ -2383,11 +2383,12 @@ def cmd_config(key: str | None, value: str | None) -> None:
     print(f"{key} = {data.get(config.KEYS[key], '')}  ({config.CONFIG_PATH}; restart podbay to apply)")
 
 
-def cmd_notify(text: str) -> int:
+def cmd_notify(text: str, url: str | None = None) -> int:
     """`podbay notify <text>`: push one line to the user's phone through the
-    configured notify command. One line out; exit 1 when nothing was sent,
+    configured notify command, with the board's URL as the link unless
+    `url` says otherwise ("" for none). One line out; exit 1 when nothing was sent,
     never a traceback."""
-    sent, reason = notify_mod.send(text)
+    sent, reason = notify_mod.send(text, url=url)
     if sent:
         print(voice.notify_sent())
         return 0
@@ -2486,6 +2487,8 @@ def main() -> None:
 
     notify_parser = sub.add_parser("notify", help="push one line to the user's phone through `podbay config notify-command` (see podbay/notify.py)")
     notify_parser.add_argument("text", nargs="+", help="the message, one standalone sentence")
+    notify_parser.add_argument("--url", default=None, metavar="URL", help="where tapping the notification lands (default: the board, as recorded by `podbay board --url`)")
+    notify_parser.add_argument("--no-url", action="store_true", help="no link at all")
 
     config_parser = sub.add_parser("config", help="show or set a podbay setting (see podbay/config.py)")
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
@@ -2541,7 +2544,7 @@ def main() -> None:
     elif args.command == "resume":
         cmd_resume(args.target, " ".join(args.text))
     elif args.command == "notify":
-        sys.exit(cmd_notify(" ".join(args.text)))
+        sys.exit(cmd_notify(" ".join(args.text), "" if args.no_url else args.url))
     elif args.command == "board":
         cmd_board(Path(args.out) if args.out else None, args.url)
     elif args.command == "excerpt":

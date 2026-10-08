@@ -239,7 +239,11 @@ you passed on or started, or why you could not. Then refresh the board.
 The board waits to be opened; a push reaches the user where they are.
 `podbay notify "<text>"` sends one line to their phone through the command
 set with `podbay config notify-command` (off when none is set: it then says
-so and exits 1, which is not a fault). Push for exactly two things:
+so and exits 1, which is not a fault). The push carries the board's URL,
+so tapping it opens the board, where tapping the line opens its composer
+and the answer reaches you as a comment (see "Messages from the board").
+That is why the pushed line must be the board line, word for word: the
+user finds it by the text. Push for exactly two things:
 
 - **A decision only the user can make**: a session asks a question and
   waits. The push is the question itself with its options, as one

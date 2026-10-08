@@ -38,6 +38,29 @@ def test_the_text_is_one_argument_after_the_commands_own(tmp_path):
     assert json.loads(out.read_text()) == ["Head Jeeves", "--tag", "", text]
 
 
+def test_the_link_comes_after_the_text(tmp_path, monkeypatch):
+    from podbay import board
+
+    out = tmp_path / "argv.json"
+    script = _script(tmp_path, f'{sys.executable} -c "import json,sys; json.dump(sys.argv[1:], open(\'{out}\', \'w\'))" "$@"')
+    url = "https://claude.ai/artifact/abc"
+
+    # The default link is the recorded board URL.
+    monkeypatch.setattr(board, "URL_PATH", tmp_path / "board-url")
+    board.save_url(url)
+    assert notify.send("Publish now, or wait?", f"{script} Head") == (True, "")
+    assert json.loads(out.read_text()) == ["Head", "Publish now, or wait?", url]
+
+    # --url replaces it, "" drops it, and without a recorded board there is none.
+    assert notify.send("x", str(script), url="https://example.test/go") == (True, "")
+    assert json.loads(out.read_text()) == ["x", "https://example.test/go"]
+    assert notify.send("x", str(script), url="") == (True, "")
+    assert json.loads(out.read_text()) == ["x"]
+    (tmp_path / "board-url").unlink()
+    assert notify.send("x", str(script)) == (True, "")
+    assert json.loads(out.read_text()) == ["x"]
+
+
 def test_tilde_in_the_program_is_expanded(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     assert notify.argv("~/bin/push --tag x", "hi") == [str(tmp_path / "bin" / "push"), "--tag", "x", "hi"]

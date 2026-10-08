@@ -72,7 +72,7 @@ podbay --no-splash     # without the HAL startup and shutdown sequences
 podbay list
 podbay focus <sessionName|pid>
 podbay send <sessionName|pid> <text...>   # any length, arrives as one prompt
-podbay notify <text...>
+podbay notify [--url <url>|--no-url] <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay accounts [--json]
 podbay excerpt <sessionName|pid|id> [--turns N]
@@ -333,9 +333,11 @@ passes it on with `podbay send` and answers in the thread.
 
 podbay has no push transport of its own. Give it one with `podbay config
 notify-command <command>`: a script, with any fixed arguments, that takes
-the message as its last argument. `podbay notify "<text>"` then runs it
-with the text appended, waits up to 30 seconds, and prints one line: `sent`,
-or on stderr why not (exit 1). A failing or missing command is logged in
+the message as an argument. `podbay notify "<text>"` then runs it with the
+text appended, and after it the board's URL as the link to open when you
+tap the notification (`--url <url>` for another link, `--no-url` for none),
+waits up to 30 seconds, and prints one line: `sent`, or on stderr why not
+(exit 1). A failing or missing command is logged in
 `podbay.log`, never a traceback. With no command set, nothing is sent and
 `podbay notify` says so.
 
