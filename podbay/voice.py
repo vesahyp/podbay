@@ -395,6 +395,15 @@ def hal_question(title: str) -> str:
     return f"{title} has a question for you, {USER_NAME}."
 
 
+def hal_permission(title: str) -> str:
+    return f"{title} is waiting for your permission, {USER_NAME}."
+
+
+def hal_reported(title: str) -> str:
+    """A turn that ended with its agents still running: a report, not a finish."""
+    return f"{title} has reported, {USER_NAME}. Its agents are still at work."
+
+
 def hal_stalled(title: str, minutes: int) -> str:
     return f"I'm afraid {title} has been silent for {minutes} minutes, {USER_NAME}."
 

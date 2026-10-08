@@ -91,6 +91,10 @@ class Session:
     subagents_running: int = 0
     # The newest write to any of its subagent transcripts.
     subagent_written_at: datetime | None = None
+    # When the main transcript's newest turn was written, before a running
+    # subagent's turn overtakes last_turn_ts: a report that ended the main
+    # turn while its agents ran is dated by this.
+    main_turn_ts: datetime | None = None
 
     # iTerm2 tab-title glyph fallback (None when no tab or unrecognized
     # glyph); registry status is the last-resort fallback.

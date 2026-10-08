@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from . import mood, opened, paused, voice
-from .model import DUE, NEEDS_YOU, STALLED, Session, is_head_jeeves
+from .model import DUE, NEEDS_YOU, STALLED, WORKING, Session, is_head_jeeves
 
 # A quota window at or past this is hot: HAL warns once per window.
 QUOTA_HOT_PCT = 85.0
@@ -24,6 +24,12 @@ QUIET_INTERVAL = timedelta(hours=2)
 # turn's end and its next write, and a false finished event sends Head
 # Jeeves to a session that is still working.
 FINISH_HOLD = timedelta(seconds=10)
+# The waiting_on kinds that mean a dialog is open in the terminal (see
+# sources.compute_waiting_on). Announced on the registry's word alone: both
+# sessions that sat unannounced for hours on 2026-10-08 were at a
+# permission dialog, with the transcript's newest record the tool call
+# waiting for it, and HAL spoke only for a finished, unread turn.
+DIALOG_KINDS = ("ask_user_question", "prompt", "permission")
 # Voice setting values: on (toasts, the default) or off.
 VOICE_ON, VOICE_OFF = "on", "off"
 
@@ -42,6 +48,9 @@ class Memory:
     events: list[tuple[str, str]] = field(default_factory=list)
     # session id -> when its finish was first seen, not yet announced (FINISH_HOLD)
     unconfirmed: dict[str, datetime] = field(default_factory=dict)
+    # session id -> the main turn's end already announced as a report while
+    # its agents ran; dropped once the session moves on
+    reported: dict[str, datetime] = field(default_factory=dict)
     last_quiet_at: datetime | None = None
     primed: bool = False  # the first refresh only sets the baseline
 
@@ -66,6 +75,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     paused_ids = paused.ids()
     attention = False
     unconfirmed: dict[str, datetime] = {}
+    reported: dict[str, datetime] = {}
     for s in sessions:
         if s.is_shell or is_head_jeeves(s):
             continue
@@ -75,14 +85,32 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
             attention = True
         previous = memory.statuses.get(s.session_id)
         first_seen = memory.unconfirmed.get(s.session_id) if previous == derived else None
-        if not memory.primed or previous is None or (previous == derived and first_seen is None):
+        # A turn that ended while the session's agents still run is a
+        # report (a step is live, the next one is delegated), not a finish:
+        # the session reads as working until the agents are done. Kept by
+        # the main turn's end, so each report is announced once.
+        report = s.main_turn_ts if derived in (WORKING, STALLED) and s.turn_ended and s.subagents_running else None
+        if report is not None:
+            reported[s.session_id] = report
+        if not memory.primed or previous is None:
             continue  # a session seen for the first time has no change to report
         line = None
-        if derived == NEEDS_YOU and s.unread:
-            kind = (s.waiting_on or {}).get("kind")
+        kind = (s.waiting_on or {}).get("kind")
+        if report is not None and memory.reported.get(s.session_id) != report:
+            if s.session_id not in paused_ids and (s.seen_at is None or report > s.seen_at):
+                line = voice.hal_reported(s.title)
+        elif previous == derived and first_seen is None:
+            continue
+        elif derived == NEEDS_YOU and kind in DIALOG_KINDS:
+            # A dialog is open: the registry says so, the transcript does
+            # not, since the tool call or question lands there only once it
+            # is answered. Its newest record is still a tool call, so this
+            # is no finished turn and `unread` says nothing about it.
+            line = voice.hal_permission(s.title) if kind == "permission" else voice.hal_question(s.title)
+        elif derived == NEEDS_YOU and s.unread:
             if kind == "subagents_running":
                 continue  # the turn ended but its agents have not: nothing is finished yet
-            if kind in ("ask_user_question", "prompt", "question_text"):
+            if kind == "question_text":
                 line = voice.hal_question(s.title)
             elif s.session_id not in paused_ids:
                 if first_seen is not None and now - first_seen >= FINISH_HOLD:
@@ -112,6 +140,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
                 memory.events.append((gone.name, line))
     memory.statuses = current
     memory.unconfirmed = unconfirmed
+    memory.reported = reported
     memory.seen = {s.session_id: s for s in sessions if s.session_id in current}
 
     heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}

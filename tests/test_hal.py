@@ -6,14 +6,27 @@ from podbay.model import Session
 NOW = datetime(2026, 10, 3, 12, 0)
 
 
-def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, parked_until=None, shell=False, prompt="do it"):
+def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, parked_until=None, shell=False, prompt="do it",
+             status="idle", subagents=0, main_turn_ts=None):
     ts = NOW - timedelta(minutes=minutes_ago)
     return Session(
-        session_id=sid, pid=1, cwd="/x", name=sid, name_source="derived", status="idle",
+        session_id=sid, pid=1, cwd="/x", name=sid, name_source="derived", status=status,
         status_updated_at=ts, updated_at=ts, started_at=NOW - timedelta(hours=2),
         last_turn=last_turn, last_turn_ts=ts, seen_at=NOW if seen else None,
         waiting_on=waiting_on, parked_until=parked_until, is_shell=shell, iterm_title=sid.upper(), last_prompt=prompt,
+        subagents_running=subagents, turn_ended=main_turn_ts is not None or last_turn == "end_turn",
+        main_turn_ts=main_turn_ts or ts,
     )
+
+
+def _delegating(sid, report_minutes_ago, agent_minutes_ago, **kw):
+    """An orchestrator whose main turn ended `report_minutes_ago` with a
+    background agent still running: sources.gather_sessions reports the
+    agent's own in-progress turn as last_turn and keeps the main turn's end
+    in main_turn_ts."""
+    return _session(sid, last_turn="in_progress", minutes_ago=agent_minutes_ago, subagents=1,
+                    main_turn_ts=NOW - timedelta(minutes=report_minutes_ago),
+                    waiting_on={"kind": "subagents_running", "detail": "1"}, **kw)
 
 
 LATER = NOW + hal.FINISH_HOLD
@@ -210,4 +223,74 @@ def test_a_usage_run_that_slipped_into_the_registry_is_not_announced_as_ended(mo
     ghost = _session("jeeves-45", prompt=None)
     hal.remarks(memory, [ghost], {}, NOW)
     assert hal.remarks(memory, [], {}, NOW) == []
+    assert memory.events == []
+
+
+PROMPT = {"kind": "prompt", "detail": "a question or permission dialog is open (not in the transcript yet)"}
+
+
+def test_a_permission_dialog_is_announced_although_no_turn_ended():
+    # jeeves-notify-reply, 2026-10-08 12:31: a Skill call opened an install
+    # dialog. The registry went "waiting"; the transcript's newest record
+    # stayed the tool call, so the turn never ended and `unread` was false.
+    # The session sat there for six hours and Head Jeeves got no event.
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress", status="busy")], {}, NOW)
+    dialog = _session("a", last_turn="in_progress", status="waiting", waiting_on=PROMPT)
+    lines = hal.remarks(memory, [dialog], {}, NOW)
+    assert lines == ["A has a question for you, Frank."]
+    assert memory.events == [("a", lines[0])]
+    assert hal.remarks(memory, [dialog], {}, NOW + timedelta(hours=1)) == []  # said once
+    # the same dialog, once it has sat long enough to be read as a permission
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("a", last_turn="in_progress", status="busy")], {}, NOW)
+    permission = _session("a", last_turn="in_progress", status="waiting", minutes_ago=3,
+                          waiting_on={"kind": "permission", "detail": "Bash: grep"})
+    assert hal.remarks(memory, [permission], {}, NOW) == ["A is waiting for your permission, Frank."]
+
+
+def test_a_report_with_agents_running_and_then_their_permission_dialog_are_both_announced():
+    # raide-build-3d-2, 2026-10-08: at 09:46 the orchestrator reported step 3
+    # live, launched the step 4 agent and ended its turn; at 10:30 that agent
+    # asked for a Bash permission and the session sat at the dialog for eight
+    # hours. Neither raised an event: the report because the agents still ran,
+    # the dialog because the agent's turn had not ended.
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
+    t1 = NOW + timedelta(minutes=1)
+    lines = hal.remarks(memory, [_delegating("r", 0, 0)], {}, t1)
+    assert lines == ["R has reported, Frank. Its agents are still at work."]
+    assert memory.events == [("r", lines[0])]
+    assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, t1 + timedelta(seconds=3)) == []  # once
+    # the agent asks for a permission: the registry says waiting, the newest
+    # record is the agent's tool call
+    t2 = NOW + timedelta(minutes=44)
+    dialog = _session("r", last_turn="in_progress", status="waiting", minutes_ago=-44, subagents=1,
+                      main_turn_ts=NOW, waiting_on=PROMPT)
+    assert dialog.derive_status(t2) == "needs_you"
+    lines = hal.remarks(memory, [dialog], {}, t2)
+    assert lines == ["R has a question for you, Frank."]
+    assert hal.remarks(memory, [dialog], {}, t2 + timedelta(hours=8)) == []
+
+
+def test_each_report_is_announced_once_and_a_finish_still_waits_for_the_agents():
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
+    assert len(hal.remarks(memory, [_delegating("r", 5, 0)], {}, NOW)) == 1
+    # the agent reports back, the orchestrator works a new turn, reports again
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
+    assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]
+    # a report the user watched being written is not announced
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
+    assert hal.remarks(memory, [_delegating("r", 1, 0, seen=True)], {}, NOW) == []
+    # the agents done and the turn over: the finish, held as before
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
+    assert hal.remarks(memory, [_session("r")], {}, NOW) == []
+    assert hal.remarks(memory, [_session("r")], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
+
+
+def test_a_report_seen_on_the_first_refresh_is_the_baseline():
+    memory = hal.Memory()
+    assert hal.remarks(memory, [_delegating("r", 5, 0)], {}, NOW) == []
+    assert hal.remarks(memory, [_delegating("r", 5, 0)], {}, NOW) == []
     assert memory.events == []

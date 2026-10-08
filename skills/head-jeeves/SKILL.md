@@ -350,15 +350,20 @@ tell them in one line that it is ready and what you would do.
 
 ### /head-jeeves event <name>: <what happened>
 
-podbay saw a session finish and wait for the user, ask a question, stall,
-come due, or end (its claude exited and the terminal is a shell again). Tell
-the user in one line what happened and what it needs from them; for a
-finished session, add what it finished (one glance at `podbay excerpt <name>
---turns 6`). An ended session is gone from the inventory, so its event
-carries its last words: pass on what they say it finished. No file. Then
-refresh the board. If the session finished, its `opened_by` is
-`head-jeeves` and nothing in it waits on the user, quit its claude (see
-Rules).
+podbay saw a session finish and wait for the user, report with its agents
+still at work, ask a question, wait for a permission, stall, come due, or
+end (its claude exited and the terminal is a shell again). Tell the user in
+one line what happened and what it needs from them; for a finished or
+reporting session, add what it finished (one glance at `podbay excerpt
+<name> --turns 6`). A session that reported is not finished: its agents
+run on and their notification restarts it, so pass the report on and leave
+the session alone. A session waiting for a permission has a dialog open in
+its terminal that the transcript does not show; the excerpt ends at the
+tool call waiting for it, so tell the user what it asks for. An ended
+session is gone from the inventory, so its event carries its last words:
+pass on what they say it finished. No file. Then refresh the board. If the
+session finished, its `opened_by` is `head-jeeves` and nothing in it waits
+on the user, quit its claude (see Rules).
 
 ### /head-jeeves checkup <name> <session-id>
 

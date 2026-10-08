@@ -985,6 +985,7 @@ def gather_sessions(
                 recent_prompts=list(transcript.get("user_prompts", [])),
                 last_turn=transcript.get("last_turn"),
                 last_turn_ts=transcript.get("last_turn_ts"),
+                main_turn_ts=main_last_turn_ts,
                 tab_busy=tab.busy if tab else None,
                 context_pct=snapshot.get("context_pct") if snapshot else None,
                 model=(snapshot.get("model") if snapshot else None) or model_name_from_id(transcript.get("model_id")),
