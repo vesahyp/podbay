@@ -26,11 +26,15 @@ def test_excerpt_labels_roles_and_keeps_order(tmp_path):
     ]
 
 
-def test_excerpt_cuts_long_entries_and_the_whole(tmp_path, monkeypatch):
+def test_excerpt_keeps_agent_turns_whole_and_cuts_tool_lines(tmp_path, monkeypatch):
     path = tmp_path / "big.jsonl"
-    path.write_text(json.dumps({"type": "user", "message": {"content": "x" * 5000}, "timestamp": "2026-10-03T10:00:00Z"}) + "\n")
+    rec = {"type": "assistant", "message": {"content": [{"type": "text", "text": "word " * 2000 + "END"}, {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"description": "y" * 2000}}]}, "timestamp": "2026-10-03T10:00:00Z"}
+    path.write_text(json.dumps(rec) + "\n")
     text = reviewer.excerpt(path)
-    assert len(text) < 1600 and text.endswith(" …")
+    agent, tool = text.splitlines()
+    assert agent.endswith("word END") and len(agent) > 9000
+    assert len(tool) < 400 and tool.endswith(" …")
+    assert reviewer.excerpt(path, last_agent=True) == agent
     monkeypatch.setattr(reviewer, "EXCERPT_CHARS", 100)
     assert reviewer.excerpt(path).startswith("…\n")
 

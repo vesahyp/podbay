@@ -75,7 +75,7 @@ podbay send <sessionName|pid> <text...>   # any length, arrives as one prompt
 podbay notify [--url <url>|--no-url] <text...>
 podbay inventory [--json|--table|--status] [--exclude NAME]...
 podbay accounts [--json]
-podbay excerpt <sessionName|pid|id> [--turns N]
+podbay excerpt <sessionName|pid|id> [--turns N] [--last]   # AGENT turns whole; --last: newest AGENT message only
 podbay open <dir> [--account LABEL] [--model ID] [--name NAME] [--wait SECONDS] [first prompt...]
 podbay close <sessionName|#N|title> [--force]
 podbay pause [<sessionName> [text...]]   # finish the step, commit, wait; no name lists the paused sessions

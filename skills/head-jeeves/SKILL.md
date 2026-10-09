@@ -65,7 +65,10 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   your own row. `--table` for a glance.
 - `podbay excerpt <name>` prints the session's last 80 turns as plain text:
   `USER:` lines are what the user typed, `AGENT:` what the assistant said,
-  `TOOL:` the tools it called. `--turns 200` for more. This is the whole
+  `TOOL:` the tools it called (cut short; USER and AGENT turns are whole).
+  `--turns 200` for more. `--last` prints only the newest AGENT message,
+  whole: the way to read a session's final report. `last_text` in the
+  inventory stays a 300 character glance. This is the whole
   transcript you need; do not open the JSONL files.
 - `podbay send <name> <text>` types a message into a session: the user's
   orders, verbatim or tidied, and your own one sentence to an agent when

@@ -22,20 +22,25 @@ log = logging.getLogger(__name__)
 
 REVIEWS_DIR = Path.home() / ".local" / "state" / "podbay" / "reviews"
 TURNS = 80  # conversation entries in an excerpt, newest last
-ENTRY_CHARS = 1500  # one entry is cut to this many characters
+TOOL_CHARS = 300  # a TOOL line is cut to this many characters; USER and AGENT turns are whole
 EXCERPT_CHARS = 60_000  # and the whole excerpt to this many
 KINDS = ("checkup", "handover")
 
 
-def excerpt(transcript_path: Path, turns: int = TURNS) -> str:
-    """The session's last `turns` conversation entries as plain text."""
+def excerpt(transcript_path: Path, turns: int = TURNS, last_agent: bool = False) -> str:
+    """The session's last `turns` conversation entries as plain text. USER
+    and AGENT entries are whole (a final report is a few thousand
+    characters); TOOL lines are cut. With `last_agent`, only the newest
+    AGENT entry, whole."""
     entries = read_conversation(transcript_path, limit=turns)
+    if last_agent:
+        entries = [e for e in entries if e.get("role") == "assistant"][-1:]
     lines: list[str] = []
     labels = {"user": "USER", "assistant": "AGENT", "tool": "TOOL"}
     for e in entries:
         text = " ".join((e.get("text") or "").split())
-        if len(text) > ENTRY_CHARS:
-            text = text[:ENTRY_CHARS] + " …"
+        if e.get("role") == "tool" and len(text) > TOOL_CHARS:
+            text = text[:TOOL_CHARS] + " …"
         stamp = (e.get("timestamp") or "")[11:16]
         lines.append(f"[{stamp}] {labels.get(e.get('role'), 'NOTE')}: {text}")
     body = "\n".join(lines)

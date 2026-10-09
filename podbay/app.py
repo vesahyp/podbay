@@ -2227,7 +2227,7 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
         print(f"published at {published}")
 
 
-def cmd_excerpt(target: str, turns: int) -> None:
+def cmd_excerpt(target: str, turns: int, last: bool = False) -> None:
     match = _find_session(target)
     if match is None or match.is_shell:
         print(f"no live session matches {target!r}", file=sys.stderr)
@@ -2237,7 +2237,7 @@ def cmd_excerpt(target: str, turns: int) -> None:
     if path is None:
         print(f"{target!r} has no transcript yet", file=sys.stderr)
         sys.exit(1)
-    print(reviewer.excerpt(path, turns))
+    print(reviewer.excerpt(path, turns, last_agent=last))
 
 
 def cmd_focus(target: str) -> None:
@@ -2501,6 +2501,7 @@ def main() -> None:
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
     excerpt_parser.add_argument("target", help=target_help)
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
+    excerpt_parser.add_argument("--last", action="store_true", help="only the newest AGENT message, whole")
 
     open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window) and wait until it is up")
     open_parser.add_argument("directory", help="the repo it is for; it starts in the home base and is told this in its first prompt")
@@ -2548,7 +2549,7 @@ def main() -> None:
     elif args.command == "board":
         cmd_board(Path(args.out) if args.out else None, args.url)
     elif args.command == "excerpt":
-        cmd_excerpt(args.target, args.turns)
+        cmd_excerpt(args.target, args.turns, args.last)
     elif args.command == "open":
         cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait, args.model)
     elif args.command == "close":
