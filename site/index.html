@@ -4,13 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>podbay: one console for every Claude Code session</title>
-  <meta name="description" content="podbay is a terminal console over every Claude Code session on your Mac. It shows what each session is doing and which ones need you. Head Jeeves runs it for you from your phone.">
+  <meta name="description" content="podbay is a terminal console over every Claude Code session on your Mac. It shows what each session does, which ones need you and how much quota each account has left. Head Jeeves, an operator session, reports to your phone.">
   <link rel="canonical" href="https://podbay.tienoo.com/">
-  <meta property="og:title" content="podbay">
-  <meta property="og:description" content="One terminal console over every Claude Code session on your Mac, with an operator you talk to from your phone.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="podbay">
+  <meta property="og:locale" content="en">
+  <meta property="og:title" content="podbay: one console for every Claude Code session">
+  <meta property="og:description" content="One terminal console over every Claude Code session on your Mac. It shows what each session does and which ones need you. Head Jeeves, an operator session, reports to your phone.">
   <meta property="og:image" content="https://podbay.tienoo.com/img/console.png">
+  <meta property="og:image:width" content="3200">
+  <meta property="og:image:height" content="1168">
+  <meta property="og:image:alt" content="The podbay console: a table of Claude Code sessions with state, context use, model and account.">
   <meta property="og:url" content="https://podbay.tienoo.com/">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="podbay: one console for every Claude Code session">
+  <meta name="twitter:description" content="One terminal console over every Claude Code session on your Mac, with an operator you talk to from your phone.">
+  <meta name="twitter:image" content="https://podbay.tienoo.com/img/console.png">
   <meta name="theme-color" content="#050505">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -61,11 +71,14 @@
       <p>podbay reads the files Claude Code already keeps: the session registry, the end of each transcript and the status line. It finds the iTerm2 tab of each session. It never writes to Claude Code's files.</p>
       <div class="grid">
         <div><h3><b>?</b>Who needs you</h3><p>A session that finished, asked a question or opened a permission dialog sorts to the top. A dot marks an answer you have not read.</p></div>
-        <div><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript, not from guesses.</p></div>
+        <div><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript.</p></div>
         <div><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
         <div><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account, with its own column, quota and sessions.</p></div>
         <div><h3><b>▶</b>Read, drive a little</h3><p>The lower half shows the highlighted session's last turns. A few keys message, park or open a session (see below); the rest of the driving is Head Jeeves' job.</p></div>
-        <div><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
+        <div><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>accounts</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>notify</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
+        <div><h3><b>~</b>Machine health</h3><p>Load, CPU, free memory, memory pressure, swap and free disk space, with the heaviest processes and a chart of the last hours. When the Mac is starved, podbay answers from its last good scan and says so.</p></div>
+        <div><h3><b>!</b>Heated prompts</h3><p>A column marks a session where your last prompts read heated. A word list scores them on this Mac. No model runs and no tokens are used.</p></div>
+        <div><h3><b>#</b>Which repos</h3><p>Each session lists the repos it touched and stars the ones it edited. A mark shows when another live session works in the same repo.</p></div>
       </div>
     </div>
   </section>
@@ -98,8 +111,10 @@
         <p>Head Jeeves is a Claude Code session that podbay keeps running. Turn on Remote Control for its account and it is the session the Claude app shows on your phone.</p>
         <ul>
           <li>When a session finishes, asks a question or stalls, podbay tells Head Jeeves, and Head Jeeves tells you in one line.</li>
+          <li>For a decision only you can make, and for work that is ready to test, it sends a push notification to your phone. Tap it to open the status board. You choose the command that sends the push (<code>podbay config notify-command</code>). Nothing else is pushed.</li>
           <li>Ask what is going on. Tell it to start a session in a repo with a task, or to pass a message to a session. It does that and reports back.</li>
-          <li>The status board is one page that Head Jeeves publishes for you: decisions for you, what is ready to test, what is in progress, by project. Tap a question, type, and the answer goes to that session.</li>
+          <li>The status board is one page that Head Jeeves publishes for you: decisions for you, what is ready to test, what is in progress, by project. Tap a question, type, and the answer goes to that session. Head Jeeves checks the comments on the board every 5 minutes while it is idle, so an answer is not lost.</li>
+          <li>When the CPU stays overloaded and two or more sessions work, podbay tells Head Jeeves. It pauses sessions with <code>podbay pause</code>: each one finishes its step, commits and waits. It resumes them when the load drops.</li>
           <li>When your prompts in a session turn heated, it reads the session and tells you what the friction is. When a session stalls or goes wrong, it writes the handover prompt, starts a replacement session with it and closes the old one.</li>
         </ul>
       </div>
