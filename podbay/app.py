@@ -50,6 +50,7 @@ from . import notifications
 from . import notify as notify_mod
 from . import opened as opened_mod
 from . import overload as overload_mod
+from . import sweep as sweep_mod
 from . import paused as paused_mod
 from . import quota
 from . import selfupdate
@@ -964,6 +965,7 @@ class PodbayApp(App):
         # The last command podbay typed into him, and the last /compact: a
         # compact goes only once he has answered everything podbay sent.
         self._head_jeeves_sent_at: datetime | None = None
+        self._comment_sweep_at: datetime | None = None
         self._head_jeeves_compacted_at: datetime | None = None
         self._head_jeeves_compact_at = head_jeeves_compact_at
         self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
@@ -1269,6 +1271,7 @@ class PodbayApp(App):
         self._hal_remarks(sessions, now)
         self._ensure_head_jeeves()
         self._compact_head_jeeves(now)
+        self._sweep_comments(now)
         self._watch_reviews()
 
         try:
@@ -1341,6 +1344,19 @@ class PodbayApp(App):
         self._head_jeeves_compacted_at = now
         self._head_jeeves_sent_at = datetime.now()
         self.notify(voice.head_jeeves_compacting(head.context_pct or 0), title=voice.SHIP_NAME)
+
+    def _sweep_comments(self, now: datetime) -> None:
+        """Ask Head Jeeves to read the board's comment threads (sweep.py)."""
+        if not self._head_jeeves or self._head_jeeves_pending is not None or self._quitting:
+            return
+        head = self._head_jeeves_session()
+        url = board.load_url()
+        if head is None or not sweep_mod.due(head, now, url, self._comment_sweep_at, self._head_jeeves_sent_at):
+            return
+        self._comment_sweep_at = now
+        if not self._send_to_session(head, sweep_mod.command(url)):
+            return
+        self._head_jeeves_sent_at = datetime.now()
 
     def _start_head_jeeves(self, follow_up: str) -> None:
         """No Head Jeeves session exists: launch one from the home repo (the

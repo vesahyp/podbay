@@ -217,7 +217,7 @@ on the board and each reply you write must be complete in itself:
 Every line on the board opens a one-line composer when tapped: a
 decision, a line to test, a finished line, a progress line and a machine
 room row. What the user types reaches you as a comment on the artifact,
-addressed to that line's session and quoting the line:
+addressed to that line's session and quoting the line (it arrives by Claude Code's comment wake or by the `/head-jeeves comments` sweep, whichever is first; a thread that already has your reply is done):
 `#6 sora, on "Six improvements live": the lap counter is wrong`. The
 address is the terminal number and repo, or the name and repo
 (`jeeves-64 sora, on "..."`) when the terminal number is unknown. The
@@ -409,6 +409,17 @@ the next one only when the one before it works again and podbay sends no new
 overload event. Also resume a paused session, one at a time, when a session
 you kept finishes, even when no overload-cleared event came. Tell the user
 in one line which sessions you resumed.
+
+### /head-jeeves comments <board url>
+
+podbay sends this every 5 minutes while Head Jeeves is idle and a board is
+published. Claude Code's own comment wake can fail (auto mode refuses the
+auto-reply turn, or the watch dropped with the connection), so this sweep is
+what makes a board answer arrive. Read the threads of that artifact with the
+ArtifactComments tool, and in the same call arm the watch again when the
+listing says it stopped. Handle every thread whose last comment is sent to
+Claude and has no reply as in "Messages from the board". When there is
+none, reply with the single word `none`, and do not refresh the board.
 
 ### /head-jeeves
 

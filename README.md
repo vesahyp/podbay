@@ -327,7 +327,10 @@ without one shows the first sentence of its recap. He publishes the page as
 an artifact with the `comments` capability, so it costs him no context, and
 you read it on the phone. Tapping a question or a session opens a composer;
 what you type reaches him as a comment addressed `#6 sora: <text>`, he
-passes it on with `podbay send` and answers in the thread.
+passes it on with `podbay send` and answers in the thread. Claude Code's
+comment wake can fail quietly, so every 5 minutes, while he is idle and a
+board is published, podbay also types `/head-jeeves comments <board url>`
+into his session and he reads the threads himself.
 
 ### Pushes to your phone
 
