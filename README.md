@@ -329,8 +329,9 @@ you read it on the phone. Tapping a question or a session opens a composer;
 what you type reaches him as a comment addressed `#6 sora: <text>`, he
 passes it on with `podbay send` and answers in the thread. Claude Code's
 comment wake can fail quietly, so every 5 minutes, while he is idle and a
-board is published, podbay also types `/head-jeeves comments <board url>`
-into his session and he reads the threads himself.
+board is published, podbay also types a short comment check
+into his session. He reads the threads only when the watch status line
+says a comment still awaits a reply, so an idle check costs almost nothing.
 
 ### Pushes to your phone
 
