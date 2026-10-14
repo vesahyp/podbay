@@ -19,7 +19,8 @@ def _head(turn_ago=10, turn="end_turn"):
 def test_command_is_a_plain_prompt_that_checks_the_watch_before_reading():
     c = sweep.command(URL)
     assert URL in c and not c.startswith("/")
-    assert c.index("action watch") < c.index("read the threads")
+    assert "watch with no url" in c
+    assert c.index("watch with no url") < c.index("read the threads")
 
 
 def test_due_when_idle_answered_and_five_minutes_since_the_last():

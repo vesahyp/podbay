@@ -331,7 +331,7 @@ passes it on with `podbay send` and answers in the thread. Claude Code's
 comment wake can fail quietly, so every 5 minutes, while he is idle and a
 board is published, podbay also types a short comment check
 into his session. He reads the threads only when the watch status line
-says a comment still awaits a reply, so an idle check costs almost nothing.
+lists a comment still awaiting a reply, so an idle check costs almost nothing.
 
 ### Pushes to your phone
 

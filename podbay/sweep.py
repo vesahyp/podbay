@@ -11,7 +11,7 @@ inside a session, not in `claude -p`), so it asks Head Jeeves to read them.
 The command goes every SWEEP_EVERY while a board is published, and only when
 Head Jeeves is idle and has answered the last command podbay typed into him,
 so sweeps never queue behind each other. An empty sweep costs him one
-watch call and the word none. The handling is under "Comment sweep" in
+watch listing and the word none. The handling is under "Comment sweep" in
 skills/head-jeeves/SKILL.md.
 """
 
@@ -27,17 +27,19 @@ SWEEP_EVERY = timedelta(minutes=5)
 def command(board_url: str) -> str:
     """A plain prompt, not a slash command: the slash command expands the whole
     head-jeeves skill (about 10k tokens) into his context on every sweep. The
-    first step is the watch call, whose status line counts the threads sent to
-    Claude that still await a reply, so an idle sweep never reads the threads
-    (about 5k tokens with the resolved ones). Only a count above zero, or a
-    line without a count, leads to the read."""
+    first step is the bare watch listing (no url). Its row for the board names
+    the threads sent to Claude that still await a reply, and only while there
+    are some, so an idle sweep never reads the threads (about 5k tokens with
+    the resolved ones). The watch call with a url prints no count and is only
+    for re-arming a watch that is missing or stopped."""
     return (
-        f"Comment sweep for {board_url} . Call ArtifactComments action watch with that url. "
-        "If its status line says 0 sent to Claude await a reply, answer only the word none "
+        f"Comment sweep for {board_url} . Call ArtifactComments action watch with no url. "
+        "If the row for that board has no 'awaiting a reply' phrase, answer only the word none "
         "and stop: do not read the threads, do not load a skill, do not refresh the board. "
-        "If it says 1 or more, or gives no count, read the threads and handle each thread "
-        "whose last comment is sent to Claude and has no reply as in the head-jeeves skill, "
-        "section Messages from the board."
+        "If the row has that phrase, read the threads and handle each thread whose last comment "
+        "is sent to Claude and has no reply as in the head-jeeves skill, section Messages from "
+        "the board. If the row is missing or says stopped, call action watch with that url to "
+        "arm it again, then read the threads."
     )
 
 

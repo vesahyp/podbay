@@ -418,10 +418,12 @@ published, as a plain prompt that starts "Comment sweep for <board url>"
 Claude Code's own comment wake can fail (auto mode refuses the auto-reply
 turn, or the watch dropped with the connection), so this sweep is what makes
 a board answer arrive. The prompt says: call ArtifactComments `watch` with
-the url, which also re-arms a dropped watch. When its status line says 0
-sent to Claude await a reply, answer `none` and stop. Otherwise read the
-threads and handle every thread whose last comment is sent to Claude and has
-no reply as in "Messages from the board".
+no url. Only that listing shows the count, and only above 0: the board's
+row then reads "N sent to Claude still awaiting a reply". Without that
+phrase, answer `none` and stop. With it, read the threads and handle every
+thread whose last comment is sent to Claude and has no reply as in
+"Messages from the board". When the row is missing or says stopped, call
+`watch` with the url to arm it again, then read the threads.
 
 ### /head-jeeves
 
