@@ -7,3 +7,4 @@ __pycache__/
 # Terraform: the lock file is committed, the rest is local
 infra/.terraform/
 infra/tfplan
+.shots/

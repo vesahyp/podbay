@@ -23,6 +23,8 @@ make ship       git push origin main, then make install. Always this,
                 copy on the old commit
 
 make shots      the site's screenshots into site/img/ (Playwright)
+make stats-shots  the stats board on desktop and iPhone, into .shots/,
+                  not committed; URL= and DATA= check a local copy first
 make plan       terraform plan for infra/, saved to infra/tfplan
 make apply      apply the saved plan
 make deploy     sync site/ to the bucket and invalidate
@@ -93,7 +95,11 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
   `TFSTATE_BUCKET`, by default `<login>-backup-<account id>`.
 - Tracking follows jeeves' `practices/web-tracking.md`. Mark a new link
   with `data-track="<surface>-<name>"`; it reaches `/stats/` with no
-  pipeline change. `tracker.js` is never edited here: changes go to
+  pipeline change. `section-*` and `card-*` are impression-only: a click
+  inside one is a text selection and the SQL drops it. The board's
+  questions and the event each one reads are in `site/stats/index.html`;
+  the country lookup reads clavesa.dev's DB-IP range files from its log
+  bucket and never keeps the address. `tracker.js` is never edited here: changes go to
   `clavesa-dev/web-tracker/` and are copied in.
 - The clavesa workspace is local: never run `clavesa deploy` from
   `analytics/`. The nightly is `clavesa pipeline run podbay-traffic` on

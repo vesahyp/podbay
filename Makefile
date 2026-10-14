@@ -1,4 +1,4 @@
-.PHONY: help run list test check install ship install-skill shots board-check plan apply outputs deploy analytics
+.PHONY: help run list test check install ship install-skill shots stats-shots board-check plan apply outputs deploy analytics
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -22,6 +22,7 @@ help:
 	@echo "make ship      push main to origin, then make install: the one way a change reaches the installed copy"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
+	@echo "make stats-shots  the stats board on desktop and iPhone, into .shots/ (URL=, DATA= for a local check)"
 	@echo "make board-check  tap every board line on a phone, check what reaches Head Jeeves"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
 	@echo "make apply     terraform apply the saved plan"
@@ -78,6 +79,11 @@ install-skill:
 shots:
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(PODBAY) --with playwright python scripts/shots.py
+
+# The stats board as a reader sees it, live by default. Not committed.
+stats-shots:
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
+	@$(PODBAY) --with playwright python scripts/stats_shots.py $(if $(URL),--url $(URL)) $(if $(DATA),--data $(DATA))
 
 board-check:
 	@$(PODBAY) --with playwright python scripts/board_check.py

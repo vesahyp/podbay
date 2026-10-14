@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Visitors · podbay</title>
+  <title>What the site tells us · podbay</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <!--
@@ -12,40 +12,59 @@
     pipeline in analytics/ publishes, and only sums days and formats. The
     pipeline aggregates. Not tracked, not indexed, not authenticated: put
     nothing here that cannot survive being found.
+
+    Every chart is inline SVG drawn by the script below: no chart library,
+    no third-party request. Each one answers one question, written above
+    it, and has labelled axes, a unit, and a table twin behind "as a
+    table" for a reader who cannot use the picture.
   -->
   <style>
-    main { padding-bottom: 48px; }
-    h1 { font: 600 24px/1.2 var(--mono); margin: 8px 0 4px; }
-    .note { color: var(--muted); font-size: 13px; margin: 6px 0 20px; }
-    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .kpi { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 12px; }
-    .kpi strong { display: block; font: 600 24px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
-    .kpi span { color: var(--muted); font-size: 12px; }
-    .kpi.muted strong { color: var(--muted); }
-    .card { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 14px; margin-top: 12px; }
-    .card h2 { font: 600 14px/1.3 var(--sans); margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
-    .card h2 label { font-weight: 400; color: var(--muted); font-size: 12px; }
-    .bars { display: flex; align-items: flex-end; gap: 2px; height: 128px; }
-    .bars div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; }
-    .bars .h { background: var(--red); }
-    .bars .b { background: #555; }
-    .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; }
-    td, th { padding: 4px 0; }
-    td + td, th + th { text-align: right; font-variant-numeric: tabular-nums; }
-    tbody tr { border-top: 1px solid #1d1d1d; }
-    ul.list { list-style: none; margin: 0; padding: 0; font-size: 14px; }
-    ul.list li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-    ul.list .k { width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    ul.list .t { flex: 1; height: 6px; background: #1a1a1a; border-radius: 3px; }
-    ul.list .t i { display: block; height: 6px; background: var(--red); border-radius: 3px; }
-    ul.list .v { width: 3em; text-align: right; font-variant-numeric: tabular-nums; }
-    .empty { color: var(--muted); }
+    :root { --s1: #e0201f; --s2: #3987e5; --s3: #c98500; --s4: #199e70; --n: #5a5a5a; --grid: #1f1f1f; }
+    main { padding-bottom: 64px; }
+    h1 { font: 600 26px/1.2 var(--mono); margin: 8px 0 6px; }
+    .note { color: var(--muted); font-size: 14px; margin: 0 0 18px; max-width: 46em; }
+    .range { display: flex; gap: 6px; align-items: center; margin: 0 0 18px; font-size: 13px; color: var(--muted); }
+    .range button { font: 500 12px/1 var(--mono); letter-spacing: .06em; color: var(--fg); background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; padding: 7px 10px; cursor: pointer; }
+    .range button[aria-pressed="true"] { border-color: var(--red); color: #fff; background: #2a0c0c; }
+    .hero-n { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 16px 18px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+    .hero-n strong { display: block; font: 600 52px/1 var(--sans); }
+    .hero-n span { color: var(--muted); font-size: 13px; }
+    .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 8px; }
+    .hero-n, .tiles, .note, .range { max-width: 960px; }
+    .tile { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 12px; min-width: 0; }
+    .tile strong { display: block; font: 600 24px/1.1 var(--sans); }
+    .tile span { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+    .tile svg { display: block; margin-top: 8px; width: 100%; height: 28px; }
+    h2.group { font: 500 13px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--red); margin: 36px 0 10px; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .card { background: var(--panel); border: 1px solid #1d1d1d; border-radius: 6px; padding: 14px 14px 10px; min-width: 0; }
+    .card.wide { grid-column: 1 / -1; }
+    .card h3 { font: 600 15px/1.35 var(--sans); margin: 0 0 2px; }
+    .card p.q { color: var(--muted); font-size: 13px; margin: 0 0 10px; line-height: 1.45; }
+    .card svg { display: block; width: 100%; height: auto; overflow: visible; }
+    .card svg text { font-family: var(--mono); font-size: 12px; fill: var(--muted); }
+    .card svg .lbl { fill: var(--fg); }
+    .card svg .grid { stroke: var(--grid); stroke-width: 1; }
+    .card svg .axis { stroke: #2c2c2c; stroke-width: 1; }
+    .card svg .thr { stroke: var(--amber); stroke-width: 1; }
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
+    details.tbl { margin-top: 6px; font-size: 12px; }
+    details.tbl summary { color: var(--muted); cursor: pointer; }
+    details.tbl table { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    details.tbl th { text-align: left; color: var(--muted); font-weight: 500; }
+    details.tbl td, details.tbl th { padding: 3px 0; border-top: 1px solid #1a1a1a; }
+    details.tbl td + td, details.tbl th + th { text-align: right; }
+    .empty { color: var(--muted); font-size: 13px; }
+    @media (max-width: 820px) {
+      .tiles { grid-template-columns: repeat(2, 1fr); }
+      .cards { grid-template-columns: 1fr; }
+      .hero-n strong { font-size: 44px; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap narrow">
+  <div class="wrap">
     <header class="top"><a class="brand" href="/"><img src="/icon.svg" alt="">podbay</a></header>
     <main id="board"><p class="empty">Loading…</p></main>
   </div>
@@ -53,98 +72,337 @@
     "use strict";
     const board = document.getElementById("board");
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-    const fmt = (v) => (v === null || v === undefined ? "–" : esc(v));
+    const C = { s1: "#e0201f", s2: "#3987e5", s3: "#c98500", s4: "#199e70", n: "#5a5a5a", fg: "#e9dfc4", muted: "#9a917c" };
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const dayLabel = (d) => `${+d.slice(8, 10)} ${MONTHS[+d.slice(5, 7) - 1]}`;
+    const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0);
+    const fmtN = (v) => (v >= 10000 ? (v / 1000).toFixed(0) + "k" : v >= 1000 ? (v / 1000).toFixed(1) + "k" : String(v));
+    const fmtS = (s) => (s == null ? "–" : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`);
 
-    function sumMaps(rows, table, dim) {
+    // --- data helpers: sums over the chosen days -------------------------
+    function sumDim(rows, table, dim) {
       const acc = {};
       for (const r of rows) {
         const m = r[table] && r[table][dim];
         if (!m) continue;
         for (const [k, v] of Object.entries(m)) acc[k] = (acc[k] || 0) + v;
       }
-      return Object.entries(acc).sort((a, b) => b[1] - a[1]);
+      return acc;
+    }
+    const ranked = (acc) => Object.entries(acc).sort((a, b) => b[1] - a[1]);
+    const dimOf = (r, table, dim) => (r[table] && r[table][dim]) || {};
+
+    function sourceGroup(host) {
+      if (host === "direct") return "direct";
+      if (/(^|\.)github\.com$/.test(host)) return "GitHub";
+      if (/google\.|bing\.com|duckduckgo|yandex|ecosia|baidu|startpage|search\.brave|kagi\.com|search/.test(host)) return "search";
+      if (/(^|\.)t\.co$|(^|\.)x\.com$|twitter|reddit|ycombinator|lobste\.rs|linkedin|facebook|mastodon|bsky|threads\.|slack|discord|t\.me$/.test(host)) return "social";
+      return "other sites";
+    }
+    const SOURCE_ORDER = ["direct", "GitHub", "search", "social", "other sites"];
+    const SOURCE_COLOR = { direct: C.n, GitHub: C.s2, search: C.s3, social: C.s4, "other sites": C.s1 };
+
+    const SECTIONS = [["section-hero", "Hero"], ["section-console", "Console shot"], ["section-features", "Features"],
+      ["section-keys", "Keys"], ["section-head-jeeves", "Head Jeeves"], ["section-install", "Install"], ["section-footer", "Footer"]];
+    const CARDS = [["card-who-needs-you", "Who needs you"], ["card-what-runs", "What runs"], ["card-what-is-left", "What is left"],
+      ["card-every-account", "Every account"], ["card-read-drive", "Read, drive a little"], ["card-cli", "A CLI underneath"],
+      ["card-machine-health", "Machine health"], ["card-heated-prompts", "Heated prompts"], ["card-which-repos", "Which repos"]];
+    const LINKS = [["hero-install", "Install (hero)"], ["hero-github", "GitHub (hero)"], ["install-copy", "Copy command"],
+      ["install-readme", "README"], ["nav-install", "Install (nav)"], ["nav-github", "GitHub (nav)"], ["nav-head-jeeves", "Head Jeeves (nav)"],
+      ["nav-console", "Console (nav)"], ["footer-github", "GitHub (footer)"]];
+    const DUR_BANDS = ["<10 s", "10-30 s", "30-60 s", "1-3 min", "3 min+", "unknown"];
+    const COUNTRY = { FI: "Finland", US: "United States", DE: "Germany", GB: "United Kingdom", SE: "Sweden", NO: "Norway", DK: "Denmark",
+      NL: "Netherlands", FR: "France", ES: "Spain", IT: "Italy", PL: "Poland", EE: "Estonia", CA: "Canada", AU: "Australia", IN: "India",
+      JP: "Japan", CN: "China", BR: "Brazil", IE: "Ireland", CH: "Switzerland", AT: "Austria", BE: "Belgium", PT: "Portugal", CZ: "Czechia",
+      RU: "Russia", UA: "Ukraine", KR: "South Korea", SG: "Singapore", NZ: "New Zealand", MX: "Mexico", ZZ: "unknown" };
+
+    // --- SVG primitives -----------------------------------------------------
+    function niceMax(v) {
+      if (v <= 0) return 1;
+      const p = Math.pow(10, Math.floor(Math.log10(v)));
+      for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+      return 10 * p;
+    }
+    function ticks(max) {
+      const step = max / (max % 4 === 0 || max === 1 ? 4 : max % 5 === 0 ? 5 : 4);
+      const out = [];
+      for (let t = 0; t <= max + 1e-9; t += step) out.push(+t.toFixed(3));
+      return out;
+    }
+    // The drawing width of a card: two columns on a wide screen, one on a
+    // phone, minus the card's padding. A wide card spans both columns.
+    const W = (full) => Math.max(240, (board.clientWidth > 820 && !full ? (board.clientWidth - 10) / 2 : board.clientWidth) - 30);
+
+    // A chart over days. series: [{name, color, values[]}]; mode: "stack" |
+    // "group" | "line". Bars grow from one baseline, 4px rounded at the data
+    // end, a 2px surface gap between neighbours.
+    function timeChart({ days, series, mode, unit, yFormat = fmtN, threshold, max, full }) {
+      const width = W(full), height = 220, L = 44, R = 8, T = 26, B = 28;
+      const pw = width - L - R, ph = height - T - B;
+      const n = days.length;
+      let top = 0;
+      for (let i = 0; i < n; i++) {
+        if (mode === "stack") top = Math.max(top, series.reduce((s, x) => s + (x.values[i] || 0), 0));
+        else for (const x of series) top = Math.max(top, x.values[i] || 0);
+      }
+      if (threshold) top = Math.max(top, threshold * 1.1);
+      const ymax = max || niceMax(top);
+      const y = (v) => T + ph - (v / ymax) * ph;
+      const slot = pw / n;
+      let out = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">`;
+      for (const t of ticks(ymax)) out += `<line class="grid" x1="${L}" x2="${width - R}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${yFormat(t)}</text>`;
+      out += `<line class="axis" x1="${L}" x2="${width - R}" y1="${y(0)}" y2="${y(0)}"/>`;
+      // x ticks: as many dated labels as fit at about 64px each.
+      const every = [1, 2, 5, 7, 10, 14, 30, 60].find((e) => e * slot >= 64) || 90;
+      for (let i = 0; i < n; i++) if ((n - 1 - i) % every === 0) out += `<text x="${L + slot * (i + 0.5)}" y="${height - 8}" text-anchor="middle">${dayLabel(days[i])}</text>`;
+      if (mode === "line") {
+        for (const s of series) {
+          // A day with no value breaks the line: a stroke across the gap
+          // would invent a trend between two visits a week apart.
+          let run = [];
+          const flush = () => { if (run.length > 1) out += `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${run.map((p) => p.join(",")).join(" ")}"/>`; run = []; };
+          for (let i = 0; i < n; i++) {
+            const v = s.values[i];
+            if (v == null) { flush(); continue; }
+            run.push([L + slot * (i + 0.5), y(v)]);
+          }
+          flush();
+          for (let i = 0; i < n; i++) {
+            const v = s.values[i];
+            if (v == null) continue;
+            out += `<circle cx="${L + slot * (i + 0.5)}" cy="${y(v)}" r="4" fill="${s.color}" stroke="#0e0e0e" stroke-width="2"><title>${esc(dayLabel(days[i]))}: ${esc(yFormat(v))} ${esc(unit)}</title></circle>`;
+          }
+        }
+      } else {
+        const bw = Math.min(24, mode === "group" ? (slot - 2) / series.length - 1 : slot - 2);
+        for (let i = 0; i < n; i++) {
+          let base = 0;
+          series.forEach((s, k) => {
+            const v = s.values[i] || 0;
+            if (!v) return;
+            const x = mode === "group" ? L + slot * i + (slot - bw * series.length - (series.length - 1)) / 2 + k * (bw + 1) : L + slot * (i + 0.5) - bw / 2;
+            const y0 = mode === "stack" ? y(base) : y(0), y1 = mode === "stack" ? y(base + v) : y(v);
+            const h = Math.max(1, y0 - y1 - (mode === "stack" && base ? 2 : 0));
+            out += `<rect x="${x}" y="${y1}" width="${bw}" height="${h}" rx="${h > 4 ? 2 : 0}" fill="${s.color}"><title>${esc(dayLabel(days[i]))} · ${esc(s.name)}: ${esc(yFormat(v))} ${esc(unit)}</title></rect>`;
+            if (mode === "stack") base += v;
+          });
+        }
+      }
+      if (threshold) out += `<line class="thr" x1="${L}" x2="${width - R}" y1="${y(threshold)}" y2="${y(threshold)}"/><text x="${width - R}" y="${y(threshold) - 4}" text-anchor="end">good ≤ ${yFormat(threshold)}</text>`;
+      out += `<text x="${L}" y="12" text-anchor="start" class="lbl">${esc(unit)}</text></svg>`;
+      const table = `<table><thead><tr><th>day</th>${series.map((s) => `<th>${esc(s.name)}</th>`).join("")}</tr></thead><tbody>${days.map((d, i) => `<tr><td>${d}</td>${series.map((s) => `<td>${s.values[i] == null ? "–" : s.values[i]}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+      return { svg: out, table, legend: series.length > 1 ? legend(series) : "" };
     }
 
-    const kpi = (v, label, muted) => `<div class="kpi${muted ? " muted" : ""}"><strong>${fmt(v)}</strong><span>${esc(label)}</span></div>`;
-
-    function list(items) {
-      if (!items.length) return '<p class="empty">None yet.</p>';
-      const max = Math.max(1, ...items.map(([, v]) => v));
-      return '<ul class="list">' + items.map(([k, v]) =>
-        `<li title="${esc(k)}: ${v}"><span class="k">${esc(k)}</span><span class="t"><i style="width:${(v / max) * 100}%"></i></span><span class="v">${v}</span></li>`
-      ).join("") + "</ul>";
+    // Horizontal ranked bars. rows: [{label, value, parts?: [{color, value}], note?}]
+    function rankChart({ rows, unit, pctOf, maxValue, color = C.s1, full }) {
+      const width = W(full), rowH = 24, L = Math.min(160, Math.round(width * 0.34)), R = 64, T = 18;
+      const height = T + rows.length * rowH + 20;
+      const top = maxValue || niceMax(Math.max(1, ...rows.map((r) => r.value)));
+      const pw = width - L - R;
+      const x = (v) => L + (v / top) * pw;
+      let out = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">`;
+      for (const t of ticks(top)) out += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${T - 4}" y2="${height - 18}"/><text x="${x(t)}" y="${T - 8}" text-anchor="middle">${pctOf ? t + "%" : fmtN(t)}</text>`;
+      rows.forEach((r, i) => {
+        const yy = T + i * rowH;
+        out += `<text x="${L - 8}" y="${yy + 14}" text-anchor="end" class="lbl">${esc(r.label.length > 20 ? r.label.slice(0, 19) + "…" : r.label)}</text>`;
+        if (r.parts) {
+          let base = 0;
+          for (const p of r.parts) {
+            if (!p.value) continue;
+            const w = Math.max(1, x(base + p.value) - x(base) - (base ? 2 : 0));
+            out += `<rect x="${x(base) + (base ? 2 : 0)}" y="${yy + 2}" width="${w}" height="${rowH - 6}" rx="2" fill="${p.color}"><title>${esc(r.label)} · ${esc(p.name)}: ${p.value} ${esc(unit)}</title></rect>`;
+            base += p.value;
+          }
+        } else {
+          out += `<rect x="${L}" y="${yy + 2}" width="${Math.max(1, x(r.value) - L)}" height="${rowH - 6}" rx="2" fill="${color}"><title>${esc(r.label)}: ${r.value} ${esc(unit)}</title></rect>`;
+        }
+        out += `<text x="${x(r.value) + 6}" y="${yy + 14}">${esc(r.note != null ? r.note : pctOf ? r.value + "%" : fmtN(r.value))}</text>`;
+      });
+      out += `<text x="${width - 2}" y="${height - 4}" text-anchor="end" class="lbl">${esc(unit)}</text></svg>`;
+      const table = `<table><thead><tr><th>item</th><th>${esc(unit)}</th>${rows[0] && rows[0].parts ? rows[0].parts.map((p) => `<th>${esc(p.name)}</th>`).join("") : ""}</tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.label)}</td><td>${r.note != null ? esc(r.note) : r.value}</td>${r.parts ? r.parts.map((p) => `<td>${p.value}</td>`).join("") : ""}</tr>`).join("")}</tbody></table>`;
+      return { svg: out, table, legend: rows[0] && rows[0].parts ? legend(rows[0].parts) : "" };
     }
 
-    function render(rows, showBots) {
-      const days = [...new Set(rows.map((r) => r.date))].sort();
-      const last30days = days.slice(-30);
-      const latest = days[days.length - 1];
-      const latestRow = rows.find((r) => r.date === latest) || {};
-      const last30 = rows.filter((r) => last30days.includes(r.date));
+    // Weekday by hour, one hue light to dark.
+    function heatChart(grid, unit) {
+      const width = W(true), L = 40, T = 18, cell = Math.floor((width - L - 4) / 24), ch = Math.max(16, Math.min(26, cell));
+      const height = T + 7 * ch + 22;
+      const top = Math.max(1, ...grid.flat());
+      let out = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">`;
+      for (let h = 0; h < 24; h += 3) out += `<text x="${L + h * cell + cell / 2}" y="${T - 6}" text-anchor="middle">${h}</text>`;
+      for (let d = 0; d < 7; d++) {
+        out += `<text x="${L - 6}" y="${T + d * ch + 12}" text-anchor="end" class="lbl">${WEEKDAYS[d]}</text>`;
+        for (let h = 0; h < 24; h++) {
+          const v = grid[d][h];
+          const a = v ? 0.18 + 0.82 * (v / top) : 0;
+          out += `<rect x="${L + h * cell}" y="${T + d * ch}" width="${cell - 2}" height="${ch - 2}" rx="2" fill="${v ? C.s1 : "#161616"}" fill-opacity="${v ? a.toFixed(2) : 1}"><title>${WEEKDAYS[d]} ${h}:00: ${v} ${esc(unit)}</title></rect>`;
+        }
+      }
+      out += `<text x="${L}" y="${height - 4}" class="lbl">hour of the day, Helsinki time · the brightest cell is ${top} ${esc(unit)}</text></svg>`;
+      const table = `<table><thead><tr><th>day</th><th>hours with visits</th></tr></thead><tbody>${grid.map((row, d) => `<tr><td>${WEEKDAYS[d]}</td><td>${row.map((v, h) => (v ? `${h}:00 ×${v}` : "")).filter(Boolean).join(", ") || "–"}</td></tr>`).join("")}</tbody></table>`;
+      return { svg: out, table, legend: "" };
+    }
+
+    function spark(values, color) {
+      const vals = values.map((v) => (v == null ? 0 : v));
+      const w = 100, h = 28, max = Math.max(1, ...vals);
+      const pts = vals.map((v, i) => `${(i / Math.max(1, vals.length - 1)) * w},${h - 2 - (v / max) * (h - 4)}`);
+      return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke" points="${pts.join(" ")}"/></svg>`;
+    }
+
+    const legend = (series) => `<div class="legend">${series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+    const card = (title, question, chart, wide) => `<div class="card${wide ? " wide" : ""}"><h3>${esc(title)}</h3><p class="q">${esc(question)}</p>${chart.svg}${chart.legend}<details class="tbl"><summary>as a table</summary>${chart.table}</details></div>`;
+    const emptyCard = (title, question, why) => `<div class="card"><h3>${esc(title)}</h3><p class="q">${esc(question)}</p><p class="empty">${esc(why)}</p></div>`;
+
+    // --- the board -------------------------------------------------------
+    function render(rows, rangeDays) {
+      const latest = rows[rows.length - 1].date;
+      const first = rows[0].date;
+      const end = new Date(latest + "T00:00:00Z");
+      const span = rangeDays || Math.round((end - new Date(first + "T00:00:00Z")) / 864e5) + 1;
+      const days = [];
+      for (let i = span - 1; i >= 0; i--) days.push(new Date(end - i * 864e5).toISOString().slice(0, 10));
       const byDate = new Map(rows.map((r) => [r.date, r]));
+      const blank = { sessions: 0, visitors: 0, errors: 0, bots: { sessions: 0, events: 0 }, lcp: {}, cls: {}, inp: {}, dur: {}, by: {}, bySessions: {} };
+      const win = days.map((d) => byDate.get(d) || blank);
+      const latestRow = byDate.get(latest) || blank;
+      const sessions = win.reduce((n, r) => n + r.sessions, 0);
+      const S = (dim) => sumDim(win, "bySessions", dim);
+      const E = (dim) => sumDim(win, "by", dim);
+      const per = (dim, key) => win.map((r) => dimOf(r, "bySessions", dim)[key] || 0);
 
-      const views = Object.fromEntries(sumMaps(last30, "bySessions", "cta_view"));
-      const disp = Object.fromEntries(sumMaps(last30, "bySessions", "cta_displayed"));
-      const clicks = Object.fromEntries(sumMaps(last30, "bySessions", "cta_click"));
-      const funnel = [...new Set([...Object.keys(views), ...Object.keys(disp), ...Object.keys(clicks)])]
-        .map((k) => ({ k, displayed: disp[k] || 0, click: clicks[k] || 0, view: views[k] || 0 }))
-        .sort((a, b) => b.view - a.view);
+      const outcome = S("outcome"), visit = S("visit"), os = S("os");
+      const converted = outcome.converted || 0;
+      const mac = os.macOS || 0;
+      const durs = win.map((r) => (r.dur && r.dur.p50 != null ? r.dur.p50 : null));
+      const durVals = durs.filter((v) => v != null);
+      const medDur = durVals.length ? durVals.sort((a, b) => a - b)[Math.floor(durVals.length / 2)] : null;
 
-      const sessions30 = last30.reduce((n, r) => n + r.sessions, 0);
-      const bots30 = last30.reduce((n, r) => n + r.bots.sessions, 0);
-      const maxDay = Math.max(1, ...last30days.map((d) => {
-        const r = byDate.get(d) || { sessions: 0, bots: { sessions: 0 } };
-        return r.sessions + (showBots ? r.bots.sessions : 0);
-      }));
-      const bars = last30days.map((d) => {
-        const r = byDate.get(d) || { sessions: 0, bots: { sessions: 0 } };
-        const h = r.sessions, b = r.bots.sessions;
-        return `<div title="${d}: ${h} sessions${showBots ? `, ${b} bots` : ""}">` +
-          (showBots ? `<span class="b" style="height:${(b / maxDay) * 100}%"></span>` : "") +
-          `<span class="h" style="height:${Math.max(1, (h / maxDay) * 100)}%"></span></div>`;
-      }).join("");
+      const rangeBtn = (n, label) => `<button type="button" data-range="${n}" aria-pressed="${(rangeDays || 0) === n}">${label}</button>`;
 
-      board.innerHTML = `
-        <h1>Visitors</h1>
-        <p class="note">Latest day ${esc(latest)}. People only; bots are counted apart. The nightly run fills in yesterday.</p>
-        <div class="kpis">
-          ${kpi(latestRow.sessions, "sessions, latest day")}
-          ${kpi(latestRow.visitors7d, "visitors, 7 days")}
-          ${kpi(latestRow.visitors30d, "visitors, 30 days")}
-          ${kpi(sessions30, "sessions, 30 days")}
-          ${kpi(latestRow.errors, "errors, latest day")}
-          ${kpi(bots30, "bot sessions, 30 days", true)}
-        </div>
-        <div class="card">
-          <h2>Sessions per day <label><input type="checkbox" id="bots"${showBots ? " checked" : ""}> bots</label></h2>
-          <div class="bars" role="img" aria-label="Sessions per day">${bars}</div>
-          <div class="axis"><span>${esc((last30days[0] || "").slice(5))}</span><span>${esc((latest || "").slice(5))}</span></div>
-        </div>
-        <div class="card">
-          <h2>Links, by session, 30 days</h2>
-          <table><thead><tr><th>link</th><th>seen</th><th>clicked</th><th>CTR</th></tr></thead><tbody>
-          ${funnel.length ? funnel.map((f) => `<tr><td>${esc(f.k)}</td><td>${f.displayed}</td><td>${f.click}</td><td>${f.displayed ? Math.round((f.click / f.displayed) * 100) + "%" : "–"}</td></tr>`).join("")
-            : '<tr><td class="empty" colspan="4">None yet.</td></tr>'}
-          </tbody></table>
-        </div>
-        <div class="card"><h2>Sources, 30 days</h2>${list(sumMaps(last30, "bySessions", "referrer").slice(0, 10))}</div>
-        <div class="card"><h2>Scroll depth, 30 days</h2>${list(sumMaps(last30, "bySessions", "scroll").slice(0, 6))}</div>
-        <div class="card"><h2>Pages, 30 days</h2>${list(sumMaps(last30, "bySessions", "path").slice(0, 8))}</div>
-        <div class="card"><h2>Edge location, 30 days</h2>${list(sumMaps(last30, "bySessions", "edge").slice(0, 8))}</div>
-        <div class="card"><h2>Errors, 30 days</h2>${list(sumMaps(last30, "by", "error").slice(0, 6))}</div>
-        <div class="card"><h2>Speed, latest day</h2><div class="kpis">
-          ${kpi(latestRow.lcp && latestRow.lcp.p50, "LCP p50 ms")}
-          ${kpi(latestRow.lcp && latestRow.lcp.p75, "LCP p75 ms")}
-          ${kpi(latestRow.cls && latestRow.cls.p75, "CLS p75")}
-        </div></div>`;
-      document.getElementById("bots").addEventListener("change", (e) => render(rows, e.target.checked));
+      let html = `
+        <h1>What the site tells us</h1>
+        <p class="note">podbay.tienoo.com, people only; crawlers are counted apart. The nightly run adds yesterday, so the latest day is ${esc(dayLabel(latest))}. Days are Helsinki time. A "session" is one visit; a "conversion" is the install command copied or GitHub opened.</p>
+        <div class="range"><span>Range</span>${rangeBtn(30, "30 days")}${rangeBtn(90, "90 days")}${rangeBtn(0, "all")}</div>
+        <div class="hero-n"><div><strong>${fmtN(sessions)}</strong><span>visits in the last ${span} days</span></div><div style="width:160px">${spark(win.map((r) => r.sessions), C.s1)}</div></div>
+        <div class="tiles">
+          <div class="tile"><strong>${fmtN(latestRow.visitors30d || 0)}</strong><span>people, last 30 days (distinct browsers)</span>${spark(win.map((r) => r.visitors), C.s1)}</div>
+          <div class="tile"><strong>${pct(converted, sessions)}%</strong><span>converted · ${converted} of ${sessions} visits</span>${spark(per("outcome", "converted"), C.s1)}</div>
+          <div class="tile"><strong>${pct(mac, sessions)}%</strong><span>on a Mac · ${mac} of ${sessions} (podbay is Mac only)</span>${spark(per("os", "macOS"), C.s2)}</div>
+          <div class="tile"><strong>${pct(visit.returning || 0, sessions)}%</strong><span>returning · ${visit.returning || 0} of ${sessions} visits</span>${spark(per("visit", "returning"), C.s2)}</div>
+          <div class="tile"><strong>${fmtS(medDur)}</strong><span>median time on page, median of daily medians</span>${spark(durs, C.s3)}</div>
+        </div>`;
+
+      // --- who comes ---
+      html += `<h2 class="group">Who comes</h2><div class="cards">`;
+      html += card("Visits per day", "Is anyone coming, and is it growing? People in red, crawlers that ran the page's script in grey.",
+        timeChart({ days, mode: "group", unit: "visits / day", series: [
+          { name: "people", color: C.s1, values: win.map((r) => r.sessions) },
+          { name: "crawler sessions", color: C.n, values: win.map((r) => r.bots.sessions) }] }));
+      html += card("First visits and returns", "Do people come back after the first look? A return is a browser seen on an earlier day.",
+        timeChart({ days, mode: "stack", unit: "visits / day", series: [
+          { name: "first visit", color: C.s1, values: per("visit", "new") },
+          { name: "returning", color: C.s2, values: per("visit", "returning") }] }));
+      const srcPer = (g) => win.map((r) => Object.entries(dimOf(r, "bySessions", "referrer")).reduce((n, [h, v]) => n + (sourceGroup(h) === g ? v : 0), 0));
+      html += card("Where visits come from", "Which channel brings people: typed or bookmarked (direct), the GitHub repo, a search engine, a social site, or another site.",
+        timeChart({ days, mode: "stack", unit: "visits / day", series: SOURCE_ORDER.map((g) => ({ name: g, color: SOURCE_COLOR[g], values: srcPer(g) })) }));
+      const refs = ranked(S("referrer")).filter(([h]) => h !== "direct").slice(0, 8);
+      const camp = ranked(S("campaign")).slice(0, 5);
+      const refRows = refs.map(([h, v]) => ({ label: h, value: v })).concat(camp.map(([k, v]) => ({ label: "campaign " + k, value: v })));
+      html += refRows.length
+        ? card("Referring sites and campaign links", "Which exact pages and links send visits. A campaign link carries utm_source or ?ref=.", rankChart({ rows: refRows, unit: "visits" }))
+        : emptyCard("Referring sites and campaign links", "Which exact pages and links send visits.", "Every visit so far arrived directly: no referrer, no campaign tag.");
+      const countries = ranked(S("country")).slice(0, 10).map(([k, v]) => ({ label: COUNTRY[k] || k, value: v }));
+      html += countries.length ? card("Country", "Where visitors are, from the IP's country range; the address itself is dropped in the pipeline.", rankChart({ rows: countries, unit: "visits" }))
+        : emptyCard("Country", "Where visitors are.", "No visits in this range.");
+      const osOut = S("os_outcome");
+      const osRows = ranked(os).slice(0, 7).map(([k, v]) => ({ label: k, value: v, parts: [
+        { name: "converted", color: C.s1, value: osOut[k + "/converted"] || 0 },
+        { name: "engaged", color: C.s2, value: osOut[k + "/engaged"] || 0 },
+        { name: "bounced", color: C.n, value: osOut[k + "/bounced"] || 0 }],
+        note: `${pct(osOut[k + "/converted"] || 0, v)}% conv.` }));
+      html += osRows.length ? card("Operating system, and what each did", "podbay installs only on macOS, so the Mac row's red share is the conversion rate that counts.", rankChart({ rows: osRows, unit: "visits" }))
+        : emptyCard("Operating system", "Can the visitor even install it?", "No visits in this range.");
+      const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
+      for (const [k, v] of Object.entries(S("weekhour"))) { const [d, h] = k.split("-").map(Number); if (d >= 1 && d <= 7 && h >= 0 && h < 24) grid[d - 1][h] += v; }
+      html += card("When they come", "Which weekday and hour visits land, for timing a post. The brighter the cell, the more visits.", heatChart(grid, "visits"), true);
+      html += `</div>`;
+
+      // --- what they read ---
+      html += `<h2 class="group">What they read</h2><div class="cards">`;
+      const views = S("cta_view"), disp = S("cta_displayed");
+      const secRows = SECTIONS.map(([k, label]) => ({ label, value: pct(views[k] || 0, sessions), note: `${pct(views[k] || 0, sessions)}% · ${views[k] || 0}` }));
+      html += Object.keys(views).some((k) => k.startsWith("section-"))
+        ? card("How far down the page they get", "The share of visits that scrolled each section into view, in page order. Where the bars drop is where reading stops.", rankChart({ rows: secRows, unit: "% of visits", pctOf: true, maxValue: 100 }))
+        : emptyCard("How far down the page they get", "The share of visits that scrolled each section into view.", "Section tracking started on 14 Oct 2026; the first numbers arrive with the next nightly run.");
+      const cardRows = CARDS.map(([k, label]) => ({ label, value: pct(disp[k] || 0, sessions), note: `${pct(disp[k] || 0, sessions)}% · ${disp[k] || 0}` })).sort((a, b) => b.value - a.value);
+      html += Object.keys(disp).some((k) => k.startsWith("card-"))
+        ? card("Which feature cards get read", "The share of visits that held each of the nine feature cards on screen for 3 seconds. The top ones are what interests people.", rankChart({ rows: cardRows, unit: "% of visits", pctOf: true, maxValue: 100, color: C.s2 }))
+        : emptyCard("Which feature cards get read", "The share of visits that held each feature card on screen for 3 seconds.", "Card tracking started on 14 Oct 2026; the first numbers arrive with the next nightly run.");
+      const scroll = S("scroll");
+      html += card("Scroll depth", "The share of visits that scrolled past a quarter, half, three quarters and the end of the page.",
+        rankChart({ rows: ["25", "50", "75", "100"].map((d) => ({ label: d + "% of the page", value: pct(scroll[d] || 0, sessions), note: `${pct(scroll[d] || 0, sessions)}% · ${scroll[d] || 0}` })), unit: "% of visits", pctOf: true, maxValue: 100 }));
+      html += card("Time on page per day", "How long a visit lasts: the median and the 75th percentile in seconds, per day. A page read to the end takes about two minutes.",
+        timeChart({ days, mode: "line", unit: "seconds", series: [
+          { name: "median", color: C.s1, values: durs },
+          { name: "75th percentile", color: C.s3, values: win.map((r) => (r.dur && r.dur.p75 != null ? r.dur.p75 : null)) }] }));
+      const dur = S("duration");
+      html += card("Time on page, in bands", "How many visits were a glance and how many a read.",
+        rankChart({ rows: DUR_BANDS.filter((b) => b !== "unknown" || dur[b]).map((b) => ({ label: b, value: dur[b] || 0 })), unit: "visits", color: C.s3 }));
+      html += `</div>`;
+
+      // --- what they do ---
+      html += `<h2 class="group">What they do</h2><div class="cards">`;
+      html += card("What each visit ended as", "Converted: copied the install command or opened GitHub. Engaged: stayed 30 seconds, read half the page, or clicked. Bounced: none of that.",
+        timeChart({ days, mode: "stack", unit: "visits / day", series: [
+          { name: "converted", color: C.s1, values: per("outcome", "converted") },
+          { name: "engaged", color: C.s2, values: per("outcome", "engaged") },
+          { name: "bounced", color: C.n, values: per("outcome", "bounced") }] }));
+      const conv = S("conversion");
+      const convRows = ["install copied", "GitHub opened", "README opened"].map((k) => ({ label: k, value: conv[k] || 0, note: `${conv[k] || 0} · ${pct(conv[k] || 0, sessions)}%` }));
+      html += card("Which conversion", "Of the visits that converted, what they did. One visit can count in two rows.", rankChart({ rows: convRows, unit: "visits" }));
+      const clicks = S("cta_click");
+      const linkRows = LINKS.filter(([k]) => disp[k] || clicks[k]).map(([k, label]) => ({ label, value: Math.max(disp[k] || 0, clicks[k] || 0), parts: [
+        { name: "clicked", color: C.s1, value: clicks[k] || 0 },
+        { name: "seen, not clicked", color: C.n, value: Math.max(0, (disp[k] || 0) - (clicks[k] || 0)) }],
+        note: `${pct(clicks[k] || 0, Math.max(disp[k] || 0, clicks[k] || 0))}% CTR` }));
+      html += linkRows.length ? card("Links: seen and clicked", "For each button and link, how many visits saw it for 3 seconds and how many clicked, with the click-through rate.", rankChart({ rows: linkRows, unit: "visits", full: true }), true)
+        : emptyCard("Links: seen and clicked", "For each button and link, how many visits saw it and how many clicked.", "No visits in this range.");
+      const botNames = ranked(E("bot")).slice(0, 4).map(([k]) => k);
+      const botPer = (name) => win.map((r) => dimOf(r, "by", "bot")[name] || 0);
+      const otherBots = win.map((r) => Object.entries(dimOf(r, "by", "bot")).reduce((n, [k, v]) => n + (botNames.includes(k) ? 0 : v), 0));
+      const botSeries = botNames.map((k, i) => ({ name: k, color: [C.s2, C.s3, C.s4, C.s1][i], values: botPer(k) }));
+      if (otherBots.some(Boolean)) botSeries.push({ name: "other crawlers", color: C.n, values: otherBots });
+      html += botSeries.length ? card("Crawler requests per day", "Is Google indexing us at all? Requests for the page, robots.txt and the sitemap by crawler name.", timeChart({ days, mode: "stack", unit: "requests / day", series: botSeries }))
+        : emptyCard("Crawler requests per day", "Is Google indexing us at all?", "No crawler has fetched the page in this range.");
+      html += `</div>`;
+
+      // --- health ---
+      html += `<h2 class="group">Health</h2><div class="cards">`;
+      html += card("Largest contentful paint", "How fast the page shows its main content: the 75th percentile per day in milliseconds. Google calls 2.5 s or less good.",
+        timeChart({ days, mode: "line", unit: "ms", threshold: 2500, series: [{ name: "LCP p75", color: C.s1, values: win.map((r) => (r.lcp && r.lcp.p75 != null ? r.lcp.p75 : null)) }] }));
+      html += card("Interaction to next paint", "How quickly the page reacts to a click or key: the 75th percentile per day. 200 ms or less is good. A visit with no interaction sends nothing.",
+        timeChart({ days, mode: "line", unit: "ms", threshold: 200, series: [{ name: "INP p75", color: C.s1, values: win.map((r) => (r.inp && r.inp.p75 != null ? r.inp.p75 : null)) }] }));
+      html += card("Layout shift", "How much the page jumps while loading: cumulative layout shift, 75th percentile per day. 0.1 or less is good.",
+        timeChart({ days, mode: "line", unit: "CLS", threshold: 0.1, yFormat: (v) => String(+v.toFixed(2)), series: [{ name: "CLS p75", color: C.s1, values: win.map((r) => (r.cls && r.cls.p75 != null ? r.cls.p75 : null)) }] }));
+      const errs = ranked(E("error")).slice(0, 6).map(([k, v]) => ({ label: k, value: v }));
+      html += errs.length ? card("JavaScript errors", "Errors the page itself raised, by message, with browser-extension noise filtered out.", rankChart({ rows: errs, unit: "errors", color: C.s3 }))
+        : emptyCard("JavaScript errors", "Errors the page itself raised.", "None in this range.");
+      html += `</div>`;
+
+      board.innerHTML = html;
+      for (const b of board.querySelectorAll("[data-range]")) b.addEventListener("click", () => { current = +b.dataset.range; render(rows, current); });
     }
 
+    let current = 30, data = null, resizeTimer = null;
+    window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => data && render(data, current), 150); });
     fetch("/data/analytics.json", { cache: "no-cache" })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((rows) => (rows.length ? render(rows, false) : Promise.reject("empty")))
+      .then((rows) => { if (!rows.length) throw new Error("empty"); data = rows.slice().sort((a, b) => (a.date < b.date ? -1 : 1)); render(data, current); })
       .catch(() => {
-        board.innerHTML = '<h1>Visitors</h1><p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>';
+        board.innerHTML = '<h1>What the site tells us</h1><p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>';
       });
   </script>
 </body>

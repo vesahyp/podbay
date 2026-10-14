@@ -45,7 +45,7 @@
       </nav>
     </header>
 
-    <div class="hero">
+    <div class="hero" data-track="section-hero">
       <div>
         <h1>pod<span>bay</span></h1>
         <p class="lede">One console over every Claude Code session on your Mac.</p>
@@ -58,32 +58,32 @@
       <div class="eye" role="img" aria-label="The red eye of HAL 9000"></div>
     </div>
 
-    <figure class="shot" id="console">
+    <figure class="shot" id="console" data-track="section-console">
       <div class="scroll"><img src="/img/console.png" width="3200" height="1168" alt="The podbay console: a table of seven Claude Code sessions with their state, age, context use, model, account, directory and title, the account quotas in the header, and the selected session's conversation below."></div>
       <figcaption>The console. Sessions that need you sort to the top. The lower half shows the selected session's last turns. The data here is made up.</figcaption>
     </figure>
   </div>
 
-  <section>
+  <section id="features" data-track="section-features">
     <div class="wrap">
       <p class="label">The console</p>
       <h2>Every session, one screen</h2>
       <p>podbay reads the files Claude Code already keeps: the session registry, the end of each transcript and the status line. It finds the iTerm2 tab of each session. It never writes to Claude Code's files.</p>
       <div class="grid">
-        <div><h3><b>?</b>Who needs you</h3><p>A session that finished, asked a question or opened a permission dialog sorts to the top. A dot marks an answer you have not read.</p></div>
-        <div><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript.</p></div>
-        <div><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
-        <div><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account, with its own column, quota and sessions.</p></div>
-        <div><h3><b>▶</b>Read, drive a little</h3><p>The lower half shows the highlighted session's last turns. A few keys message, park or open a session (see below); the rest of the driving is Head Jeeves' job.</p></div>
-        <div><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>accounts</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>notify</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
-        <div><h3><b>~</b>Machine health</h3><p>Load, CPU, free memory, memory pressure, swap and free disk space, with the heaviest processes and a chart of the last hours. When the Mac is starved, podbay answers from its last good scan and says so.</p></div>
-        <div><h3><b>!</b>Heated prompts</h3><p>A column marks a session where your last prompts read heated. A word list scores them on this Mac. No model runs and no tokens are used.</p></div>
-        <div><h3><b>#</b>Which repos</h3><p>Each session lists the repos it touched and stars the ones it edited. A mark shows when another live session works in the same repo.</p></div>
+        <div data-track="card-who-needs-you"><h3><b>?</b>Who needs you</h3><p>A session that finished, asked a question or opened a permission dialog sorts to the top. A dot marks an answer you have not read.</p></div>
+        <div data-track="card-what-runs"><h3><b>*</b>What runs</h3><p>Working, stalled for ten minutes, or waiting on a background command. The state comes from the transcript.</p></div>
+        <div data-track="card-what-is-left"><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
+        <div data-track="card-every-account"><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account, with its own column, quota and sessions.</p></div>
+        <div data-track="card-read-drive"><h3><b>▶</b>Read, drive a little</h3><p>The lower half shows the highlighted session's last turns. A few keys message, park or open a session (see below); the rest of the driving is Head Jeeves' job.</p></div>
+        <div data-track="card-cli"><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>accounts</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>notify</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
+        <div data-track="card-machine-health"><h3><b>~</b>Machine health</h3><p>Load, CPU, free memory, memory pressure, swap and free disk space, with the heaviest processes and a chart of the last hours. When the Mac is starved, podbay answers from its last good scan and says so.</p></div>
+        <div data-track="card-heated-prompts"><h3><b>!</b>Heated prompts</h3><p>A column marks a session where your last prompts read heated. A word list scores them on this Mac. No model runs and no tokens are used.</p></div>
+        <div data-track="card-which-repos"><h3><b>#</b>Which repos</h3><p>Each session lists the repos it touched and stars the ones it edited. A mark shows when another live session works in the same repo.</p></div>
       </div>
     </div>
   </section>
 
-  <section id="keys">
+  <section id="keys" data-track="section-keys">
     <div class="wrap split">
       <div>
         <p class="label">Hands on</p>
@@ -103,7 +103,7 @@
     </div>
   </section>
 
-  <section id="head-jeeves">
+  <section id="head-jeeves" data-track="section-head-jeeves">
     <div class="wrap split">
       <div>
         <p class="label">Head Jeeves</p>
@@ -125,27 +125,62 @@
     </div>
   </section>
 
-  <section id="install">
+  <section id="install" data-track="section-install">
     <div class="wrap"><div class="narrow">
       <p class="label">Install</p>
       <h2>Clone, make, run</h2>
       <p>You need macOS, iTerm2, <a href="https://docs.astral.sh/uv/">uv</a> and <code>jq</code>. On another terminal the table works, but send, open and close do not.</p>
-<pre><code>git clone https://github.com/vesahyp/podbay.git
+<div class="code">
+<pre><code id="install-cmd">git clone https://github.com/vesahyp/podbay.git
 cd podbay
 make install   <span class="c"># podbay on PATH, status line set</span>
 
 podbay         <span class="c"># the console; the first start asks your name</span>
 podbay config head-jeeves on</code></pre>
+        <button class="copy" type="button" data-track="install-copy" aria-label="Copy the install commands">Copy</button>
+      </div>
       <p>The status line is where Claude Code reports context and quota, so <code>make install</code> points every account's status line at podbay's script. If you keep your own, copy one block into it instead. The <a href="https://github.com/vesahyp/podbay#readme" data-track="install-readme">README</a> has the details and every key.</p>
       <p>podbay writes only under <code>~/.local/state/podbay/</code>, and it types into an iTerm2 tab only what you or Head Jeeves send. MIT licensed.</p>
     </div></div>
   </section>
 
-  <footer>
+  <footer data-track="section-footer">
     <div class="wrap">
       <span>podbay. Not affiliated with Anthropic.</span>
       <a href="https://github.com/vesahyp/podbay" data-track="footer-github">github.com/vesahyp/podbay</a>
     </div>
   </footer>
+  <!-- The site's own glue over the tracker's public API, so the stats
+       board can answer two questions the tracker does not on its own:
+       did the visit come from a campaign link (utm_source, utm_campaign),
+       and was the install command copied. The copy button writes the
+       clipboard itself; a manual select-and-copy inside the block sends
+       the same signal as a `copy` event. -->
+  <script>
+    (function () {
+      "use strict";
+      var track = function (e, d) { if (window.__clvtracker) window.__clvtracker.track(e, d); };
+      var cmd = document.getElementById("install-cmd");
+      var btn = document.querySelector("button.copy");
+      var text = function () {
+        // The commands only: the comments are for reading, not pasting.
+        return cmd.textContent.split("\n").map(function (l) { return l.replace(/\s+#.*$/, ""); }).join("\n").trim() + "\n";
+      };
+      btn.addEventListener("click", function () {
+        var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1500); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text()).then(done, done);
+        else done();
+      });
+      document.addEventListener("copy", function () {
+        var sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && cmd.contains(sel.anchorNode)) track("copy", { sel: "install-code" });
+      });
+      document.addEventListener("DOMContentLoaded", function () {
+        var q = new URLSearchParams(location.search);
+        var src = q.get("utm_source") || q.get("ref") || q.get("from");
+        if (src) track("campaign", { src: src.slice(0, 30), med: (q.get("utm_medium") || "").slice(0, 30), cmp: (q.get("utm_campaign") || "").slice(0, 30) });
+      });
+    })();
+  </script>
 </body>
 </html>

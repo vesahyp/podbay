@@ -98,6 +98,14 @@ pre {
   padding: 16px 18px; overflow-x: auto; font-size: 14.5px; line-height: 1.6; border-radius: 4px;
 }
 pre .c { color: var(--muted); }
+.code { position: relative; }
+.code pre { margin: 0; padding-right: 84px; }
+.code .copy {
+  position: absolute; top: 10px; right: 10px; cursor: pointer;
+  font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--fg); background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 7px 10px;
+}
+.code .copy:hover { border-color: var(--amber); color: var(--amber); }
 p code, li code { font-size: .9em; color: var(--amber); }
 
 footer { border-top: 1px solid #1c1c1c; padding: 28px 0 48px; color: var(--muted); font-size: 14px; }

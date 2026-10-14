@@ -15,6 +15,9 @@ SELECT
   d.lcp_p75,
   d.cls_p50,
   d.cls_p75,
+  d.inp_p75,
+  d.dur_p50,
+  d.dur_p75,
   d.visitors_hll,
   COALESCE(b.bot_sessions, 0) AS bot_sessions,
   COALESCE(b.bot_events, 0)   AS bot_events
@@ -27,7 +30,9 @@ FROM (
     COUNT(*)            AS events,
     COUNT(CASE WHEN e = 'pageview' THEN 1 END) AS pageviews,
     COUNT(CASE WHEN e = 'crash' THEN 1 END)         AS crashes,
-    COUNT(CASE WHEN e = 'error' THEN 1 END)         AS errors,
+    -- Extension noise is not the site's error; the same filter as in
+    -- breakdowns, so the count and the list agree.
+    COUNT(CASE WHEN e = 'error' AND NOT q['msg'] RLIKE '(?i)extension|runtime\\.sendMessage|runtime\\.connect' THEN 1 END) AS errors,
     -- TRY_CAST for the same reason `events` uses it on q['t']: the beacon
     -- value is whatever arrived over the wire. A single malformed one
     -- ('#', 2026-08-20) failed the whole `daily` node under a plain CAST,
@@ -37,12 +42,18 @@ FROM (
     CAST(percentile_approx(CASE WHEN e = 'lcp' THEN TRY_CAST(q['v'] AS DOUBLE) END, 0.75) AS INT) AS lcp_p75,
     ROUND(percentile_approx(CASE WHEN e = 'cls' THEN TRY_CAST(q['v'] AS DOUBLE) END, 0.5), 3)  AS cls_p50,
     ROUND(percentile_approx(CASE WHEN e = 'cls' THEN TRY_CAST(q['v'] AS DOUBLE) END, 0.75), 3) AS cls_p75,
+    CAST(percentile_approx(CASE WHEN e = 'inp' THEN TRY_CAST(q['v'] AS DOUBLE) END, 0.75) AS INT) AS inp_p75,
+    -- Seconds on the page, from session_end.
+    CAST(percentile_approx(CASE WHEN e = 'session_end' THEN TRY_CAST(q['dur'] AS DOUBLE) END, 0.5) AS INT)  AS dur_p50,
+    CAST(percentile_approx(CASE WHEN e = 'session_end' THEN TRY_CAST(q['dur'] AS DOUBLE) END, 0.75) AS INT) AS dur_p75,
     -- Sketches, not counts: per-day distincts cannot be summed into a week,
     -- so the trailing windows in `rollup` union these instead.
     hll_sketch_agg(uid) AS visitors_hll
   FROM human GROUP BY day, site
 ) d
 LEFT JOIN (
+  -- Sessions are the crawlers that ran the tracker; events are every
+  -- crawler request for the page, robots.txt or the sitemap.
   SELECT day, site, COUNT(DISTINCT sid) AS bot_sessions, COUNT(*) AS bot_events
   FROM ev WHERE is_bot GROUP BY day, site
 ) b ON d.day = b.day AND d.site = b.site
