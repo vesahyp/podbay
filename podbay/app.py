@@ -1349,6 +1349,8 @@ class PodbayApp(App):
         """Ask Head Jeeves to read the board's comment threads (sweep.py)."""
         if not self._head_jeeves or self._head_jeeves_pending is not None or self._quitting:
             return
+        if not config.comment_sweep_on():
+            return
         head = self._head_jeeves_session()
         url = board.load_url()
         if head is None or not sweep_mod.due(head, now, url, self._comment_sweep_at, self._head_jeeves_sent_at):

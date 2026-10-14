@@ -25,6 +25,9 @@ Keys:
               podbay sent him is unanswered), at most once per 30 minutes, so
               the session the phone is bridged to never fills up and never
               has to be replaced. Default 60; 0 or off never compacts.
+  comment_sweep  on (the default) or off: the timed comment check podbay types
+              into Head Jeeves (sweep.py). Off leaves Claude Code's own
+              comment wake as the only path for board comments.
   notify_command  the command `podbay notify <text>` runs with the text as
               its last argument, to push one line to the user's phone (a
               script with fixed arguments, split like a shell line). Empty,
@@ -53,6 +56,7 @@ KEYS = {
     "head-jeeves-account": "head_jeeves_account",
     "head-jeeves-compact-at": "head_jeeves_compact_at",
     "review-model": "review_model",
+    "comment-sweep": "comment_sweep",
     "notify-command": "notify_command",
     "user-name": "user_name",
 }
@@ -103,6 +107,10 @@ def voice_mode(path: Path | None = None) -> str:
 
 def head_jeeves_on(path: Path | None = None) -> bool:
     return str(read(path).get("head_jeeves") or "off") == "on"
+
+
+def comment_sweep_on(path: Path | None = None) -> bool:
+    return str(read(path).get("comment_sweep") or "on") != "off"
 
 
 def review_model(path: Path | None = None) -> str | None:

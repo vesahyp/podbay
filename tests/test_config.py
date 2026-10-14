@@ -41,3 +41,12 @@ def test_cmd_config_prints_and_sets(tmp_path, monkeypatch, capsys):
     assert "home-repo = jeeves" in capsys.readouterr().out
     cmd_config("home-repo", None)
     assert capsys.readouterr().out == "jeeves\n"
+
+
+def test_comment_sweep_is_on_unless_set_off(tmp_path):
+    path = tmp_path / "config.json"
+    assert config.comment_sweep_on(path)
+    config.set_value("comment-sweep", "off", path)
+    assert not config.comment_sweep_on(path)
+    config.set_value("comment-sweep", "on", path)
+    assert config.comment_sweep_on(path)
