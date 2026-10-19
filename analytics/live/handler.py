@@ -16,6 +16,17 @@ per file makes the second run return early; the marker is written after
 the day rows, so a run that failed halfway is retried in full, and the
 sets make the retry harmless.
 
+The same row holds the day by the hour, for the board's today chart:
+v07, c07, g07 are the visits, copies and github sets of 07:00 to 07:59
+Helsinki time. A visit is in the hour of its pageview beacon, a copy
+or a GitHub click in the hour it happened, so a session that opens the
+page at 07:58 and copies at 08:01 is one visit at 7 and one copy at 8.
+The same sets, the same union, the same retry.
+
+A backfill (scripts/live_backfill.py) rebuilds chosen days from the
+log files on S3 with process(force=True, only_days=...); the marker
+rows stay, so the S3 event keeps skipping files it has seen.
+
 The bot filter is the pipeline's: the named crawlers and the headless
 tokens in analytics/clavesa/podbay-traffic/transforms/events.py, then
 crawlerdetect. tests/test_live.py fails when the two lists drift.
@@ -115,8 +126,8 @@ def parse_query(query: str) -> dict[str, str]:
     return out
 
 
-def local_day(q: dict[str, str], date: str, time: str) -> str:
-    """The beacon's own clock, the log's as the fallback, as a Helsinki date."""
+def local_time(q: dict[str, str], date: str, time: str) -> dt.datetime:
+    """The beacon's own clock, the log's as the fallback, in Helsinki time."""
     from zoneinfo import ZoneInfo
 
     ts = None
@@ -128,7 +139,16 @@ def local_day(q: dict[str, str], date: str, time: str) -> str:
         pass
     if ts is None:
         ts = dt.datetime.fromisoformat(f"{date}T{time}+00:00")
-    return ts.astimezone(ZoneInfo(TZ_NAME)).date().isoformat()
+    return ts.astimezone(ZoneInfo(TZ_NAME))
+
+
+def local_day(q: dict[str, str], date: str, time: str) -> str:
+    return local_time(q, date, time).date().isoformat()
+
+
+HOURS = [f"{h:02d}" for h in range(24)]
+# The hour sets of a day row: the day set's first letter and the hour.
+hour_key = {"visits": "v", "copies": "c", "github": "g"}
 
 
 # Positional fallback for a file without a #Fields line.
@@ -137,8 +157,10 @@ _DEFAULT_FIELDS = ("date time x-edge-location sc-bytes c-ip cs-method cs(Host) c
 
 
 def count(lines) -> dict[str, dict[str, set[str]]]:
-    """{day: {"visits": sids, "copies": sids, "github": sids}} of the people
-    in one log file's lines. Crawls have no session and are not here."""
+    """{day: {"visits": sids, "copies": sids, "github": sids, "v07": sids,
+    "c07": sids, ...}} of the people in one log file's lines: the day sets
+    and, under the hour keys, the same by Helsinki hour. Crawls have no
+    session and are not here."""
     fields = list(_DEFAULT_FIELDS)
     days: dict[str, dict[str, set[str]]] = {}
     for raw in lines:
@@ -162,13 +184,19 @@ def count(lines) -> dict[str, dict[str, set[str]]]:
         ua = row.get("cs(User-Agent)", "")
         if bot_name(unquote(ua) if ua != "-" else ""):
             continue
-        day = days.setdefault(local_day(q, row["date"], row["time"]), {"visits": set(), "copies": set(), "github": set()})
-        day["visits"].add(sid)
+        when = local_time(q, row["date"], row["time"])
+        day = days.setdefault(when.date().isoformat(), {"visits": set(), "copies": set(), "github": set()})
+        hour = f"{when.hour:02d}"
         sel = q.get("sel", "")
-        if q["e"] == "copy" or (q["e"] == "click" and sel == "install-copy"):
-            day["copies"].add(sid)
-        if q["e"] == "click" and "github" in sel:
-            day["github"].add(sid)
+        hit = {"visits": True,
+               "copies": q["e"] == "copy" or (q["e"] == "click" and sel == "install-copy"),
+               "github": q["e"] == "click" and "github" in sel}
+        for name, yes in hit.items():
+            if not yes:
+                continue
+            day[name].add(sid)
+            if name != "visits" or q["e"] == "pageview":
+                day.setdefault(hour_key[name] + hour, set()).add(sid)
     return days
 
 
@@ -183,17 +211,21 @@ def _ttl() -> int:
     return int(dt.datetime.now(dt.timezone.utc).timestamp()) + TTL_DAYS * 86400
 
 
-def process(bucket: str, key: str) -> str:
-    """One log file into the day rows. Returns what happened, for the log."""
+def process(bucket: str, key: str, force: bool = False, only_days=None) -> str:
+    """One log file into the day rows. Returns what happened, for the log.
+    force ignores the file's marker (a backfill); only_days keeps the
+    rows of the other days as they are."""
     import boto3
 
     table = _table()
     marker = {"pk": f"file#{key}"}
-    if "pk" in table.get_item(Key=marker, ProjectionExpression="pk").get("Item", {}):
+    if not force and "pk" in table.get_item(Key=marker, ProjectionExpression="pk").get("Item", {}):
         return "skipped, seen before"
     body = boto3.client("s3").get_object(Bucket=bucket, Key=key)["Body"].read()
     with gzip.open(io.BytesIO(body), "rt", encoding="utf-8", errors="replace") as f:
         days = count(f)
+    if only_days is not None:
+        days = {day: sets for day, sets in days.items() if day in only_days}
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     for day, sets in sorted(days.items()):
         adds = {name: sids for name, sids in sets.items() if sids}
@@ -211,6 +243,18 @@ def process(bucket: str, key: str) -> str:
     return "counted " + ", ".join(f"{d}: {len(s['visits'])} visits" for d, s in sorted(days.items())) if days else "no people in it"
 
 
+def day_summary(item: dict) -> dict:
+    """A day row as the board reads it: the counts, and hours as 24
+    [visits, copies, github] triples, midnight first."""
+    return {
+        "visits": len(item.get("visits", ())),
+        "copies": len(item.get("copies", ())),
+        "github": len(item.get("github", ())),
+        "files": int(item.get("files", 0)),
+        "hours": [[len(item.get(k + h, ())) for k in ("v", "c", "g")] for h in HOURS],
+    }
+
+
 def publish() -> dict:
     """data/live.json: today and yesterday, Helsinki time."""
     import boto3
@@ -221,12 +265,7 @@ def publish() -> dict:
     out = {"site": SITE, "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "days": {}}
     for day in (today - dt.timedelta(days=1), today):
         item = table.get_item(Key={"pk": f"{SITE}#{day.isoformat()}"}).get("Item", {})
-        out["days"][day.isoformat()] = {
-            "visits": len(item.get("visits", ())),
-            "copies": len(item.get("copies", ())),
-            "github": len(item.get("github", ())),
-            "files": int(item.get("files", 0)),
-        }
+        out["days"][day.isoformat()] = day_summary(item)
     boto3.client("s3").put_object(
         Bucket=os.environ["SITE_BUCKET"], Key=LIVE_KEY, Body=json.dumps(out).encode(),
         ContentType="application/json", CacheControl="public, max-age=60",

@@ -77,6 +77,39 @@ def test_counts_people_by_session_and_helsinki_day():
     assert d["copies"] == {"s1"}
     assert d["github"] == {"s1"}
     assert days["2026-10-19"]["visits"] == {"s5"}
+    # The hour sets: a visit in the hour of its pageview, Helsinki time; a
+    # copy or a GitHub click in its own hour. Bots and non-beacons are not
+    # in them either.
+    assert d["v13"] == {"s1", "s2"}
+    assert d["c13"] == {"s1"}
+    assert d["g13"] == {"s1"}
+    assert not [k for k in d if k[0] in "vcg" and k[1:].isdigit() and k not in ("v13", "c13", "g13")]
+    assert days["2026-10-19"]["v01"] == {"s5"}
+
+
+def test_a_visit_that_crosses_the_hour_counts_once_per_set():
+    mod = _load()
+    t0 = 1792317540000  # 2026-10-18 09:59:00 UTC, 12:59 Helsinki
+    lines = [
+        FIELDS,
+        _line("09:59:00", UA, _q("pageview", "s1", t0)),
+        _line("10:00:30", UA, _q("click", "s1", t0 + 90000, sel="install-copy")),
+        _line("10:00:40", UA, _q("pageview", "s1", t0 + 100000)),
+    ]
+    d = mod.count(lines)["2026-10-18"]
+    assert d["visits"] == {"s1"} and d["copies"] == {"s1"}
+    assert d["v12"] == {"s1"} and d["v13"] == {"s1"}  # a reload in the next hour is a visit there too
+    assert d["c13"] == {"s1"} and "c12" not in d
+
+
+def test_day_summary_has_24_hour_triples():
+    mod = _load()
+    item = {"visits": {"a", "b"}, "copies": {"a"}, "files": 3, "v07": {"a"}, "v09": {"b"}, "c09": {"a"}}
+    out = mod.day_summary(item)
+    assert out["visits"] == 2 and out["copies"] == 1 and out["github"] == 0 and out["files"] == 3
+    assert len(out["hours"]) == 24
+    assert out["hours"][7] == [1, 0, 0] and out["hours"][9] == [1, 1, 0] and out["hours"][0] == [0, 0, 0]
+    assert mod.day_summary({})["hours"] == [[0, 0, 0]] * 24
 
 
 def test_log_clock_is_the_fallback_for_a_bad_beacon_clock():

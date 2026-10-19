@@ -1,4 +1,4 @@
-.PHONY: help run list test check install ship install-skill shots stats-shots board-check plan apply outputs deploy analytics live-build live-check live-logs
+.PHONY: help run list test check install ship install-skill shots stats-shots board-check plan apply outputs deploy analytics live-build live-check live-logs live-backfill
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -22,7 +22,7 @@ help:
 	@echo "make ship      push main to origin, then make install: the one way a change reaches the installed copy"
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
-	@echo "make stats-shots  the stats board on desktop and iPhone, into .shots/ (URL=, DATA= for a local check)"
+	@echo "make stats-shots  the stats board on desktop and iPhone, into .shots/ (URL=, DATA=, LIVE= for a local check)"
 	@echo "make board-check  tap every board line on a phone, check what reaches Head Jeeves"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
 	@echo "make apply     terraform apply the saved plan"
@@ -31,6 +31,7 @@ help:
 	@echo "make live-build  zip the today-so-far Lambda with its dependencies into infra/.build/ (make plan runs it)"
 	@echo "make live-check  one visit to the live page, then wait until the today-so-far line counts it; prints the delay"
 	@echo "make live-logs   the Lambda's last log lines"
+	@echo "make live-backfill  rebuild today and yesterday's rows from the log files on S3 (DAYS=\"2026-10-18\" for others)"
 
 run:
 	@$(PODBAY) podbay
@@ -86,7 +87,7 @@ shots:
 # The stats board as a reader sees it, live by default. Not committed.
 stats-shots:
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
-	@$(PODBAY) --with playwright python scripts/stats_shots.py $(if $(URL),--url $(URL)) $(if $(DATA),--data $(DATA))
+	@$(PODBAY) --with playwright python scripts/stats_shots.py $(if $(URL),--url $(URL)) $(if $(DATA),--data $(DATA)) $(if $(LIVE),--live $(LIVE))
 
 board-check:
 	@$(PODBAY) --with playwright python scripts/board_check.py
@@ -109,6 +110,14 @@ live-check:
 
 live-logs:
 	@$(AWS) logs tail /aws/lambda/podbay-live --since 3h --format short
+
+# The Lambda's own code over the log files again, from this machine, for
+# the days named (default today and yesterday). Run it after a change to
+# the row shape, so the board is not empty until tomorrow.
+live-backfill:
+	@AWS_PROFILE=$(PROFILE) TABLE=$$($(TF) output -raw live_table) SITE_BUCKET=$$($(TF) output -raw bucket_name) \
+	  LOGS_BUCKET=$$($(TF) output -raw logs_bucket_name) \
+	  $(PODBAY) --with boto3 --with crawlerdetect --with tzdata python scripts/live_backfill.py $(DAYS)
 
 plan: live-build
 	$(TF) init -input=false -backend-config="bucket=$(TFSTATE_BUCKET)"
