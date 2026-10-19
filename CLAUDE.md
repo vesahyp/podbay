@@ -23,6 +23,8 @@ make ship       git push origin main, then make install. Always this,
                 copy on the old commit
 
 make shots      the site's screenshots into site/img/ (Playwright)
+make page-shots the landing page, full page, on desktop and iPhone 16 into
+                  .shots/, not committed; site/ served locally, URL= for live
 make stats-shots  the stats board on desktop and iPhone, into .shots/,
                   not committed; URL= and DATA= check a local copy first
 make plan       terraform plan for infra/, saved to infra/tfplan
