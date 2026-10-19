@@ -30,8 +30,9 @@ make apply      apply the saved plan
 make deploy     sync site/ to the bucket and invalidate
 make analytics  the traffic rollup now; cron runs it nightly at 07:30
 make live-build zip the today-so-far Lambda for Terraform (make plan runs it)
-make live-check one visit, then the minutes until the board's today line counts it
+make live-check one visit, then the minutes until the board's today chart counts it
 make live-logs  the Lambda's last log lines
+make live-backfill  rebuild today and yesterday's rows from the log files on S3
 ```
 
 ## Layout
@@ -110,12 +111,14 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 - The clavesa workspace is local: never run `clavesa deploy` from
   `analytics/`. The nightly is `clavesa pipeline run podbay-traffic` on
   this machine, against a Delta warehouse under `.clavesa/warehouse/`.
-- The board's first line, today so far, is a second source: an S3 event
+- The board's first card, today so far, is a second source: an S3 event
   on the log bucket runs `analytics/live/handler.py` for each log file
   (`infra/live.tf`), which adds the file's human sessions to a DynamoDB
-  row per Helsinki day and writes `data/live.json`. The bot lists are
-  copied from the pipeline's `events.py`, and `tests/test_live.py` fails
-  when they drift. The nightly run stays the record; the line says so.
+  row per Helsinki day, by the hour, and writes `data/live.json`; the
+  card charts visits per hour against yesterday. The bot lists are copied
+  from the pipeline's `events.py`, and `tests/test_live.py` fails when
+  they drift. The nightly run stays the record; the card says so. After a
+  change to the row shape, `make live-backfill` rebuilds the two days.
 
 ## Starved machine
 
