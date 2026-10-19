@@ -110,14 +110,24 @@
     const SOURCE_ORDER = ["direct", "GitHub", "search", "social", "other sites"];
     const SOURCE_COLOR = { direct: C.n, GitHub: C.s2, search: C.s3, social: C.s4, "other sites": C.s1 };
 
-    const SECTIONS = [["section-hero", "Hero"], ["section-console", "Console shot"], ["section-features", "Features"],
-      ["section-keys", "Keys"], ["section-head-jeeves", "Head Jeeves"], ["section-install", "Install"], ["section-footer", "Footer"]];
+    // Page order of the landing page. The six setup steps are rows of their
+    // own, indented, so the chart says where inside the setup reading stops.
+    // Sections the page no longer has (section-install, before 19 Oct 2026)
+    // stay in the data and are left out here.
+    const SECTIONS = [["section-hero", "Hero"], ["section-morning", "A morning with Head Jeeves"], ["section-setup", "Set up"],
+      ["section-setup-1", "  1 Install podbay"], ["section-setup-2", "  2 Turn Head Jeeves on"], ["section-setup-3", "  3 Remote Control"],
+      ["section-setup-4", "  4 The Claude app"], ["section-setup-5", "  5 Push alerts"], ["section-setup-6", "  6 Type sup"],
+      ["section-say", "What you can say"], ["section-phone", "Two things only"], ["section-hood", "Under the hood"],
+      ["section-console", "Console shot"], ["section-features", "Features"], ["section-keys", "Keys"],
+      ["section-head-jeeves", "Head Jeeves, in detail"], ["section-footer", "Footer"]];
     const CARDS = [["card-who-needs-you", "Who needs you"], ["card-what-runs", "What runs"], ["card-what-is-left", "What is left"],
       ["card-every-account", "Every account"], ["card-read-drive", "Read, drive a little"], ["card-cli", "A CLI underneath"],
       ["card-machine-health", "Machine health"], ["card-heated-prompts", "Heated prompts"], ["card-which-repos", "Which repos"]];
-    const LINKS = [["hero-install", "Install (hero)"], ["hero-github", "GitHub (hero)"], ["install-copy", "Copy command"],
-      ["install-readme", "README"], ["nav-install", "Install (nav)"], ["nav-github", "GitHub (nav)"], ["nav-head-jeeves", "Head Jeeves (nav)"],
-      ["nav-console", "Console (nav)"], ["footer-github", "GitHub (footer)"]];
+    const LINKS = [["hero-install", "Set up (hero)"], ["hero-github", "GitHub (hero)"], ["install-copy", "Copy command"],
+      ["install-readme", "README"], ["nav-setup", "Set up (nav)"], ["nav-morning", "A morning (nav)"], ["nav-hood", "Under the hood (nav)"],
+      ["nav-github", "GitHub (nav)"], ["footer-github", "GitHub (footer)"],
+      // Links the page had before 19 Oct 2026, so the older days still show.
+      ["nav-install", "Install (nav, old)"], ["nav-head-jeeves", "Head Jeeves (nav, old)"], ["nav-console", "Console (nav, old)"]];
     const DUR_BANDS = ["<10 s", "10-30 s", "30-60 s", "1-3 min", "3 min+", "unknown"];
     const COUNTRY = { FI: "Finland", US: "United States", DE: "Germany", GB: "United Kingdom", SE: "Sweden", NO: "Norway", DK: "Denmark",
       NL: "Netherlands", FR: "France", ES: "Spain", IT: "Italy", PL: "Poland", EE: "Estonia", CA: "Canada", AU: "Australia", IN: "India",
@@ -387,7 +397,7 @@
       const views = S("cta_view"), disp = S("cta_displayed");
       const secRows = SECTIONS.map(([k, label]) => ({ label, value: pct(views[k] || 0, sessions), note: `${pct(views[k] || 0, sessions)}% · ${views[k] || 0}` }));
       html += Object.keys(views).some((k) => k.startsWith("section-"))
-        ? card("How far down the page they get", "The share of visits that scrolled each section into view, in page order. Where the bars drop is where reading stops.", rankChart({ rows: secRows, unit: "% of visits", pctOf: true, maxValue: 100 }))
+        ? card("How far down the page they get", "The share of visits that scrolled each section into view, in page order. The indented rows are the six setup steps. Where the bars drop is where reading stops. The page was rebuilt on 19 Oct 2026: the sections before that date had other names, so a range that starts earlier shows low bars for the new ones.", rankChart({ rows: secRows, unit: "% of visits", pctOf: true, maxValue: 100 }))
         : emptyCard("How far down the page they get", "The share of visits that scrolled each section into view.", "Section tracking started on 14 Oct 2026; the first numbers arrive with the next nightly run.");
       const cardRows = CARDS.map(([k, label]) => ({ label, value: pct(disp[k] || 0, sessions), note: `${pct(disp[k] || 0, sessions)}% · ${disp[k] || 0}` })).sort((a, b) => b.value - a.value);
       html += Object.keys(disp).some((k) => k.startsWith("card-"))
