@@ -1,6 +1,7 @@
-"""The site's screenshots: the podbay console, the phone board, the Head
-Jeeves chat as the phone shows it and one push notification, from made-up
-sessions, never this machine's.
+"""The site's screenshots: the podbay console and the phone board over
+made-up sessions, and the Head Jeeves chat and one push notification as the
+phone shows them, quoting a real exchange (the author okayed naming the
+real projects on the site; the console and board stay a demo).
 
 The console is the real TUI mounted headless with every source of live data
 replaced by the demo below; Textual exports the screen as SVG. The board is
@@ -200,25 +201,28 @@ async def open_svg(tmp: Path) -> str:
         return app.export_screenshot(title="podbay")
 
 
-# What the Claude app shows while talking to Head Jeeves: one exchange,
-# the order on the phone, the reply, and the line that came back when the
-# work was ready. The lines are the shape of real ones, with the project
-# names of the demo sessions above.
+# What the Claude app shows while talking to Head Jeeves: one morning's
+# real exchange, condensed. The order on the phone, the reply, the line
+# that came back twelve minutes later when the work was ready, and the
+# message that asked for this landing page. The times are Helsinki time.
 CHAT = [
-    ("you", "So its just the top text? Was hoping for a graph here.", "09:14"),
-    ("hj", "Yes, it's only a line of text, and that's my mistake. I've started a new session to turn it into a chart, "
-           "on the work account with Opus: visits per hour since midnight, with yesterday's curve behind it. "
-           "It goes at the top of https://atlas.example.com/stats/.", "09:15"),
-    ("gap", "2 hours later", ""),
-    ("hj", "The atlas stats page now opens with an hourly Today chart with yesterday behind it, "
-           "ready for you to test at https://atlas.example.com/stats/.", "11:27"),
-    ("you", "sup", "11:40"),
-    ("hj", "Nothing waits on you. The tile server metrics session adds its latency charts, done in about an hour. "
-           "Board: https://claude.ai/artifact/demo", "11:40"),
+    ("you", "So its just the top text? Was hoping for a graph here.", "08:14"),
+    ("hj", "Yes, it's only a line of text, and that's my mistake: my brief asked for a line when your rule is that "
+           "numbers on a board arrive as charts. I've started a new session to make it a chart: visits per hour "
+           "since midnight, with yesterday's curve behind it. It goes at the top of https://podbay.tienoo.com/stats/.", "08:15"),
+    ("gap", "12 minutes later", ""),
+    ("hj", "The podbay stats page now opens with an hourly Today chart with yesterday behind it, "
+           "ready for you to test at https://podbay.tienoo.com/stats/.", "08:27"),
+    ("you", "Podbay copy doesnt mention claude app for mobile and how to talk to head jeeves? "
+            "The tech detail etc is great but real people want to see the how. Like what i'm doing now.", "08:36"),
+    ("hj", "Agreed. The page explains how podbay works but never shows using it. The thing that sells it is you on "
+           "the phone, sending one line and having work happen on the Mac. Here are ideas to change that.", "08:36"),
 ]
 
-PUSH = ("Head Jeeves", "The atlas stats page now opens with an hourly Today chart with yesterday behind it, "
-                       "ready for you to test at https://atlas.example.com/stats/.")
+# The push that came at 08:26: the title is the fixed argument of the
+# notify command, the sender the site that registered the phone.
+PUSH = ("Head Jeeves", "The podbay stats page now opens with an hourly Today chart with yesterday behind it, "
+                       "ready for you to test at https://podbay.tienoo.com/stats/.")
 
 
 def chat_html() -> str:
@@ -255,7 +259,7 @@ def chat_html() -> str:
   .input b {{ width: 26px; height: 26px; border-radius: 50%; background: #d4a574; display: inline-block; margin: -3px -6px -3px 0; }}
 </style>
 <div class="screen">
-  <div class="status"><span>11:41</span><span>●●● ▲ ▮</span></div>
+  <div class="status"><span>08:37</span><span>●●● ▲ ▮</span></div>
   <div class="bar"><span class="back">‹ Code</span><span class="name"><i></i>head-jeeves</span><span class="dots">•••</span></div>
   <div class="list">{"".join(rows)}</div>
   <div class="input"><span>Message head-jeeves</span><b></b></div>
@@ -267,13 +271,13 @@ def push_html() -> str:
     fixed argument of the notify command, the body the line Head Jeeves
     sent, and tapping it opens the board."""
     title, body = PUSH
-    return f"""<!doctype html><meta charset="utf-8">
+    return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   html, body {{ margin: 0; background: #0c0f18; font: 15px/1.35 -apple-system, "SF Pro Text", system-ui, sans-serif; color: #fff; }}
-  .screen {{ width: 393px; height: 300px; background: linear-gradient(160deg, #1c2233 0%, #0c0f18 60%, #1a0f10 100%); }}
-  .time {{ text-align: center; padding-top: 34px; font-size: 20px; font-weight: 500; opacity: .9; }}
-  .time b {{ display: block; font-size: 64px; font-weight: 300; line-height: 1.05; }}
-  .n {{ margin: 22px 10px 0; background: rgba(255,255,255,.14); backdrop-filter: blur(20px); border-radius: 22px; padding: 12px 14px 12px 12px; display: flex; gap: 12px; align-items: flex-start; }}
+  .screen {{ width: 393px; height: 236px; background: linear-gradient(160deg, #1c2233 0%, #0c0f18 60%, #1a0f10 100%); }}
+  .time {{ text-align: center; padding-top: 12px; font-size: 15px; font-weight: 500; opacity: .9; }}
+  .time b {{ display: block; font-size: 40px; font-weight: 300; line-height: 1.1; }}
+  .n {{ margin: 10px 10px 0; background: rgba(255,255,255,.14); backdrop-filter: blur(20px); border-radius: 22px; padding: 12px 14px 12px 12px; display: flex; gap: 12px; align-items: flex-start; }}
   .n .ic {{ flex: none; width: 38px; height: 38px; border-radius: 9px; background: radial-gradient(circle, #fff3c4 0 3%, #ffb000 9%, #e0201f 28%, #6a0606 58%, #1a0000 76%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }}
   .n .x {{ flex: 1; min-width: 0; }}
   .n .h {{ display: flex; justify-content: space-between; font-weight: 600; }}
@@ -282,8 +286,8 @@ def push_html() -> str:
   .n .b {{ font-size: 14px; }}
 </style>
 <div class="screen">
-<div class="time">Tuesday 20 October<b>11:27</b></div>
-<div class="n"><div class="ic"></div><div class="x"><div class="s">jeeves.example.com</div><div class="h"><span>{title}</span><span>now</span></div><div class="b">{body}</div></div></div>
+<div class="time">Monday 19 October<b>08:26</b></div>
+<div class="n"><div class="ic"></div><div class="x"><div class="s">jeeves.tienoo.com</div><div class="h"><span>{title}</span><span>now</span></div><div class="b">{body}</div></div></div>
 </div>"""
 
 
@@ -329,7 +333,7 @@ async def main() -> None:
             await phone.goto((tmp / "chat.html").as_uri())
             await phone.screenshot(path=str(OUT / "chat.png"))
             await phone.goto((tmp / "push.html").as_uri())
-            await phone.screenshot(path=str(OUT / "push.png"), clip={"x": 0, "y": 0, "width": 393, "height": 130})
+            await phone.screenshot(path=str(OUT / "push.png"), clip={"x": 0, "y": 0, "width": 393, "height": 236})
             await browser.close()
     for f in sorted(OUT.glob("*.png")):
         print(f.relative_to(REPO))

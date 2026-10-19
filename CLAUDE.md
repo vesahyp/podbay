@@ -97,8 +97,12 @@ podbay.tienoo.com is one static page, no build step. `make deploy` syncs
 `site/` with `--delete` but excludes `data/`, which the analytics pipeline
 owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 
-- The screenshots show made-up sessions only. Change the demo in
-  `scripts/shots.py`, run `make shots`, commit the PNGs.
+- The console and board screenshots show made-up sessions. The chat and
+  push mockups quote a real exchange with Head Jeeves, and the morning
+  section on the page quotes real ones with the real project names: the
+  author okayed it, nothing in them is confidential. Change the demo or
+  the quoted lines in `scripts/shots.py`, run `make shots`, commit the
+  PNGs.
 - The tienoo.com zone is read as a data source, never declared here.
 - The Terraform state bucket is not in the repo: `make plan` passes it as
   `TFSTATE_BUCKET`, by default `<login>-backup-<account id>`.
@@ -148,9 +152,11 @@ show the figures and a chart from `machine.jsonl`, one sample a minute.
   CLI. Add a hands-on key only when the user asks for it.
 - `Enter` is the only action that switches to iTerm2.
 - Every user-facing string lives in `voice.py`.
-- Nothing personal in the repo: no login names, no home paths, no repo
-  names from one machine. Tests build paths from `Path.home()` and set
-  the home base in `conftest.py`.
+- Nothing personal in the code, the tests or the docs: no login names,
+  no home paths, no repo names from one machine. Tests build paths from
+  `Path.home()` and set the home base in `conftest.py`. The one exception
+  is the site: its quoted exchanges name the author's real projects (see
+  The site above), and `make check` still fails on the author's name.
 - Commit messages in English.
 - The `podbay` on the PATH and the status line run from `.release/`, never
   from your working tree. To test a change, use `make run` or
