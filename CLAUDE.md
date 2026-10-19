@@ -29,6 +29,9 @@ make plan       terraform plan for infra/, saved to infra/tfplan
 make apply      apply the saved plan
 make deploy     sync site/ to the bucket and invalidate
 make analytics  the traffic rollup now; cron runs it nightly at 07:30
+make live-build zip the today-so-far Lambda for Terraform (make plan runs it)
+make live-check one visit, then the minutes until the board's today line counts it
+make live-logs  the Lambda's last log lines
 ```
 
 ## Layout
@@ -80,6 +83,9 @@ site/               podbay.tienoo.com, static: index, 404, stats/ board,
                       tracker.js (clavesa's, vendored unmodified), t.gif
 infra/              its Terraform: S3 + CloudFront + ACM + Route 53
 analytics/          clavesa workspace: CloudFront logs to data/analytics.json
+  live/             the today-so-far Lambda: each log file as it lands, to
+                      DynamoDB day rows and data/live.json; its header has
+                      the design and why sets, not counters
 ```
 
 ## The site
@@ -104,6 +110,12 @@ owns, and uploads `t.gif` as `no-store`. Commit before you deploy.
 - The clavesa workspace is local: never run `clavesa deploy` from
   `analytics/`. The nightly is `clavesa pipeline run podbay-traffic` on
   this machine, against a Delta warehouse under `.clavesa/warehouse/`.
+- The board's first line, today so far, is a second source: an S3 event
+  on the log bucket runs `analytics/live/handler.py` for each log file
+  (`infra/live.tf`), which adds the file's human sessions to a DynamoDB
+  row per Helsinki day and writes `data/live.json`. The bot lists are
+  copied from the pipeline's `events.py`, and `tests/test_live.py` fails
+  when they drift. The nightly run stays the record; the line says so.
 
 ## Starved machine
 

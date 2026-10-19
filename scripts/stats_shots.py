@@ -44,12 +44,15 @@ async def main() -> None:
             page.on("pageerror", lambda e: errors.append(str(e)))
             await page.goto(f"{args.url}/stats/", wait_until="networkidle")
             await page.wait_for_selector(".card svg", timeout=15000)
+            # Today so far, when live.json is there; its text is the proof.
+            live = await page.locator("#live").text_content() if await page.locator("#live").count() else "(no live line)"
             await page.screenshot(path=str(OUT / f"{name}.png"), full_page=True)
             if errors:
                 raise SystemExit(f"{name}: page errors: {errors}")
             cards = await page.locator(".card").count()
             axes = await page.locator(".card svg text.lbl").count()
             print(f"{OUT.relative_to(REPO)}/{name}.png  {cards} cards, {axes} axis labels")
+            print(f"  {live.strip()[:120]}")
             await context.close()
         await browser.close()
 

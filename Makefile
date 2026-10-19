@@ -1,4 +1,4 @@
-.PHONY: help run list test check install ship install-skill shots stats-shots board-check plan apply outputs deploy analytics
+.PHONY: help run list test check install ship install-skill shots stats-shots board-check plan apply outputs deploy analytics live-build live-check live-logs
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -28,6 +28,9 @@ help:
 	@echo "make apply     terraform apply the saved plan"
 	@echo "make deploy    ship site/ to podbay.tienoo.com"
 	@echo "make analytics run the site's traffic rollup now (cron runs it nightly)"
+	@echo "make live-build  zip the today-so-far Lambda with its dependencies into infra/.build/ (make plan runs it)"
+	@echo "make live-check  one visit to the live page, then wait until the today-so-far line counts it; prints the delay"
+	@echo "make live-logs   the Lambda's last log lines"
 
 run:
 	@$(PODBAY) podbay
@@ -88,7 +91,26 @@ stats-shots:
 board-check:
 	@$(PODBAY) --with playwright python scripts/board_check.py
 
-plan:
+# The today-so-far Lambda (analytics/live/) with its two pure-Python
+# dependencies, laid out for Terraform's archive_file. Pure Python, so the
+# build machine's platform does not matter; --no-compile keeps the zip's
+# hash a function of the sources alone.
+live-build:
+	@rm -rf infra/.build/live && mkdir -p infra/.build/live
+	@uv pip install --quiet --no-compile --target infra/.build/live --python 3.13 -r analytics/live/requirements.txt
+	@cp analytics/live/handler.py infra/.build/live/
+	@echo "→ infra/.build/live ($$(du -sh infra/.build/live | cut -f1))"
+
+# One pageview beacon as an iPhone (the bot filter lets it through), then
+# polls /data/live.json until the day's visits grow. The visit counts on
+# the board like any other; run it when the delay is in question.
+live-check:
+	@$(PODBAY) python scripts/live_check.py $(if $(URL),--url $(URL))
+
+live-logs:
+	@$(AWS) logs tail /aws/lambda/podbay-live --since 3h --format short
+
+plan: live-build
 	$(TF) init -input=false -backend-config="bucket=$(TFSTATE_BUCKET)"
 	$(TF) plan -out=tfplan
 

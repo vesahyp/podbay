@@ -13,6 +13,11 @@
     pipeline aggregates. Not tracked, not indexed, not authenticated: put
     nothing here that cannot survive being found.
 
+    The first line under the title is today so far, from /data/live.json:
+    the Lambda in analytics/live/ counts each CloudFront log file as it
+    lands, a few minutes after the visit. Provisional, people only, and
+    the nightly run replaces it the next morning.
+
     Every chart is inline SVG drawn by the script below: no chart library,
     no third-party request. Each one answers one question, written above
     it, and has labelled axes, a unit, and a table twin behind "as a
@@ -23,6 +28,9 @@
     main { padding-bottom: 64px; }
     h1 { font: 600 26px/1.2 var(--mono); margin: 8px 0 6px; }
     .note { color: var(--muted); font-size: 14px; margin: 0 0 18px; max-width: 46em; }
+    .live { font-size: 14px; line-height: 1.5; margin: 0 0 10px; max-width: 46em; padding: 8px 12px; border-left: 3px solid var(--amber); background: var(--panel); }
+    .live strong { color: var(--fg); font-weight: 600; }
+    .live span { color: var(--muted); }
     .range { display: flex; gap: 6px; align-items: center; margin: 0 0 18px; font-size: 13px; color: var(--muted); }
     .range button { font: 500 12px/1 var(--mono); letter-spacing: .06em; color: var(--fg); background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; padding: 7px 10px; cursor: pointer; }
     .range button[aria-pressed="true"] { border-color: var(--red); color: #fff; background: #2a0c0c; }
@@ -284,6 +292,7 @@
 
       let html = `
         <h1>What the site tells us</h1>
+        ${liveLine(latest)}
         <p class="note">podbay.tienoo.com, people only; crawlers are counted apart. The nightly run adds yesterday, so the latest day is ${esc(dayLabel(latest))}. Days are Helsinki time. A "session" is one visit; a "conversion" is the install command copied or GitHub opened.</p>
         <div class="range"><span>Range</span>${rangeBtn(30, "30 days")}${rangeBtn(90, "90 days")}${rangeBtn(0, "all")}</div>
         <div class="hero-n"><div><strong>${fmtN(sessions)}</strong><span>visits in the last ${span} days</span></div><div style="width:160px">${spark(win.map((r) => r.sessions), C.s1)}</div></div>
@@ -402,8 +411,40 @@
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((rows) => { if (!rows.length) throw new Error("empty"); data = rows.slice().sort((a, b) => (a.date < b.date ? -1 : 1)); render(data, current); })
       .catch(() => {
-        board.innerHTML = '<h1>What the site tells us</h1><p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>';
+        board.innerHTML = `<h1>What the site tells us</h1>${liveLine(null)}<p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>`;
       });
+
+    // --- today so far ----------------------------------------------------
+    // /data/live.json is the second source: the Lambda that counts every
+    // log file as it lands writes it. Today and yesterday, Helsinki dates,
+    // sessions of people. The nightly run is the record; this line says
+    // what has arrived so far and when it last grew.
+    let live = null;
+    const helsinki = (d, opts) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Helsinki", ...opts }).format(d);
+    const helsinkiDate = (d) => helsinki(d, { year: "numeric", month: "2-digit", day: "2-digit" });
+    function liveLine(latest) {
+      if (!live) return "";
+      const now = new Date();
+      const today = helsinkiDate(now);
+      const yesterday = helsinkiDate(new Date(now - 864e5));
+      const row = (d) => (live.days && live.days[d]) || { visits: 0, copies: 0, github: 0 };
+      const say = (r) => `<strong>${r.visits} ${r.visits === 1 ? "visit" : "visits"}</strong>, ${r.copies} copied the install command, ${r.github} opened GitHub`;
+      const upd = new Date(live.updated);
+      const when = helsinkiDate(upd) === today ? helsinki(upd, { hour: "2-digit", minute: "2-digit" }) : `${dayLabel(helsinkiDate(upd))} ${helsinki(upd, { hour: "2-digit", minute: "2-digit" })}`;
+      let out = `<p class="live" id="live">Today so far: ${say(row(today))}.`;
+      if (!latest || latest < yesterday) out += ` Yesterday: ${say(row(yesterday))}.`;
+      out += ` <span>Updated ${esc(when)}. Provisional: counted from the log files that have landed, a few minutes behind; the nightly run is the record.</span></p>`;
+      return out;
+    }
+    fetch("/data/live.json", { cache: "no-cache" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((j) => {
+        live = j;
+        const latest = data ? data[data.length - 1].date : null;
+        const h1 = board.querySelector("h1");
+        if (h1 && !board.querySelector("#live")) h1.insertAdjacentHTML("afterend", liveLine(latest));
+      })
+      .catch(() => {});
   </script>
 </body>
 </html>

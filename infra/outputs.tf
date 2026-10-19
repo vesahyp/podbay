@@ -9,3 +9,7 @@ output "distribution_id" {
 output "site_url" {
   value = "https://${var.site_domain}"
 }
+
+output "live_function" {
+  value = aws_lambda_function.live.function_name
+}
