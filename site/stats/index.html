@@ -13,10 +13,10 @@
     pipeline aggregates. Not tracked, not indexed, not authenticated: put
     nothing here that cannot survive being found.
 
-    The first line under the title is today so far, from /data/live.json:
+    The first card under the title is today so far, from /data/live.json:
     the Lambda in analytics/live/ counts each CloudFront log file as it
-    lands, a few minutes after the visit. Provisional, people only, and
-    the nightly run replaces it the next morning.
+    lands, a few minutes after the visit, by Helsinki hour. Provisional,
+    people only, and the nightly run replaces it the next morning.
 
     Every chart is inline SVG drawn by the script below: no chart library,
     no third-party request. Each one answers one question, written above
@@ -28,9 +28,8 @@
     main { padding-bottom: 64px; }
     h1 { font: 600 26px/1.2 var(--mono); margin: 8px 0 6px; }
     .note { color: var(--muted); font-size: 14px; margin: 0 0 18px; max-width: 46em; }
-    .live { font-size: 14px; line-height: 1.5; margin: 0 0 10px; max-width: 46em; padding: 8px 12px; border-left: 3px solid var(--amber); background: var(--panel); }
-    .live strong { color: var(--fg); font-weight: 600; }
-    .live span { color: var(--muted); }
+    .card.live { border-left: 3px solid var(--amber); margin: 0 0 14px; }
+    .card.live h3 strong { color: var(--fg); font-weight: 600; }
     .range { display: flex; gap: 6px; align-items: center; margin: 0 0 18px; font-size: 13px; color: var(--muted); }
     .range button { font: 500 12px/1 var(--mono); letter-spacing: .06em; color: var(--fg); background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; padding: 7px 10px; cursor: pointer; }
     .range button[aria-pressed="true"] { border-color: var(--red); color: #fff; background: #2a0c0c; }
@@ -253,6 +252,50 @@
       return { svg: out, table, legend: "" };
     }
 
+    // Today by the hour: bars for today up to now, yesterday as a faded
+    // curve behind them, a dot above a bar for each conversion kind in
+    // that hour. today, yesterday: 24 rows of [visits, copies, github].
+    function hourChart({ today, yesterday, now, full }) {
+      const width = W(full), height = 232, L = 44, R = 8, T = 26, B = 40;
+      const pw = width - L - R, ph = height - T - B;
+      const top = Math.max(1, ...today.map((h) => h[0]), ...yesterday.map((h) => h[0]));
+      // Whole visits on the axis: a count never needs a half.
+      const ymax = top <= 5 ? Math.max(2, top + 1) : niceMax(top);
+      const tk = ymax <= 6 ? Array.from({ length: ymax + 1 }, (_, i) => i) : ticks(ymax);
+      const y = (v) => T + ph - (v / ymax) * ph;
+      const slot = pw / 24, bw = Math.min(24, slot - 2), cx = (h) => L + slot * (h + 0.5);
+      const hh = (h) => `${String(h).padStart(2, "0")}:00`;
+      let out = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img">`;
+      for (const t of tk) out += `<line class="grid" x1="${L}" x2="${width - R}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${fmtN(t)}</text>`;
+      out += `<line class="axis" x1="${L}" x2="${width - R}" y1="${y(0)}" y2="${y(0)}"/>`;
+      for (let h = 0; h < 24; h += 3) out += `<text x="${cx(h)}" y="${height - 22}" text-anchor="middle">${h}</text>`;
+      out += `<text x="${L}" y="${height - 6}" class="lbl">hour of the day, Helsinki time</text>`;
+      // Yesterday, the whole day, behind everything.
+      const pts = yesterday.map((h, i) => `${cx(i)},${y(h[0])}`);
+      out += `<path d="M${cx(0)},${y(0)} L${pts.join(" L")} L${cx(23)},${y(0)} Z" fill="${C.n}" fill-opacity="0.22"/>`;
+      out += `<polyline fill="none" stroke="${C.n}" stroke-opacity="0.8" stroke-width="1.5" stroke-linejoin="round" points="${pts.join(" ")}"/>`;
+      yesterday.forEach((h, i) => { if (h[0]) out += `<circle cx="${cx(i)}" cy="${y(h[0])}" r="2.5" fill="${C.n}"><title>yesterday ${hh(i)}: ${h[0]} ${h[0] === 1 ? "visit" : "visits"}</title></circle>`; });
+      // Today, up to the hour we are in.
+      for (let h = 0; h <= now.hour && h < 24; h++) {
+        const [v, c, g] = today[h];
+        const title = `${hh(h)} today: ${v} ${v === 1 ? "visit" : "visits"}${c ? ` · ${c} copied the install command` : ""}${g ? ` · ${g} opened GitHub` : ""}`;
+        if (v) out += `<rect x="${cx(h) - bw / 2}" y="${y(v)}" width="${bw}" height="${Math.max(1, y(0) - y(v))}" rx="${y(0) - y(v) > 4 ? 2 : 0}" fill="${C.s1}"><title>${esc(title)}</title></rect>`;
+        let dy = y(v) - 8;
+        for (const [n, color] of [[c, C.s3], [g, C.s2]]) {
+          if (!n) continue;
+          out += `<circle cx="${cx(h)}" cy="${dy}" r="4" fill="${color}" stroke="#0e0e0e" stroke-width="2"><title>${esc(title)}</title></circle>`;
+          dy -= 11;
+        }
+      }
+      // Where we are in the day.
+      const nx = L + slot * (now.hour + now.minute / 60);
+      out += `<line class="thr" stroke-dasharray="3 3" x1="${nx}" x2="${nx}" y1="${T - 2}" y2="${y(0)}"/>`;
+      out += nx < L + pw * 0.75 ? `<text x="${nx + 5}" y="${T + 10}">now</text>` : `<text x="${nx - 5}" y="${T + 10}" text-anchor="end">now</text>`;
+      out += `<text x="${L}" y="12" text-anchor="start" class="lbl">visits / hour</text></svg>`;
+      const table = `<table><thead><tr><th>hour</th><th>visits today</th><th>install copied</th><th>GitHub opened</th><th>visits yesterday</th></tr></thead><tbody>${today.map((h, i) => `<tr><td>${hh(i)}</td><td>${i <= now.hour ? h[0] : "–"}</td><td>${i <= now.hour ? h[1] : "–"}</td><td>${i <= now.hour ? h[2] : "–"}</td><td>${yesterday[i][0]}</td></tr>`).join("")}</tbody></table>`;
+      return { svg: out, table, legend: legend([{ name: "today", color: C.s1 }, { name: "yesterday", color: C.n }, { name: "install copied", color: C.s3 }, { name: "GitHub opened", color: C.s2 }]) };
+    }
+
     function spark(values, color) {
       const vals = values.map((v) => (v == null ? 0 : v));
       const w = 100, h = 28, max = Math.max(1, ...vals);
@@ -292,7 +335,7 @@
 
       let html = `
         <h1>What the site tells us</h1>
-        ${liveLine(latest)}
+        ${liveCard(latest)}
         <p class="note">podbay.tienoo.com, people only; crawlers are counted apart. The nightly run adds yesterday, so the latest day is ${esc(dayLabel(latest))}. Days are Helsinki time. A "session" is one visit; a "conversion" is the install command copied or GitHub opened.</p>
         <div class="range"><span>Range</span>${rangeBtn(30, "30 days")}${rangeBtn(90, "90 days")}${rangeBtn(0, "all")}</div>
         <div class="hero-n"><div><strong>${fmtN(sessions)}</strong><span>visits in the last ${span} days</span></div><div style="width:160px">${spark(win.map((r) => r.sessions), C.s1)}</div></div>
@@ -411,30 +454,36 @@
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((rows) => { if (!rows.length) throw new Error("empty"); data = rows.slice().sort((a, b) => (a.date < b.date ? -1 : 1)); render(data, current); })
       .catch(() => {
-        board.innerHTML = `<h1>What the site tells us</h1>${liveLine(null)}<p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>`;
+        board.innerHTML = `<h1>What the site tells us</h1>${liveCard(null)}<p class="note">No numbers yet. The nightly run publishes /data/analytics.json, and it may not have run yet.</p>`;
       });
 
     // --- today so far ----------------------------------------------------
     // /data/live.json is the second source: the Lambda that counts every
     // log file as it lands writes it. Today and yesterday, Helsinki dates,
-    // sessions of people. The nightly run is the record; this line says
-    // what has arrived so far and when it last grew.
+    // sessions of people, with each day by the hour. The nightly run is
+    // the record; this card says what has arrived so far and when it last
+    // grew.
     let live = null;
     const helsinki = (d, opts) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Helsinki", ...opts }).format(d);
     const helsinkiDate = (d) => helsinki(d, { year: "numeric", month: "2-digit", day: "2-digit" });
-    function liveLine(latest) {
+    const helsinkiTime = (d) => helsinki(d, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    const BLANK_HOURS = Array.from({ length: 24 }, () => [0, 0, 0]);
+    function liveCard(latest) {
       if (!live) return "";
       const now = new Date();
       const today = helsinkiDate(now);
       const yesterday = helsinkiDate(new Date(now - 864e5));
-      const row = (d) => (live.days && live.days[d]) || { visits: 0, copies: 0, github: 0 };
+      const row = (d) => { const r = (live.days && live.days[d]) || {}; return { visits: r.visits || 0, copies: r.copies || 0, github: r.github || 0, hours: Array.isArray(r.hours) && r.hours.length === 24 ? r.hours : BLANK_HOURS }; };
       const say = (r) => `<strong>${r.visits} ${r.visits === 1 ? "visit" : "visits"}</strong>, ${r.copies} copied the install command, ${r.github} opened GitHub`;
       const upd = new Date(live.updated);
-      const when = helsinkiDate(upd) === today ? helsinki(upd, { hour: "2-digit", minute: "2-digit" }) : `${dayLabel(helsinkiDate(upd))} ${helsinki(upd, { hour: "2-digit", minute: "2-digit" })}`;
-      let out = `<p class="live" id="live">Today so far: ${say(row(today))}.`;
-      if (!latest || latest < yesterday) out += ` Yesterday: ${say(row(yesterday))}.`;
-      out += ` <span>Updated ${esc(when)}. Provisional: counted from the log files that have landed, a few minutes behind; the nightly run is the record.</span></p>`;
-      return out;
+      const when = helsinkiDate(upd) === today ? helsinkiTime(upd) : `${dayLabel(helsinkiDate(upd))} ${helsinkiTime(upd)}`;
+      const [hour, minute] = helsinkiTime(now).split(":").map(Number);
+      const t = row(today), yd = row(yesterday);
+      let q = "Visits per hour today in red, yesterday's curve in grey behind them; a dot above a bar is a conversion in that hour.";
+      if (!latest || latest < yesterday) q += ` Yesterday: ${say(yd)}.`;
+      q += ` Updated ${esc(when)}. Provisional: counted from the log files that have landed, a few minutes behind; the nightly run is the record.`;
+      const chart = hourChart({ today: t.hours, yesterday: yd.hours, now: { hour, minute }, full: true });
+      return `<div class="card live" id="live"><h3>Today so far: ${say(t)}.</h3><p class="q">${q}</p>${chart.svg}${chart.legend}<details class="tbl"><summary>as a table</summary>${chart.table}</details></div>`;
     }
     fetch("/data/live.json", { cache: "no-cache" })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
@@ -442,7 +491,7 @@
         live = j;
         const latest = data ? data[data.length - 1].date : null;
         const h1 = board.querySelector("h1");
-        if (h1 && !board.querySelector("#live")) h1.insertAdjacentHTML("afterend", liveLine(latest));
+        if (h1 && !board.querySelector("#live")) h1.insertAdjacentHTML("afterend", liveCard(latest));
       })
       .catch(() => {});
   </script>
