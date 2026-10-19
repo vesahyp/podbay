@@ -1,9 +1,12 @@
-"""The site's screenshots: the podbay console and the phone board, from
-made-up sessions, never this machine's.
+"""The site's screenshots: the podbay console, the phone board, the Head
+Jeeves chat as the phone shows it and one push notification, from made-up
+sessions, never this machine's.
 
 The console is the real TUI mounted headless with every source of live data
 replaced by the demo below; Textual exports the screen as SVG. The board is
-board.render() over the same sessions. Playwright then renders both to PNG
+board.render() over the same sessions. The chat and the push are HTML
+mockups of what the phone shows (CHAT, PUSH below), drawn here because no
+script can screenshot the Claude app. Playwright renders all of them to PNG
 under site/img/, which are committed.
 
     make shots
@@ -139,6 +142,9 @@ class NoIterm:
     def windows(self):
         return {}
 
+    def empty_windows(self, force=False):
+        return []
+
 
 def patch_sources(tmp: Path) -> None:
     sessions = demo_sessions()
@@ -194,6 +200,93 @@ async def open_svg(tmp: Path) -> str:
         return app.export_screenshot(title="podbay")
 
 
+# What the Claude app shows while talking to Head Jeeves: one exchange,
+# the order on the phone, the reply, and the line that came back when the
+# work was ready. The lines are the shape of real ones, with the project
+# names of the demo sessions above.
+CHAT = [
+    ("you", "So its just the top text? Was hoping for a graph here.", "09:14"),
+    ("hj", "Yes, it's only a line of text, and that's my mistake. I've started a new session to turn it into a chart, "
+           "on the work account with Opus: visits per hour since midnight, with yesterday's curve behind it. "
+           "It goes at the top of https://atlas.example.com/stats/.", "09:15"),
+    ("gap", "2 hours later", ""),
+    ("hj", "The atlas stats page now opens with an hourly Today chart with yesterday behind it, "
+           "ready for you to test at https://atlas.example.com/stats/.", "11:27"),
+    ("you", "sup", "11:40"),
+    ("hj", "Nothing waits on you. The tile server metrics session adds its latency charts, done in about an hour. "
+           "Board: https://claude.ai/artifact/demo", "11:40"),
+]
+
+PUSH = ("Head Jeeves", "The atlas stats page now opens with an hourly Today chart with yesterday behind it, "
+                       "ready for you to test at https://atlas.example.com/stats/.")
+
+
+def chat_html() -> str:
+    """The Head Jeeves session as the Claude app shows it on a phone."""
+    rows = []
+    for who, text, when in CHAT:
+        if who == "gap":
+            rows.append(f'<div class="gap">{text}</div>')
+            continue
+        text = text.replace("https://", "<u>https://").replace("/stats/.", "/stats/</u>.").replace("/demo", "/demo</u>")
+        rows.append(f'<div class="msg {who}"><div class="b">{text}</div><div class="t">{when}</div></div>')
+    return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html, body {{ margin: 0; background: #0f0f0f; color: #ececec; font: 16px/1.4 -apple-system, "SF Pro Text", system-ui, sans-serif; }}
+  .screen {{ width: 393px; height: 852px; display: flex; flex-direction: column; }}
+  .status {{ height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 6px; font-weight: 600; font-size: 15px; }}
+  .status span:last-child {{ letter-spacing: 1px; }}
+  .bar {{ display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px; border-bottom: 1px solid #222; }}
+  .bar .back {{ color: #d4a574; font-size: 17px; }}
+  .bar .name {{ flex: 1; text-align: center; font-weight: 600; font-size: 16px; display: flex; justify-content: center; align-items: center; gap: 7px; }}
+  .bar .name i {{ display: inline-block; width: 16px; height: 11px; border: 1.5px solid #bbb; border-radius: 2px; position: relative; }}
+  .bar .name i::after {{ content: ""; position: absolute; right: -4px; bottom: -4px; width: 8px; height: 8px; border-radius: 50%; background: #30d158; border: 2px solid #0f0f0f; }}
+  .bar .dots {{ color: #888; letter-spacing: 1px; width: 24px; text-align: right; }}
+  .list {{ flex: 1; padding: 16px 14px 0; overflow: hidden; display: flex; flex-direction: column; gap: 14px; }}
+  .msg {{ max-width: 86%; }}
+  .msg.you {{ align-self: flex-end; }}
+  .msg.you .b {{ background: #2b2b2b; border-radius: 18px 18px 4px 18px; padding: 10px 14px; }}
+  .msg.hj .b {{ padding: 2px 4px; }}
+  .msg .t {{ color: #777; font-size: 11px; margin: 4px 6px 0; }}
+  .msg.you .t {{ text-align: right; }}
+  .gap {{ align-self: center; color: #777; font-size: 12px; }}
+  u {{ color: #d4a574; text-decoration: none; }}
+  .input {{ margin: 10px 14px 28px; border: 1px solid #333; border-radius: 22px; padding: 12px 16px; color: #777; display: flex; justify-content: space-between; }}
+  .input b {{ width: 26px; height: 26px; border-radius: 50%; background: #d4a574; display: inline-block; margin: -3px -6px -3px 0; }}
+</style>
+<div class="screen">
+  <div class="status"><span>11:41</span><span>●●● ▲ ▮</span></div>
+  <div class="bar"><span class="back">‹ Code</span><span class="name"><i></i>head-jeeves</span><span class="dots">•••</span></div>
+  <div class="list">{"".join(rows)}</div>
+  <div class="input"><span>Message head-jeeves</span><b></b></div>
+</div>"""
+
+
+def push_html() -> str:
+    """One push notification as the lock screen shows it: the title is the
+    fixed argument of the notify command, the body the line Head Jeeves
+    sent, and tapping it opens the board."""
+    title, body = PUSH
+    return f"""<!doctype html><meta charset="utf-8">
+<style>
+  html, body {{ margin: 0; background: #0c0f18; font: 15px/1.35 -apple-system, "SF Pro Text", system-ui, sans-serif; color: #fff; }}
+  .screen {{ width: 393px; height: 300px; background: linear-gradient(160deg, #1c2233 0%, #0c0f18 60%, #1a0f10 100%); }}
+  .time {{ text-align: center; padding-top: 34px; font-size: 20px; font-weight: 500; opacity: .9; }}
+  .time b {{ display: block; font-size: 64px; font-weight: 300; line-height: 1.05; }}
+  .n {{ margin: 22px 10px 0; background: rgba(255,255,255,.14); backdrop-filter: blur(20px); border-radius: 22px; padding: 12px 14px 12px 12px; display: flex; gap: 12px; align-items: flex-start; }}
+  .n .ic {{ flex: none; width: 38px; height: 38px; border-radius: 9px; background: radial-gradient(circle, #fff3c4 0 3%, #ffb000 9%, #e0201f 28%, #6a0606 58%, #1a0000 76%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }}
+  .n .x {{ flex: 1; min-width: 0; }}
+  .n .h {{ display: flex; justify-content: space-between; font-weight: 600; }}
+  .n .h span:last-child {{ font-weight: 400; font-size: 13px; opacity: .7; }}
+  .n .s {{ font-size: 12px; opacity: .7; margin-bottom: 1px; }}
+  .n .b {{ font-size: 14px; }}
+</style>
+<div class="screen">
+<div class="time">Tuesday 20 October<b>11:27</b></div>
+<div class="n"><div class="ic"></div><div class="x"><div class="s">jeeves.example.com</div><div class="h"><span>{title}</span><span>now</span></div><div class="b">{body}</div></div></div>
+</div>"""
+
+
 def board_html() -> str:
     payload = inventory_payload(demo_sessions(), set())
     page = board.render(payload, NOW, LIMITS, HEADLINES)
@@ -210,6 +303,8 @@ async def main() -> None:
         (tmp / "console.svg").write_text(await console_svg(tmp))
         (tmp / "open.svg").write_text(await open_svg(tmp))
         (tmp / "board.html").write_text(board_html())
+        (tmp / "chat.html").write_text(chat_html())
+        (tmp / "push.html").write_text(push_html())
 
         async with async_playwright() as p:
             browser = await p.chromium.launch()
@@ -231,6 +326,10 @@ async def main() -> None:
             )
             await phone.goto((tmp / "board.html").as_uri())
             await phone.screenshot(path=str(OUT / "board.png"))
+            await phone.goto((tmp / "chat.html").as_uri())
+            await phone.screenshot(path=str(OUT / "chat.png"))
+            await phone.goto((tmp / "push.html").as_uri())
+            await phone.screenshot(path=str(OUT / "push.png"), clip={"x": 0, "y": 0, "width": 393, "height": 130})
             await browser.close()
     for f in sorted(OUT.glob("*.png")):
         print(f.relative_to(REPO))
