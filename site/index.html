@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>podbay: run your Claude Code sessions from your phone</title>
-  <meta name="description" content="podbay runs every Claude Code session on your Mac from your phone. Head Jeeves, a Claude session that runs the others, takes your orders in the Claude app, starts sessions, and pings you when work is ready to test. A terminal console shows it all on the Mac.">
+  <meta name="description" content="podbay runs every Claude Code session on your Mac from your phone. Head Jeeves, a Claude session that runs the others, takes your orders in the Claude app, starts sessions, and tells you when work is ready to test. A terminal console shows it all on the Mac.">
   <link rel="canonical" href="https://podbay.tienoo.com/">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="podbay">
   <meta property="og:locale" content="en">
   <meta property="og:title" content="podbay: run your Claude Code sessions from your phone">
-  <meta property="og:description" content="Head Jeeves is a Claude session that runs the others. You talk to it in the Claude app from anywhere. It starts sessions, passes on your orders, and pings you when something is ready to test.">
+  <meta property="og:description" content="Head Jeeves is a Claude session that runs the others. You talk to it in the Claude app from anywhere. It starts sessions, passes on your orders, and tells you when something is ready to test.">
   <meta property="og:image" content="https://podbay.tienoo.com/img/console.png">
   <meta property="og:image:width" content="3200">
   <meta property="og:image:height" content="1168">
@@ -49,7 +49,7 @@
       <div>
         <h1 class="phone-first">Run your Claude Code sessions <span>from your phone</span>.</h1>
         <p class="lede">Head Jeeves is a Claude session that runs the others. You talk to it in the Claude app from anywhere.</p>
-        <p class="sub">It starts sessions on your Mac, passes on your orders, reads a session for you when you ask how it is going, and pings you when something is ready to test. podbay keeps it running, feeds it every event, and shows every session on one terminal screen.</p>
+        <p class="sub">It starts sessions on your Mac, passes on your orders, reads a session for you when you ask how it is going, and tells you when something is ready to test. podbay keeps it running, feeds it every event, and shows every session on one terminal screen.</p>
         <div class="cta">
           <a class="btn primary" href="#setup" data-track="hero-install">Set up in five minutes</a>
           <a class="btn ghost" href="https://github.com/vesahyp/podbay" data-track="hero-github">Source on GitHub</a>
@@ -57,8 +57,8 @@
       </div>
       <figure class="hero-visual">
         <img class="console" src="/img/console.png" width="3200" height="1168" alt="The podbay console on the Mac: a table of Claude Code sessions with their state, context use, model and account.">
-        <img class="phone" src="/img/chat.png" width="1179" height="2556" alt="The Head Jeeves session in the Claude app on a phone: an order typed from the phone, the reply that a session was started, and two hours later the line that the work is ready to test with its link.">
-        <figcaption>The Claude app on the phone, the console on the Mac. The sessions here are made up.</figcaption>
+        <img class="phone" src="/img/chat.png" width="1179" height="2556" alt="The Head Jeeves session in the Claude app on a phone: an order typed from the phone, the reply that a session was started, twelve minutes later the line that the work is ready to test with its link, and the message that asked for this page.">
+        <figcaption>The Claude app on the phone, the console on the Mac. The chat is a real morning, condensed. The console sessions are made up.</figcaption>
       </figure>
     </div>
   </div>
@@ -75,7 +75,7 @@
 
         <div class="you">So its just the top text? Was hoping for a graph here.</div>
         <div class="hj">Yes, it's only a line of text, and that's my mistake: my brief asked for a line when your rule is that numbers on a board arrive as charts. I've started a new session to make it a chart: visits per hour since midnight, with yesterday's curve behind it. It goes at the top of https://podbay.tienoo.com/stats/.</div>
-        <p class="mac"><b>On the Mac</b>Head Jeeves checked which account had quota left and opened a new session in the podbay repo with the whole task as its first prompt. Three hours later the phone buzzed: "The podbay stats page now opens with an hourly Today chart with yesterday behind it, ready for you to test at https://podbay.tienoo.com/stats/".</p>
+        <p class="mac"><b>On the Mac</b>Head Jeeves checked which account had quota left and opened a new session in the podbay repo with the whole task as its first prompt. Twelve minutes later the push came: "The podbay stats page now opens with an hourly Today chart with yesterday behind it, ready for you to test at https://podbay.tienoo.com/stats/".</p>
 
         <div class="you">Email "[Action may be required] Additive changes to Amazon Cognito tokens and OIDC metadata". Anything there affect us?</div>
         <div class="hj">No, this very likely affects neither of your AWS accounts. From 4 November, Cognito adds two new fields to its login tokens and a few new entries to its public sign-in settings document. Nothing existing is renamed or removed. I searched urbangreen, omatienoo, tienoo, keitos and jeeves for code that rejects unknown fields or reads that document, and found none.</div>
@@ -83,10 +83,10 @@
 
         <div class="you">So what was missing</div>
         <div class="hj">One yes or no question: Traficom-protected Sender ID, in the Finland section of the form. The first submission did not have that section at all. The answer is no, so the session answered no and resubmitted with everything else unchanged.</div>
-        <p class="mac"><b>On the Mac</b>Nothing ran. A session had resubmitted an SMS sender ID form to AWS that morning and reported back, so the answer came from that report. No laptop was opened.</p>
+        <p class="mac"><b>On the Mac</b>Nothing ran. A session had resubmitted an SMS sender ID form to AWS that morning and reported back, so the answer came from that report.</p>
 
         <div class="you">Forget the board thing and just park that</div>
-        <div class="hj">Parked. The fix session has quit and changed nothing, and the notes for picking it up later are in a file. Until it is fixed, answers you post on the board do not reach me, so send them here in the chat.</div>
+        <div class="hj">Parked. The fix session has quit and changed nothing, and the notes for picking it up later are in a file.</div>
         <p class="mac"><b>On the Mac</b>Head Jeeves typed /exit into the session, wrote the notes for picking it up later, and started the next task from the queue.</p>
       </div>
     </div>
@@ -96,7 +96,7 @@
     <div class="wrap">
       <p class="label">Set up</p>
       <h2>Set up in five minutes</h2>
-      <p>Every step is a command you run once on the Mac, except the last two, which you do on the phone. You need macOS, iTerm2, <a href="https://docs.astral.sh/uv/">uv</a>, <code>jq</code>, and a claude.ai login on a Pro, Max, Team or Enterprise plan for the Remote Control step.</p>
+      <p>Every step is a command you run once on the Mac, except the last two, which you do on the phone. You need macOS, iTerm2, <a href="https://docs.astral.sh/uv/">uv</a>, <code>jq</code>, and a claude.ai login on a Pro, Max, Team or Enterprise plan for the Remote Control step. On Team and Enterprise an owner first turns Remote Control on in the admin settings.</p>
       <ol class="steps">
         <li data-track="section-setup-1">
           <h3>Install podbay on the Mac</h3>
@@ -127,11 +127,11 @@ podbay config head-jeeves-account &lt;label&gt;</code></pre>
 <span class="c"># ~/.claude/settings.json, or ~/.claude-&lt;label&gt;/settings.json</span>
 "remoteControlAtStartup": true</code></pre>
 </div>
-          <p>Or run <code>/config</code> in a Claude Code session of that account and set <em>Enable Remote Control for all sessions</em>. Every session of that account then connects to claude.ai when it starts, Head Jeeves included, while the Mac stays on. Now start <code>podbay</code> on the Mac: it opens Head Jeeves in an iTerm2 tab.</p>
+          <p>Or run <code>/config</code> in a Claude Code session of that account and set <em>Enable Remote Control for all sessions</em>. Every session of that account then connects to claude.ai when it starts, Head Jeeves included, while the Mac stays on. Now start <code>podbay</code> on the Mac and leave it running: it opens Head Jeeves in an iTerm2 tab, starts a new one whenever none is live, and feeds it every event.</p>
         </li>
         <li data-track="section-setup-4">
           <h3>Open the Claude app on the phone</h3>
-          <p>Tap <em>Code</em>. Head Jeeves is the session at the top of the list, named <code>head-jeeves</code>, with a computer icon and a green dot while the Mac is on. No app yet? Type <code>/mobile</code> in any Claude Code session for a QR code to the app store.</p>
+          <p>Tap <em>Code</em>. Head Jeeves is in the session list, named <code>head-jeeves</code>, with a computer icon and a green dot while the Mac is online. No app yet? Type <code>/mobile</code> in any Claude Code session for a QR code to the app store.</p>
         </li>
         <li data-track="section-setup-5">
           <h3>Optional: push alerts</h3>
@@ -172,7 +172,7 @@ podbay config notify-command "&lt;script&gt;"</code></pre>
       <p>Decisions only you can make, and work ready for you to try. Both reach you as a push with a link, and both sit on the board until you act. Progress, restarts and routine events stay in the chat for when you ask.</p>
       <div class="two">
         <figure class="push">
-          <img src="/img/push.png" width="1179" height="390" loading="lazy" alt="A push notification on a phone lock screen: Head Jeeves, the stats page now opens with an hourly chart, ready for you to test, with the link.">
+          <img src="/img/push.png" width="1179" height="708" loading="lazy" alt="A push notification on a phone lock screen: Head Jeeves, the podbay stats page now opens with an hourly Today chart, ready for you to test, with the link.">
           <figcaption>A push from Head Jeeves. The line names what to test and gives the link. Tapping it opens the board.</figcaption>
         </figure>
         <figure class="phone">
