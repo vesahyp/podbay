@@ -172,13 +172,19 @@ footer a { color: var(--muted); }
 #hood section { padding-top: 0; }
 
 @media (max-width: 820px) {
-  .hero-visual { min-height: 0; display: flex; justify-content: center; order: -1; }
+  /* The headline and the lede come first, so the first screen says what
+     this is; the phone follows, then the detail and the buttons. */
+  .hero > div { display: contents; }
+  .hero h1 { order: -3; }
+  .hero p.lede { order: -2; }
+  .hero-visual { min-height: 0; display: flex; justify-content: center; order: -1; margin-bottom: 8px; }
   .hero-visual .console, .hero-visual figcaption { display: none; }
   .hero-visual .phone { position: static; width: 230px; }
   .hero .eye { display: none; }
   .chat .you, .chat .hj { max-width: 96%; }
   .steps li { padding: 18px 16px 18px 58px; }
   .steps li::before { left: 14px; }
+  .code:has(.copy) pre { padding-top: 44px; padding-right: 18px; }
   .chips { grid-template-columns: 1fr; }
   .two { grid-template-columns: 1fr; gap: 36px; }
 }
