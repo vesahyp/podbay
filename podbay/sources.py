@@ -313,6 +313,11 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if record.get("isCompactSummary"):
+            # A compact writes its summary as a user record, also when Claude
+            # Code compacts an idle session. Nobody typed it, so it starts no
+            # turn, and its text quotes old prompts and task notifications.
+            continue
 
         rtype = record.get("type")
         if rtype == "user" and not record.get("isSidechain"):

@@ -1097,6 +1097,32 @@ def test_interrupted_turn_counts_as_ended(tmp_path):
         "kind": "interrupted", "detail": "turn interrupted by user, waiting for a new prompt"}
 
 
+def test_idle_compaction_keeps_the_finished_turn(tmp_path):
+    # Claude Code compacts an idle session and writes the summary as a user
+    # record (isCompactSummary). No prompt was typed, so the turn is still over.
+    path = tmp_path / "s.jsonl"
+    records = [
+        {"type": "user", "timestamp": "2026-10-24T09:00:00.000Z", "message": {"role": "user", "content": "deploy"}},
+        {"type": "assistant", "timestamp": "2026-10-24T09:04:21.693Z",
+         "message": {"role": "assistant", "stop_reason": "end_turn",
+                     "content": [{"type": "text", "text": "Deployed. Test it?"}]}},
+        {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-10-24T09:58:59.945Z",
+         "content": "Conversation compacted"},
+        {"type": "user", "timestamp": "2026-10-24T09:58:59.937Z", "isCompactSummary": True,
+         "isVisibleInTranscriptOnly": True,
+         "message": {"role": "user", "content": "This session is being continued from a previous conversation "
+                                                "that ran out of context. The summary below covers it."}},
+        {"type": "system", "subtype": "informational", "timestamp": "2026-10-24T09:59:00.399Z",
+         "content": "Compacted while idle, before the prompt cache expired"},
+    ]
+    path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+    t = tail_read_transcript(path)
+    assert t["last_turn"] == "end_turn"
+    assert t["last_turn_ts"] == _expected_local("2026-10-24T09:04:21.693Z")
+    assert t["user_prompts"] == ["deploy"]
+    assert compute_waiting_on(t, "idle", 55.0, 0)["kind"] == "question_text"
+
+
 def test_tail_read_tracks_background_task_starts_and_ends(tmp_path):
     def result(ts, tool_use_result, content=None):
         return {"type": "user", "timestamp": ts, "toolUseResult": tool_use_result,
