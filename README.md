@@ -282,7 +282,10 @@ HAL remarks when something changed, never at random: a session finished and
 waits for you, asked a question, stalled, or a park came due; an account's
 five-hour window or week passed 85%; your prompts in a session turned
 heated. One remark per event, none for a
-session whose answer you have already seen. When nothing has needed you for
+session whose answer you have already seen. An answer counts as seen when
+you open its chat in podbay, or when its tab is the current one in iTerm2
+while iTerm2 is the front app and you used the keyboard or mouse in the last
+two minutes. When nothing has needed you for
 two hours he says so once. Remarks are toasts and go into the `h` history.
 `podbay config voice off` silences him. He never speaks aloud.
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import iterm as iterm_mod
+from . import machine
 from . import opened as opened_mod
 from .accounts import DEFAULT_LABEL, Account, discover
 from .model import BACKGROUND_TASK_MAX_AGE, Session
@@ -740,13 +741,19 @@ def count_running_subagents(
     return len(running)
 
 
-def _mark_seen_if_unread(state_store: StateStore, session_id: str, transcript: dict) -> SessionState:
-    """The session's tab is the current iTerm2 tab, so you are looking at
-    it: record a finished answer as seen. Writes only when there is
-    something unread, so a quiet current tab costs no state write."""
+def _mark_seen_if_unread(
+    state_store: StateStore, session_id: str, transcript: dict, present: Callable[[], bool] | None = None
+) -> SessionState:
+    """The session's tab is the current iTerm2 tab: record a finished answer
+    as seen, but only when `present` says someone is at the Mac. A current
+    tab with nobody there is not read, and a seen answer raises no finished
+    event for Head Jeeves. Writes only when there is something unread, so a
+    quiet current tab costs no state write, and asks `present` only then."""
     saved = state_store.get(session_id)
     ts = transcript.get("last_turn_ts")
     if transcript.get("last_turn") == "end_turn" and ts is not None and (saved.seen_at is None or ts > saved.seen_at):
+        if not (present or machine.user_present)():
+            return saved
         state_store.set_seen(session_id, datetime.now())
         saved = state_store.get(session_id)
     return saved
@@ -940,6 +947,7 @@ def gather_sessions(
     pid_by_tty: Callable[[], dict[str, int]] = _all_pids_by_tty,
     cwd_by_pids: Callable[[list[int]], dict[int, str]] = _cwds_for_pids,
     accounts: list[Account] | None = None,
+    user_present: Callable[[], bool] | None = None,
 ) -> list[Session]:
     """The main join: registry + transcript + podbay state + iTerm tab +
     status-line snapshot for every live session of every account, left-joined
@@ -1000,7 +1008,7 @@ def gather_sessions(
         saved = _auto_unpark(state_store, session_id, transcript.get("last_turn_ts"))
         tab = tabs_by_pid.get(pid)
         if tab is not None and tab.selected:
-            saved = _mark_seen_if_unread(state_store, session_id, transcript)
+            saved = _mark_seen_if_unread(state_store, session_id, transcript, user_present)
         snapshot = status_snapshots.get(session_id)
 
         sessions.append(

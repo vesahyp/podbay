@@ -507,10 +507,10 @@ def test_mark_seen_if_unread_writes_once(tmp_path):
 
     store = StateStore(tmp_path / "state.json")
     transcript = {"last_turn": "end_turn", "last_turn_ts": datetime(2026, 9, 1, 9, 0)}
-    saved = _mark_seen_if_unread(store, "s1", transcript)
+    saved = _mark_seen_if_unread(store, "s1", transcript, lambda: True)
     assert saved.seen_at is not None and saved.seen_at > transcript["last_turn_ts"]
     first = saved.seen_at
-    assert _mark_seen_if_unread(store, "s1", transcript).seen_at == first
+    assert _mark_seen_if_unread(store, "s1", transcript, lambda: True).seen_at == first
     assert StateStore(tmp_path / "state.json").get("s1").seen_at == first
 
 
@@ -520,6 +520,45 @@ def test_mark_seen_if_unread_ignores_in_progress(tmp_path):
     store = StateStore(tmp_path / "state.json")
     transcript = {"last_turn": "in_progress", "last_turn_ts": datetime(2026, 9, 11, 9, 0)}
     assert _mark_seen_if_unread(store, "s1", transcript).seen_at is None
+
+
+def _finished_session_in_current_tab(tmp_path, user_present=None):
+    """One session whose turn ended, in the tab that is current in iTerm2."""
+    sessions_dir = tmp_path / "sessions"
+    projects = tmp_path / "projects"
+    (projects / "-tmp").mkdir(parents=True)
+    pid = os.getpid()
+    _write_registry_entry(sessions_dir, "s1", pid)
+    (projects / "-tmp" / "s1.jsonl").write_text(_line(
+        {"type": "assistant", "timestamp": "2026-10-23T17:15:00Z",
+         "message": {"content": [{"type": "text", "text": "Done."}], "stop_reason": "end_turn"}}) + "\n")
+    tab = TabInfo(tty="/dev/ttys002", tab_id="t2", title="claude")
+    tab.selected = True
+    store = StateStore(tmp_path / "state.json")
+    kwargs = {"user_present": user_present} if user_present is not None else {}
+    sessions = gather_sessions(store, _FakeLister({"/dev/ttys002": tab}, tabs_by_pid={pid: tab}),
+                               sessions_dir=sessions_dir, projects_dir=projects, status_snapshots={},
+                               pid_by_tty=lambda: {"/dev/ttys002": pid}, cwd_by_pids=lambda _p: {}, **kwargs)
+    return next(x for x in sessions if x.session_id == "s1"), store
+
+
+def test_current_tab_with_nobody_at_the_mac_stays_unread(tmp_path, monkeypatch):
+    """Regression (hiisi-stamina, 2026-10-23): the session `podbay open` had
+    just started in a new window was the current tab all night. Its finish
+    was marked seen with nobody at the Mac, so HAL raised no finished event
+    and Head Jeeves never heard of it."""
+    from podbay import machine
+
+    monkeypatch.setattr(machine, "user_present", lambda: False)
+    s, store = _finished_session_in_current_tab(tmp_path)
+    assert s.unread is True
+    assert store.get("s1").seen_at is None
+
+
+def test_current_tab_with_the_user_at_the_mac_is_seen(tmp_path):
+    s, store = _finished_session_in_current_tab(tmp_path, user_present=lambda: True)
+    assert s.unread is False
+    assert store.get("s1").seen_at is not None
 
 
 # -- model name ---------------------------------------------------------------

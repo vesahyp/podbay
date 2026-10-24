@@ -272,3 +272,14 @@ def test_low_disk_is_overloaded_at_powerwatchs_threshold():
     assert machine.overload_reason({**base, "disk_free_gb": 16}) is None
     assert machine.overload_reason({**base, "disk_free_gb": 15}) == "disk low, 15 GB free"
     assert machine.overload_reason({**base, "disk_free_gb": None}) is None
+
+
+def test_user_present_reads_the_hid_idle_time(monkeypatch):
+    out = '    | |   "HIDIdleTime" = 445191883953530\n'
+    monkeypatch.setattr(machine, "_run", lambda _cmd: out)
+    assert machine.idle_seconds() == pytest.approx(445191.88, abs=0.01)
+    assert machine.user_present() is False
+    monkeypatch.setattr(machine, "_run", lambda _cmd: '"HIDIdleTime" = 5000000000')
+    assert machine.user_present() is True
+    monkeypatch.setattr(machine, "_run", lambda _cmd: "")
+    assert machine.user_present() is False  # unknown counts as away

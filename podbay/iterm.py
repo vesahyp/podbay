@@ -26,7 +26,7 @@ LIST_SCRIPT = """
 tell application "iTerm2"
 	set out to ""
 	try
-		set out to "CURRENT | " & (tty of current session of current window) & linefeed
+		if frontmost then set out to "CURRENT | " & (tty of current session of current window) & linefeed
 	end try
 	repeat with w in windows
 		try

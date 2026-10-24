@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .sources import read_conversation
+from .sources import _iso_to_local_dt, read_conversation
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +41,8 @@ def excerpt(transcript_path: Path, turns: int = TURNS, last_agent: bool = False)
         text = " ".join((e.get("text") or "").split())
         if e.get("role") == "tool" and len(text) > TOOL_CHARS:
             text = text[:TOOL_CHARS] + " …"
-        stamp = (e.get("timestamp") or "")[11:16]
+        when = _iso_to_local_dt(e.get("timestamp"))  # the transcript's UTC, shown in local time like the rest of podbay
+        stamp = when.strftime("%H:%M") if when else ""
         lines.append(f"[{stamp}] {labels.get(e.get('role'), 'NOTE')}: {text}")
     body = "\n".join(lines)
     if len(body) > EXCERPT_CHARS:

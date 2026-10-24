@@ -1,5 +1,8 @@
 import json
+import time
 from pathlib import Path
+
+import pytest
 
 from podbay import reviewer
 from podbay.accounts import Account
@@ -16,13 +19,25 @@ def _transcript(tmp_path: Path) -> Path:
     return path
 
 
-def test_excerpt_labels_roles_and_keeps_order(tmp_path):
+@pytest.fixture
+def helsinki(monkeypatch):
+    """Local time three hours ahead of the transcript's UTC, as in October."""
+    monkeypatch.setenv("TZ", "Europe/Helsinki")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_excerpt_labels_roles_and_keeps_order(tmp_path, helsinki):
+    """The stamps are local time: the transcript's UTC once made a 20:15
+    report read as 17:15."""
     text = reviewer.excerpt(_transcript(tmp_path))
     assert text.splitlines() == [
-        "[10:00] USER: make the header fit",
-        "[10:01] AGENT: I widened it",
-        "[10:01] TOOL: ⚙ Edit: widen header",
-        "[10:02] USER: no, how the fuck is it still too wide",
+        "[13:00] USER: make the header fit",
+        "[13:01] AGENT: I widened it",
+        "[13:01] TOOL: ⚙ Edit: widen header",
+        "[13:02] USER: no, how the fuck is it still too wide",
     ]
 
 
@@ -51,7 +66,7 @@ def test_review_paths_and_newest_files(tmp_path):
     assert reviewer.newest_files(tmp_path / "missing") == {}
 
 
-def test_cmd_excerpt_prints_the_sessions_turns(tmp_path, monkeypatch, capsys):
+def test_cmd_excerpt_prints_the_sessions_turns(tmp_path, monkeypatch, capsys, helsinki):
     from datetime import datetime
 
     from podbay import app as app_mod
@@ -69,5 +84,5 @@ def test_cmd_excerpt_prints_the_sessions_turns(tmp_path, monkeypatch, capsys):
 
     app_mod.cmd_excerpt("worker", 80)
     out = capsys.readouterr().out
-    assert out.splitlines()[0] == "[10:00] USER: make the header fit"
+    assert out.splitlines()[0] == "[13:00] USER: make the header fit"
     assert "how the fuck" in out

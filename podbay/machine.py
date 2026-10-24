@@ -40,6 +40,13 @@ DISK_PATH = "/System/Volumes/Data"
 DISK_LOW_GIB = 15
 
 _SWAP_RE = re.compile(r"used = ([\d.]+)M")
+_IDLE_RE = re.compile(r'"HIDIdleTime" = (\d+)')
+
+# The user is at the Mac when the keyboard or mouse was used this recently.
+# A tab that is current in iTerm2 counts as read only then: Head Jeeves
+# opens sessions in new windows, and the newest one stays the current tab
+# all night with nobody looking (hiisi-stamina, 2026-10-23).
+PRESENT_SECONDS = 120
 
 
 def _run(cmd: list[str]) -> str:
@@ -109,6 +116,20 @@ def top_processes(procs: list[dict], n: int = TOP_N) -> dict[str, list[dict]]:
 def pressure_level() -> str | None:
     out = _run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"]).strip()
     return PRESSURE_NAMES.get(int(out)) if out.isdigit() else None
+
+
+def idle_seconds() -> float | None:
+    """Seconds since the last keyboard or mouse input, from IOHIDSystem."""
+    m = _IDLE_RE.search(_run(["ioreg", "-c", "IOHIDSystem", "-d", "4"]))
+    return int(m.group(1)) / 1e9 if m else None
+
+
+def user_present() -> bool:
+    """True when someone used the keyboard or mouse in the last
+    PRESENT_SECONDS. An unknown idle time counts as away, so nothing is
+    marked read on a guess."""
+    idle = idle_seconds()
+    return idle is not None and idle < PRESENT_SECONDS
 
 
 def sample() -> dict:
