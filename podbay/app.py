@@ -44,7 +44,7 @@ from . import mood
 from . import reviewer
 from . import iterm as iterm_mod
 from . import machine as machine_mod
-from .accounts import Account, by_label, discover
+from .accounts import Account, by_label, discover, logged_in, logged_out_labels
 from . import logs
 from . import notifications
 from . import notify as notify_mod
@@ -618,7 +618,7 @@ class AccountScreen(ModalScreen["tuple[Account, str | None] | None"]):
             table.add_row(
                 ACCOUNT_PICK_KEYS[i] if i < len(ACCOUNT_PICK_KEYS) else "",
                 Text(account.label, style=ACCOUNT_STYLE),
-                self._models[account.label] or voice.account_full(),
+                voice.account_logged_out() if entry.get("logged_out") else self._models[account.label] or voice.account_full(),
                 quota._pct(entry.get("five_hour")),
                 quota._pct(entry.get("seven_day")),
                 str(live) if live else "",
@@ -2232,8 +2232,9 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
     snapshots = sources.read_status_snapshots()
     lister = iterm_mod.ItermLister()
     sessions = sources.gather_sessions(StateStore(), lister, status_snapshots=snapshots)
-    payload = inventory_payload(sessions, set(), lister.empty_windows())
-    limits = {a.label: sources.newest_limits(snapshots, a.label) for a in discover()}
+    accounts = discover()
+    payload = inventory_payload(sessions, set(), lister.empty_windows(), logged_out_labels(accounts))
+    limits = {a.label: sources.newest_limits(snapshots, a.label) for a in accounts}
     headlines, problem = board.load_headlines()
     if problem:
         print(f"headlines ignored: {problem}", file=sys.stderr)
@@ -2424,6 +2425,7 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
     payload = build_payload(
         lambda: sources.gather_sessions(state_store, iterm_lister), set(exclude),
         empty_windows=iterm_lister.empty_windows,
+        logged_out=lambda: logged_out_labels(discover()),
     )
     if payload.get("stale"):
         print(payload.get("stale_note", ""), file=sys.stderr)
@@ -2461,7 +2463,7 @@ def _quota_entries(accounts: list[Account], fetch: bool = True) -> list[dict]:
         quota.account_entry(
             a, sources.newest_limits(snapshots, a.label),
             account_usage(a) if fetch else usage.read_cache(usage.cache_path_for(a)), now,
-            quota.SEEN_PATH,
+            quota.SEEN_PATH, logged_in(a),
         )
         for a in accounts
     ]

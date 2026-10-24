@@ -115,8 +115,11 @@ window inside it. Run this before every `podbay open`, every time:
   each model's weekly window (`models`), and two suggestions:
   `suggested.heavy` (the strongest model with room) and
   `suggested.routine` (Sonnet and below). It never suggests an account or
-  a model at or above 85 percent of a window, and it prefers the account
-  with the larger quota.
+  a model at or above 85 percent of a window, nor an account with
+  `logged_out: true`, and it prefers the account with the larger quota.
+- A session with `login_expired: true` in the inventory answers every
+  prompt with "Login expired". Do not send it work. Tell the user which
+  account to `/login` (`logged_out_accounts`), once.
 - Choose by the job. Design, game feel, architecture, a hard bug or a
   review that must be right: take `suggested.heavy`. Routine fixes, copy
   edits, dependency bumps, doc updates and anything mechanical: take

@@ -555,6 +555,17 @@ def free_line(terminals: list[dict]) -> str:
     return "free terminals: " + ", ".join(f"#{t['terminal'] or '?'}" for t in terminals)
 
 
+def logged_out_line(accounts: list[str], sessions: list[str]) -> str:
+    """The accounts whose login has expired, and the sessions dead with them."""
+    line = "logged out: " + ", ".join(accounts) + " (run /login)"
+    return line + (f"; login expired in: {', '.join(sessions)}" if sessions else "")
+
+
+def account_logged_out() -> str:
+    """The account picker's model cell for an account with no login."""
+    return "logged out"
+
+
 def unlisted_line(terminals: list[dict]) -> str:
     """The terminals no session row names, in one line."""
     named = ", ".join(

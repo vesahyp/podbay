@@ -43,7 +43,7 @@ def work_repo(s: Session) -> str:
     return repo_for_cwd(s.cwd)
 
 
-def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = None) -> dict:
+def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = None, logged_out: set[str] | None = None) -> dict:
     # One clock for state and age: activity_at counts the subagents too.
     idle_minutes = round(s.age_seconds(now) / 60, 1) if s.has_transcript else None
     return {
@@ -62,6 +62,10 @@ def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = No
         # Head Jeeves closes when they are done.
         "opened_by": s.opened_by,
         "account": s.account,
+        # Its account's login has expired or was logged out: every prompt
+        # answers "Login expired · Please run /login", so the session is
+        # dead until someone runs /login in it (accounts.logged_in).
+        "login_expired": s.account in (logged_out or set()),
         "remote_url": s.remote_url,
         "tab": s.terminal,
         "short_id": s.session_id[:6],
@@ -105,7 +109,9 @@ def free_terminals(sessions: list[Session]) -> list[dict]:
     return [{"terminal": s.terminal, "tty": s.tty} for s in sessions if s.is_shell and s.tty in started]
 
 
-def inventory_payload(sessions: list[Session], exclude: set[str], empty_windows: list | None = None) -> dict:
+def inventory_payload(
+    sessions: list[Session], exclude: set[str], empty_windows: list | None = None, logged_out: set[str] | None = None,
+) -> dict:
     """The deterministic inventory: registry+transcript join already done by
     gather_sessions(), filtered to real Claude sessions (shell panes carry no
     registry entry and are excluded), minus anything in `exclude` (matched by
@@ -121,7 +127,7 @@ def inventory_payload(sessions: list[Session], exclude: set[str], empty_windows:
     kept.sort(key=lambda s: (repo_for_cwd(s.cwd), s.name))
 
     paused = paused_mod.by_id()
-    session_dicts = [_session_dict(s, now, paused) for s in kept]
+    session_dicts = [_session_dict(s, now, paused, logged_out) for s in kept]
     groups = repo_groups(kept)
     waiting = [s["name"] for s in session_dicts if s["waiting_on"] is not None]
 
@@ -131,6 +137,9 @@ def inventory_payload(sessions: list[Session], exclude: set[str], empty_windows:
         "sessions": session_dicts,
         "repo_groups": groups,
         "waiting": waiting,
+        # The accounts whose login has expired: no session runs on them.
+        "logged_out_accounts": sorted(logged_out or ()),
+        "login_expired": [s["name"] for s in session_dicts if s["login_expired"]],
         "unlisted_terminals": unlisted_terminals(sessions, empty_windows or []),
         "free_terminals": free_terminals(sessions),
     }
@@ -179,6 +188,7 @@ def apply_exclude(payload: dict, exclude: set[str]) -> dict:
         "sessions": sessions,
         "repo_groups": [g for g in groups if len(g["sessions"]) >= 2],
         "waiting": [n for n in payload.get("waiting", []) if n in names],
+        "login_expired": [n for n in payload.get("login_expired", []) if n in names],
     }
 
 
@@ -204,6 +214,7 @@ def build_payload(
     budget: float = BUDGET_SECONDS, path: Path | None = None,
     machine_budget: float = MACHINE_BUDGET_SECONDS,
     empty_windows: Callable[[], list] | None = None,
+    logged_out: Callable[[], set[str]] | None = None,
 ) -> dict:
     """The inventory, live when the scan finishes within `budget` seconds
     (and then saved as the snapshot), otherwise the last saved one with
@@ -214,7 +225,7 @@ def build_payload(
     health = sample if sample_done and sample else {}
     done, sessions, error = _within(gather, budget)
     if done:
-        full = inventory_payload(sessions, set(), empty_windows() if empty_windows else None)
+        full = inventory_payload(sessions, set(), empty_windows() if empty_windows else None, logged_out() if logged_out else None)
         save_snapshot(full, path)
         payload = apply_exclude(full, exclude)
         payload["stale"] = False
@@ -246,6 +257,8 @@ def machine_lines(payload: dict) -> list[str]:
     """The machine as plain lines, and the stale note first when there is
     one: what the table and status views print under or above the sessions."""
     lines = [payload["stale_note"]] if payload.get("stale") and payload.get("stale_note") else []
+    if payload.get("logged_out_accounts"):
+        lines.append(voice.logged_out_line(payload["logged_out_accounts"], payload.get("login_expired", [])))
     if payload.get("release"):
         lines.append(voice.release_line(payload["release"]))
     if payload.get("unlisted_terminals"):
@@ -271,7 +284,7 @@ def render_table(payload: dict) -> str:
         repos = [r + ("*" if r in s["repos_edited"] else "") for r in s["repos_touched"]]
         rows.append([
             f"#{s['tab']}" if s.get("tab") else "-",
-            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"] + (" paused" if s.get("paused") else ""),
+            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"] + (" paused" if s.get("paused") else "") + (" login-expired" if s.get("login_expired") else ""),
             f"{s['idle_minutes']}m" if s["idle_minutes"] is not None else "-",
             f"{s['context_pct']:.0f}" if isinstance(s["context_pct"], (int, float)) else "-",
             s["waiting_on"]["kind"] if s["waiting_on"] else "-",
@@ -331,6 +344,8 @@ def render_status(payload: dict) -> str:
     paused_names = [s["name"] for s in sessions if s.get("paused")]
     if paused_names:
         lines.append(f"paused: {', '.join(paused_names)}")
+    if payload.get("logged_out_accounts"):
+        lines.append(voice.logged_out_line(payload["logged_out_accounts"], payload.get("login_expired", [])))
 
     for g in groups:
         lines.append(f"same repo: {g['repo']} ({', '.join(g['sessions'])})")

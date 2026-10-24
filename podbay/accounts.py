@@ -10,11 +10,17 @@ name ("claude" for the default one, "personal" for ~/.claude-personal).
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_DIRNAME = ".claude"
 DEFAULT_LABEL = "claude"
+KEYCHAIN_SERVICE = "Claude Code-credentials"
 
 
 @dataclass(frozen=True)
@@ -38,6 +44,24 @@ class Account:
         """The environment that makes `claude` run as this account; empty
         for the default one, which needs no variable."""
         return {} if self.is_default else {"CLAUDE_CONFIG_DIR": str(self.config_dir)}
+
+    def run_env(self) -> dict[str, str]:
+        """The whole environment for a `claude` child process run as this
+        account. The caller's own CLAUDE_CONFIG_DIR is removed first: a
+        podbay started from a personal session inherits it, and without
+        the removal the default account ran as the personal one and its
+        usage looked fresh after its login had expired (2026-10-24)."""
+        base = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+        return {**base, **self.env()}
+
+    @property
+    def keychain_service(self) -> str:
+        """The macOS keychain item that holds the account's login: Claude
+        Code names it after a hash of the config dir for every account but
+        the default one."""
+        if self.is_default:
+            return KEYCHAIN_SERVICE
+        return f"{KEYCHAIN_SERVICE}-{hashlib.sha256(str(self.config_dir).encode()).hexdigest()[:8]}"
 
     def command_prefix(self) -> str:
         """What goes in front of `claude` in a shell command typed into a
@@ -83,3 +107,54 @@ def by_label(accounts: list[Account], label: str | None) -> Account | None:
     if label is None:
         return accounts[0] if accounts else None
     return next((a for a in accounts if a.label == label), None)
+
+
+def _read_keychain(service: str) -> str | None:
+    """The keychain item's secret, or None when there is no such item or
+    no `security` command (not macOS). Never raises."""
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", service, "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def credential_logged_out(credential: dict | None, now: float | None = None) -> bool:
+    """True when the stored login can no longer start a session. /logout and
+    an expired login both leave the item in place with an empty access
+    token, an empty refresh token and expiresAt 0 (seen 2026-10-24); an
+    access token past its expiry with no refresh token to renew it is the
+    same state."""
+    oauth = (credential or {}).get("claudeAiOauth")
+    if not isinstance(oauth, dict) or not oauth.get("accessToken"):
+        return True
+    now = time.time() if now is None else now
+    expires = oauth.get("expiresAt")
+    expired = isinstance(expires, (int, float)) and expires / 1000 <= now
+    return expired and not oauth.get("refreshToken")
+
+
+def logged_in(account: Account, read_keychain=_read_keychain) -> bool | None:
+    """Whether the account still has a working login: the keychain item on
+    macOS, else <config dir>/.credentials.json (Linux). None when neither
+    exists or parses, so a machine podbay cannot read is never called
+    logged out."""
+    raw = read_keychain(account.keychain_service)
+    if raw is None:
+        try:
+            raw = (account.config_dir / ".credentials.json").read_text()
+        except OSError:
+            return None
+    try:
+        credential = json.loads(raw)
+    except ValueError:
+        return None
+    return not credential_logged_out(credential if isinstance(credential, dict) else None)
+
+
+def logged_out_labels(accounts: list[Account], read_keychain=_read_keychain) -> set[str]:
+    """The labels of the accounts whose login has expired or was logged out."""
+    return {a.label for a in accounts if logged_in(a, read_keychain) is False}

@@ -2,7 +2,7 @@
 figures come from the status-line snapshot (see sources.py) and never carry
 a per-model breakdown; this is the only place that figure exists at all.
 Every account has its own quota, so the run and the cache are per account:
-the run inherits the account's CLAUDE_CONFIG_DIR (see accounts.Account.env)."""
+the run gets the account's CLAUDE_CONFIG_DIR (see accounts.Account.run_env)."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ def fetch(timeout: float = 30.0, account: Account | None = None) -> dict | None:
     parse its usage lines. None on anything that isn't a clean parse --
     non-zero exit, timeout, no `claude` on PATH, or output with nothing
     recognisable in it. Never raises."""
-    env = {**os.environ, **(account.env() if account is not None else {})}
+    env = account.run_env() if account is not None else dict(os.environ)
     try:
         result = subprocess.run(
             ["claude", "-p", "/usage"],

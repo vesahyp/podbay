@@ -139,6 +139,7 @@ details.room[open] > summary { margin-bottom: 12px; }
 .meta { color: var(--muted); font-size: 13px; }
 .ctx { font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; }
 .ctx.hot { color: var(--ask); } .ctx.full { color: var(--bad); }
+.quotas .out { color: var(--bad); }
 .quotas { margin: 0 0 8px; display: grid; gap: 2px; font: 500 13px var(--mono); color: var(--muted); }
 .quotas b { font-weight: 500; color: var(--fg); }
 .mach { margin: 0 0 12px; display: grid; gap: 6px; font: 500 13px var(--mono); color: var(--muted); }
@@ -417,11 +418,16 @@ def _ctx(session: dict) -> str:
     return f'<span class="{cls}">ctx {pct:.0f}%</span>'
 
 
-def _quotas(limits: dict[str, dict] | None, now: datetime) -> str:
+def _quotas(limits: dict[str, dict] | None, now: datetime, logged_out: list[str] | None = None) -> str:
     """One line per account: `claude 5H 36% ↻2h15m  7D 17% ↻1d7h →~17%`,
-    the header's own wording (voice.limits_segments)."""
+    the header's own wording (voice.limits_segments). An account with no
+    login says so instead: its figures stopped when the login went."""
     lines = []
+    for account in sorted(logged_out or ()):
+        lines.append(f'<div><b>{_esc(account)}</b> <span class="out">logged out · run /login</span></div>')
     for account, figures in sorted((limits or {}).items()):
+        if account in (logged_out or ()):
+            continue
         segments = voice.limits_segments(
             figures.get("five_pct"), figures.get("five_resets_at"), figures.get("week_pct"), figures.get("week_resets_at"), now
         )
@@ -536,6 +542,8 @@ def _room_row(session: dict, now: datetime) -> str:
         pill = "never used"
     if session.get("paused"):
         pill = f"paused · {pill}" if pill else "paused"
+    if session.get("login_expired"):
+        pill = "login expired"
     meta = " · ".join(x for x in (repo, pill, _age(session, now)) if x)
     return (
         f'<li {_tap(_target(session), session.get("title") or session.get("name"))}><div class="row">'
@@ -615,7 +623,7 @@ def render(
     head_ctx = f'<p class="hint">Head Jeeves {_ctx(head)}</p>' if head and _ctx(head) else ""
     room = (
         f'<details class="room"><summary>Machine room · {_plural(len(sessions), "session", "sessions")}</summary>\n'
-        f"{_release(payload.get('release'))}{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now)}{head_ctx}\n"
+        f"{_release(payload.get('release'))}{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now, payload.get('logged_out_accounts'))}{head_ctx}\n"
         + (f'<ul class="lines">\n{rows}\n</ul>\n<p class="hint">Tap a session to message it.</p>' if rows else '<p class="none">No live sessions.</p>')
         + "</details>"
     )

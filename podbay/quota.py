@@ -9,7 +9,10 @@ tier, organizationRateLimitTier in the account's own .claude.json, which
 says how large the account's quota is: "default_claude_max_5x" is five
 times the base plan.
 
-The suggestion: an account or a model at or above LIMIT_PCT of any window
+The suggestion: an account whose login has expired or was logged out
+(accounts.logged_in) is never suggested, whatever its windows say: its
+usage figures stop updating at the moment the login goes, so they always
+look like room. An account or a model at or above LIMIT_PCT of any window
 is never suggested, and neither is a LISTED_ONLY model on an account whose
 /usage does not list it right now or has never listed it. Among the rest, the one with the most room left wins,
 counted in base-plan units (percent left times the plan multiplier), so a
@@ -123,10 +126,15 @@ def remember(path: Path, label: str, aliases: list[str]) -> list[str]:
     return merged
 
 
-def account_entry(account: Account, limits: dict, usage_data: dict | None, now: float, seen_path: Path | None = None) -> dict:
+def account_entry(
+    account: Account, limits: dict, usage_data: dict | None, now: float,
+    seen_path: Path | None = None, logged_in: bool | None = None,
+) -> dict:
     """One account: its plan, its overall windows, and every per-model
     weekly window /usage lists for it. The snapshots are the newer source
-    for the overall windows; /usage fills in one the snapshots lack."""
+    for the overall windows; /usage fills in one the snapshots lack.
+    `logged_in` is accounts.logged_in: False marks the account logged out,
+    None (unknown) is read as logged in."""
     entries = (usage_data or {}).get("entries", [])
     by_key = {e.get("key"): e for e in entries if e.get("key") in ("session", "week_all")}
     five = window(limits.get("five_pct"), limits.get("five_resets_at"), now)
@@ -146,6 +154,7 @@ def account_entry(account: Account, limits: dict, usage_data: dict | None, now: 
     seen = remember(seen_path, account.label, [m["alias"] for m in models]) if seen_path else [m["alias"] for m in models]
     return {
         "account": account.label,
+        "logged_out": logged_in is False,
         "plan": tier,
         "quota_multiplier": multiplier,
         "five_hour": five,
@@ -169,6 +178,8 @@ def options(entries: list[dict]) -> list[dict]:
     """Every account and model that may be suggested, the most room first."""
     found = []
     for e in entries:
+        if e.get("logged_out"):
+            continue
         per_model = {m["alias"]: m["seven_day"] for m in e["models"]}
         for alias in MODELS:
             if alias in LISTED_ONLY and alias not in per_model and alias not in e.get("models_seen", []):
@@ -222,6 +233,9 @@ def _pct(w: dict | None) -> str:
 def render(data: dict) -> str:
     lines = []
     for e in data["accounts"]:
+        if e.get("logged_out"):
+            lines.append(f"{e['account']}: logged out, never suggested; run /login in a session on it")
+            continue
         models = "  ".join(f"{m['model']} {_pct(m['seven_day'])}" for m in e["models"])
         lines.append(
             f"{e['account']} ({e['plan'] or 'plan unknown'}, x{e['quota_multiplier']}): "

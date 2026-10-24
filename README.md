@@ -106,7 +106,11 @@ Nothing at or above 85 percent of any window is suggested. Among the rest
 the most room wins, counted as percent left times the plan's multiplier
 (Max 5x counts five times), so the larger quota wins a tie. The windows
 come from the same snapshots and `/usage` cache as the header; a cache older
-than ten minutes is refreshed first.
+than ten minutes is refreshed first. An account whose login has expired or
+was logged out (its keychain item has no token left) shows as "logged out"
+and is never suggested; `podbay inventory` lists it under
+`logged_out_accounts` and marks each of its sessions `login_expired`, and
+the board's machine room says the same.
 
 `podbay open` starts claude in a terminal sitting at an empty shell prompt
 (one stuck on a half-typed line does not count), or in a new window. With a
