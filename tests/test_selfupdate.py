@@ -80,3 +80,31 @@ def test_a_poll_that_never_ends_holds_the_restart_only_for_the_patience(monkeypa
     del screen._polls["open /x"]
     app.PodbayApp._check_code_version(screen)
     assert screen._restart and exited == [1]
+
+
+def test_release_lag_names_a_push_that_skipped_make_install(tmp_path):
+    from datetime import datetime
+
+    from podbay import board, inventory
+
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "installed")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "the fix")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _git(tmp_path, "checkout", "-q", "--detach", "HEAD~1")
+
+    lag = selfupdate.release_lag(tmp_path)
+    assert lag is not None and lag["behind"] == 1
+    assert lag["installed"] != lag["origin_main"]
+
+    line = f"installed podbay is 1 commit behind origin/main (installed {lag['installed']}, origin/main {lag['origin_main']})"
+    assert any(line in x for x in inventory.machine_lines({"release": lag}))
+    assert line in board.render({"sessions": [], "release": lag}, now=datetime(2026, 10, 24, 13, 0))
+
+    _git(tmp_path, "checkout", "-q", "--detach", "origin/main")
+    assert selfupdate.release_lag(tmp_path) is None
+    assert not any("behind origin/main" in x for x in inventory.machine_lines({"release": None}))
+
+
+def test_release_lag_is_unknown_outside_git(tmp_path):
+    assert selfupdate.release_lag(tmp_path) is None

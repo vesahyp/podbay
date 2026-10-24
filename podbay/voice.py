@@ -544,6 +544,12 @@ def inventory_unavailable(reason: str | None) -> str:
     return f"inventory has no snapshot to show: {cause}"
 
 
+def release_line(lag: dict) -> str:
+    """The installed podbay is behind origin/main: a push without `make ship`."""
+    commits = "commit" if lag["behind"] == 1 else "commits"
+    return f"installed podbay is {lag['behind']} {commits} behind origin/main (installed {lag['installed']}, origin/main {lag['origin_main']}): run make install in podbay"
+
+
 def free_line(terminals: list[dict]) -> str:
     """The terminals at an empty shell, ready for the next `podbay open`."""
     return "free terminals: " + ", ".join(f"#{t['terminal'] or '?'}" for t in terminals)

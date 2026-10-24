@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import machine, opened as opened_mod, paused as paused_mod, voice
+from . import machine, opened as opened_mod, paused as paused_mod, selfupdate, voice
 from .model import HOME_BASE, Session, is_head_jeeves, repo_groups
 from .sources import REPOS_DIR
 
@@ -208,7 +208,8 @@ def build_payload(
     """The inventory, live when the scan finishes within `budget` seconds
     (and then saved as the snapshot), otherwise the last saved one with
     "stale": true, how old it is and why. The machine's health is in it
-    either way, under "machine"."""
+    either way, under "machine", and so is how far the installed code is
+    behind origin/main, under "release" (None when it is current)."""
     sample_done, sample, _ = _within(machine.snapshot, machine_budget)
     health = sample if sample_done and sample else {}
     done, sessions, error = _within(gather, budget)
@@ -237,6 +238,7 @@ def build_payload(
         payload["stale"] = True
         payload["stale_reason"] = reason
     payload["machine"] = health
+    payload["release"] = selfupdate.release_lag()
     return payload
 
 
@@ -244,6 +246,8 @@ def machine_lines(payload: dict) -> list[str]:
     """The machine as plain lines, and the stale note first when there is
     one: what the table and status views print under or above the sessions."""
     lines = [payload["stale_note"]] if payload.get("stale") and payload.get("stale_note") else []
+    if payload.get("release"):
+        lines.append(voice.release_line(payload["release"]))
     if payload.get("unlisted_terminals"):
         lines.append(voice.unlisted_line(payload["unlisted_terminals"]))
     if payload.get("free_terminals"):

@@ -2238,6 +2238,7 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
     if problem:
         print(f"headlines ignored: {problem}", file=sys.stderr)
     payload["machine"] = machine_mod.snapshot()
+    payload["release"] = selfupdate.release_lag()
     path = board.write(board.render(payload, limits=limits, headlines=headlines), out)
     print(path)
     published = board.load_url()

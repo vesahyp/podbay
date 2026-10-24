@@ -130,6 +130,11 @@ after a close or a failed open, and the screen closes them as it finds them.
 `podbay inventory` and the board list any that remain, and any idle shell
 `podbay open` left, as `unlisted_terminals`.
 
+When the installed copy in `.release/` is behind `origin/main`, which is what
+a bare `git push` without `make ship` leaves, `podbay inventory` reports it
+under `release` (commits behind, both short hashes) and the board's machine
+room shows it as a red line. It is `null` when the installed copy is current.
+
 When the CPU stays overloaded (every sample of the last 5 minutes at a
 1-minute load of 3 times the cores or more, with a mean CPU use of 70
 percent or more) and two or more sessions work, podbay sends Head Jeeves

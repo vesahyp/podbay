@@ -460,6 +460,11 @@ def _unlisted(terminals: list[dict] | None, free: list[dict] | None = None) -> s
     return f'<div class="mach">{"".join(rows)}</div>' if rows else ""
 
 
+def _release(lag: dict | None) -> str:
+    """The installed podbay runs old code: a push that skipped `make ship`."""
+    return f'<div class="mach"><div class="now bad">{_esc(voice.release_line(lag))}</div></div>' if lag else ""
+
+
 def _machine(health: dict | None) -> str:
     """The machine room's health block: the figures now, a load chart and a
     free memory and free disk chart over the recorded hours, the heaviest processes."""
@@ -610,7 +615,7 @@ def render(
     head_ctx = f'<p class="hint">Head Jeeves {_ctx(head)}</p>' if head and _ctx(head) else ""
     room = (
         f'<details class="room"><summary>Machine room · {_plural(len(sessions), "session", "sessions")}</summary>\n'
-        f"{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now)}{head_ctx}\n"
+        f"{_release(payload.get('release'))}{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now)}{head_ctx}\n"
         + (f'<ul class="lines">\n{rows}\n</ul>\n<p class="hint">Tap a session to message it.</p>' if rows else '<p class="none">No live sessions.</p>')
         + "</details>"
     )

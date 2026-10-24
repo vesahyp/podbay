@@ -75,7 +75,8 @@ podbay/
   splash.py         the HAL eye: startup and shutdown sequences
   logs.py           the rotating application log
   selfupdate.py     the screen restarts itself when `make install` moves the
-                      installed commit, so a fix is live without a manual quit
+                      installed commit, so a fix is live without a manual quit;
+                      release_lag() reports a push that skipped make install
   notifications.py  the history behind `h`
   notify.py         `podbay notify`: one line to the user's phone through
                       the configured command (config notify-command)

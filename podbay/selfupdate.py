@@ -14,14 +14,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def code_version(root: Path = ROOT) -> str | None:
-    """The commit the code under `root` is at, or None when that is unknown."""
+def _git(root: Path, *args: str) -> str | None:
+    """One git command's output under `root`, or None when it fails. Popen,
+    not subprocess.run, which the tests replace with "binary not found"."""
     try:
-        with subprocess.Popen(["git", "-C", str(root), "rev-parse", "HEAD"], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as git:
-            sha = git.communicate(timeout=5)[0].strip()
-            return sha if git.returncode == 0 and sha else None
+        with subprocess.Popen(["git", "-C", str(root), *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as git:
+            out = git.communicate(timeout=5)[0].strip()
+            return out if git.returncode == 0 and out else None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def code_version(root: Path = ROOT) -> str | None:
+    """The commit the code under `root` is at, or None when that is unknown."""
+    return _git(root, "rev-parse", "HEAD")
+
+
+def release_lag(root: Path = ROOT) -> dict | None:
+    """How far the code under `root` is behind origin/main, or None when it
+    is not behind or that is unknown. A bare `git push` moves origin/main and
+    leaves .release/ where it was, so the installed podbay runs the old code
+    until someone remembers `make install` (22e1fa4, 2026-10-24)."""
+    behind = _git(root, "rev-list", "--count", "HEAD..origin/main")
+    if not behind or not behind.isdigit() or behind == "0":
+        return None
+    return {"behind": int(behind), "installed": _git(root, "rev-parse", "--short", "HEAD"), "origin_main": _git(root, "rev-parse", "--short", "origin/main")}
 
 
 def changed(started_at: str | None, now: str | None) -> bool:
