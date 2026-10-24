@@ -137,11 +137,10 @@ def credential_logged_out(credential: dict | None, now: float | None = None) -> 
     return expired and not oauth.get("refreshToken")
 
 
-def logged_in(account: Account, read_keychain=_read_keychain) -> bool | None:
-    """Whether the account still has a working login: the keychain item on
-    macOS, else <config dir>/.credentials.json (Linux). None when neither
-    exists or parses, so a machine podbay cannot read is never called
-    logged out."""
+def read_credential(account: Account, read_keychain=_read_keychain) -> dict | None:
+    """The account's stored login: the keychain item on macOS, else
+    <config dir>/.credentials.json (Linux). None when neither exists or
+    parses. The tokens in it are never printed or logged."""
     raw = read_keychain(account.keychain_service)
     if raw is None:
         try:
@@ -152,7 +151,54 @@ def logged_in(account: Account, read_keychain=_read_keychain) -> bool | None:
         credential = json.loads(raw)
     except ValueError:
         return None
-    return not credential_logged_out(credential if isinstance(credential, dict) else None)
+    return credential if isinstance(credential, dict) else None
+
+
+def logged_in(account: Account, read_keychain=_read_keychain) -> bool | None:
+    """Whether the account still has a working login. None when the login
+    cannot be read, so a machine podbay cannot read is never called logged
+    out."""
+    credential = read_credential(account, read_keychain)
+    if credential is None:
+        return None
+    return not credential_logged_out(credential)
+
+
+def login_deadline(credential: dict | None, now: float | None = None) -> float | None:
+    """When the login stops working, as epoch seconds; None when it is
+    already gone or the item does not say.
+
+    The refresh token has a fixed end, refreshTokenExpiresAt, which /login
+    sets about 30 days ahead and a refresh does not move. Until then Claude
+    Code renews the 8-hour access token as it runs out. After it, nothing
+    can renew it, and the sessions answer "Login expired" when the last
+    access token runs out (2026-10-23: refresh token ended 06:09 UTC, the
+    sessions died 12:47 UTC). So the deadline is the refresh token's end,
+    and once that has passed, the access token's end."""
+    oauth = (credential or {}).get("claudeAiOauth")
+    if not isinstance(oauth, dict) or credential_logged_out(credential, now):
+        return None
+    now = time.time() if now is None else now
+    refresh_end = oauth.get("refreshTokenExpiresAt")
+    if not isinstance(refresh_end, (int, float)) or not refresh_end:
+        return None
+    if refresh_end / 1000 > now:
+        return refresh_end / 1000
+    access_end = oauth.get("expiresAt")
+    if isinstance(access_end, (int, float)) and access_end / 1000 > now:
+        return access_end / 1000
+    return None
+
+
+def login_deadlines(accounts: list[Account], read_keychain=_read_keychain, now: float | None = None) -> dict[str, float]:
+    """Each logged-in account's login_deadline, by label; an account whose
+    deadline is unknown is left out."""
+    found = {}
+    for a in accounts:
+        deadline = login_deadline(read_credential(a, read_keychain), now)
+        if deadline is not None:
+            found[a.label] = deadline
+    return found
 
 
 def logged_out_labels(accounts: list[Account], read_keychain=_read_keychain) -> set[str]:

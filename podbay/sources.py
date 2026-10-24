@@ -288,6 +288,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         "last_prompt": None,
         "user_prompts": [],  # the newest typed prompts, oldest first (see mood.py)
         "last_assistant_text": None,
+        "login_expired_at": None,  # when Claude Code answered "Login expired", if that is the newest answer
         "git_branch": None,
         "last_turn": None,
         "last_turn_ts": None,
@@ -351,6 +352,10 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
             texts = [c.get("text") or "" for c in content if isinstance(c, dict) and c.get("type") == "text"]
             if texts:
                 result["last_assistant_text"] = texts[-1]
+            if relevant:
+                result["login_expired_at"] = (
+                    _iso_to_local_dt(record.get("timestamp")) if _is_login_expired(record, texts) else None
+                )
 
             stop_reason = (record.get("message") or {}).get("stop_reason")
             message_id = (record.get("message") or {}).get("id")
@@ -408,6 +413,17 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         result["recap"] = result["last_assistant_text"]
 
     return result
+
+
+# What Claude Code writes as the answer when the login is gone. The message
+# is a synthetic assistant record (model "<synthetic>"), not the model's.
+LOGIN_EXPIRED_TEXTS = ("Login expired", "Failed to authenticate: OAuth session expired")
+
+
+def _is_login_expired(record: dict, texts: list[str]) -> bool:
+    if (record.get("message") or {}).get("model") != "<synthetic>":
+        return False
+    return any(t.startswith(LOGIN_EXPIRED_TEXTS) for t in texts)
 
 
 def _note_background_task(record: dict, tasks: dict) -> None:
@@ -1036,6 +1052,7 @@ def gather_sessions(
                 recent_prompts=list(transcript.get("user_prompts", [])),
                 last_turn=transcript.get("last_turn"),
                 last_turn_ts=transcript.get("last_turn_ts"),
+                login_expired_at=transcript.get("login_expired_at"),
                 main_turn_ts=main_last_turn_ts,
                 tab_busy=tab.busy if tab else None,
                 context_pct=snapshot.get("context_pct") if snapshot else None,

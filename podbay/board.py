@@ -42,7 +42,8 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import machine, voice
+from . import logins, machine, voice
+from .inventory import login_end_epochs
 from .model import DUE, EMPTY, HOME_BASE, NEEDS_YOU, PARKED, SHELL, STALLED, WATCHING, WORKING, humanize_age
 
 STATE_DIR = Path.home() / ".local" / "state" / "podbay"
@@ -418,10 +419,14 @@ def _ctx(session: dict) -> str:
     return f'<span class="{cls}">ctx {pct:.0f}%</span>'
 
 
-def _quotas(limits: dict[str, dict] | None, now: datetime, logged_out: list[str] | None = None) -> str:
+def _quotas(
+    limits: dict[str, dict] | None, now: datetime, logged_out: list[str] | None = None,
+    login_ends: dict[str, float] | None = None,
+) -> str:
     """One line per account: `claude 5H 36% ↻2h15m  7D 17% ↻1d7h →~17%`,
-    the header's own wording (voice.limits_segments). An account with no
-    login says so instead: its figures stopped when the login went."""
+    the header's own wording (voice.limits_segments), then the time left on
+    its login. An account with no login says so instead: its figures
+    stopped when the login went."""
     lines = []
     for account in sorted(logged_out or ()):
         lines.append(f'<div><b>{_esc(account)}</b> <span class="out">logged out · run /login</span></div>')
@@ -431,8 +436,14 @@ def _quotas(limits: dict[str, dict] | None, now: datetime, logged_out: list[str]
         segments = voice.limits_segments(
             figures.get("five_pct"), figures.get("five_resets_at"), figures.get("week_pct"), figures.get("week_resets_at"), now
         )
-        if segments:
-            lines.append(f"<div><b>{_esc(account)}</b> {_esc(''.join(text for text, _ in segments))}</div>")
+        ends = (login_ends or {}).get(account)
+        ends_html = ""
+        if ends is not None:
+            left = ends - now.timestamp()
+            css = "out" if left <= logins.WARN_EARLY else "ends"
+            ends_html = f' <span class="{css}">{_esc(voice.login_ends(left))}</span>'
+        if segments or ends_html:
+            lines.append(f"<div><b>{_esc(account)}</b> {_esc(''.join(text for text, _ in segments))}{ends_html}</div>")
     return f'<div class="quotas">{"".join(lines)}</div>' if lines else ""
 
 
@@ -623,7 +634,7 @@ def render(
     head_ctx = f'<p class="hint">Head Jeeves {_ctx(head)}</p>' if head and _ctx(head) else ""
     room = (
         f'<details class="room"><summary>Machine room · {_plural(len(sessions), "session", "sessions")}</summary>\n'
-        f"{_release(payload.get('release'))}{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now, payload.get('logged_out_accounts'))}{head_ctx}\n"
+        f"{_release(payload.get('release'))}{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now, payload.get('logged_out_accounts'), login_end_epochs(payload))}{head_ctx}\n"
         + (f'<ul class="lines">\n{rows}\n</ul>\n<p class="hint">Tap a session to message it.</p>' if rows else '<p class="none">No live sessions.</p>')
         + "</details>"
     )

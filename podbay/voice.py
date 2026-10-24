@@ -561,6 +561,38 @@ def logged_out_line(accounts: list[str], sessions: list[str]) -> str:
     return line + (f"; login expired in: {', '.join(sessions)}" if sessions else "")
 
 
+def time_left(seconds: float) -> str:
+    """How long until a login ends: 40 min, 5 h 10 min, 3 d 4 h."""
+    minutes = max(int(seconds // 60), 0)
+    if minutes < 24 * 60:
+        return duration(minutes)
+    return f"{minutes // 1440} d {minutes % 1440 // 60} h"
+
+
+def login_ends(seconds: float) -> str:
+    """The time left on an account's login, in `podbay accounts`, the
+    inventory and the board."""
+    return f"login ends in {time_left(seconds)}"
+
+
+def login_ending(account: str, seconds: float, at: datetime) -> str:
+    """The push before a login ends (logins.py)."""
+    return (
+        f"The {account} login ends in {time_left(seconds)} ({at:%a %H:%M}). "
+        f"Run /login in a session on {account} before then."
+    )
+
+
+def login_expired_push(account: str) -> str:
+    """The push the moment a session answers "Login expired" (logins.py)."""
+    return f"The {account} login has expired and its sessions have stopped. Run /login in a session on {account}."
+
+
+def login_ends_line(ends: dict[str, float], now: float) -> str:
+    """The inventory's line: each logged-in account and its time left."""
+    return "logins: " + ", ".join(f"{a} ends in {time_left(t - now)}" for a, t in sorted(ends.items()))
+
+
 def account_logged_out() -> str:
     """The account picker's model cell for an account with no login."""
     return "logged out"

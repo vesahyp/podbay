@@ -110,7 +110,11 @@ than ten minutes is refreshed first. An account whose login has expired or
 was logged out (its keychain item has no token left) shows as "logged out"
 and is never suggested; `podbay inventory` lists it under
 `logged_out_accounts` and marks each of its sessions `login_expired`, and
-the board's machine room says the same.
+the board's machine room says the same. Each logged-in account shows the time
+left on its login. `podbay notify` pushes a warning 24 hours and 1 hour
+before a login ends (not at night unless under 2 hours are left), and one
+line the moment a session answers "Login expired". How the end is known:
+`docs/login-expiry.md`.
 
 `podbay open` starts claude in a terminal sitting at an empty shell prompt
 (one stuck on a half-typed line does not count), or in a new window. With a

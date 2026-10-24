@@ -82,6 +82,9 @@ class Session:
     # finished its turn; None = no transcript signal (fall back).
     last_turn: str | None = None
     last_turn_ts: datetime | None = None
+    # When Claude Code answered "Login expired" in it, while that is still
+    # the newest answer: the session is dead until /login (logins.py).
+    login_expired_at: datetime | None = None
 
     # Background Bash commands and Monitors the transcript started:
     # {"id", "ts" (local datetime), "timeout_ms" (Monitor only), "ended"}.

@@ -80,6 +80,10 @@ podbay/
   notifications.py  the history behind `h`
   notify.py         `podbay notify`: one line to the user's phone through
                       the configured command (config notify-command)
+  logins.py         the push before a Claude login ends and the one when a
+                      session says "Login expired"; docs/login-expiry.md
+                      has how the end is known
+docs/               findings about Claude Code that the code depends on
 tests/              pytest; conftest pins one account and a home base
 scripts/shots.py    the site's screenshots: the real TUI and board over
                       made-up sessions, rendered by Playwright

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -62,10 +63,10 @@ def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = No
         # Head Jeeves closes when they are done.
         "opened_by": s.opened_by,
         "account": s.account,
-        # Its account's login has expired or was logged out: every prompt
-        # answers "Login expired · Please run /login", so the session is
+        # Its account's login has expired or was logged out, or the session
+        # has answered "Login expired · Please run /login" itself: it is
         # dead until someone runs /login in it (accounts.logged_in).
-        "login_expired": s.account in (logged_out or set()),
+        "login_expired": s.account in (logged_out or set()) or s.login_expired_at is not None,
         "remote_url": s.remote_url,
         "tab": s.terminal,
         "short_id": s.session_id[:6],
@@ -111,6 +112,7 @@ def free_terminals(sessions: list[Session]) -> list[dict]:
 
 def inventory_payload(
     sessions: list[Session], exclude: set[str], empty_windows: list | None = None, logged_out: set[str] | None = None,
+    login_ends: dict[str, float] | None = None,
 ) -> dict:
     """The deterministic inventory: registry+transcript join already done by
     gather_sessions(), filtered to real Claude sessions (shell panes carry no
@@ -140,6 +142,9 @@ def inventory_payload(
         # The accounts whose login has expired: no session runs on them.
         "logged_out_accounts": sorted(logged_out or ()),
         "login_expired": [s["name"] for s in session_dicts if s["login_expired"]],
+        # When each logged-in account's login ends (accounts.login_deadline):
+        # after it, its sessions answer "Login expired" until /login.
+        "login_ends": {a: datetime.fromtimestamp(t, timezone.utc).isoformat() for a, t in sorted((login_ends or {}).items())},
         "unlisted_terminals": unlisted_terminals(sessions, empty_windows or []),
         "free_terminals": free_terminals(sessions),
     }
@@ -215,6 +220,7 @@ def build_payload(
     machine_budget: float = MACHINE_BUDGET_SECONDS,
     empty_windows: Callable[[], list] | None = None,
     logged_out: Callable[[], set[str]] | None = None,
+    login_ends: Callable[[], dict[str, float]] | None = None,
 ) -> dict:
     """The inventory, live when the scan finishes within `budget` seconds
     (and then saved as the snapshot), otherwise the last saved one with
@@ -225,7 +231,8 @@ def build_payload(
     health = sample if sample_done and sample else {}
     done, sessions, error = _within(gather, budget)
     if done:
-        full = inventory_payload(sessions, set(), empty_windows() if empty_windows else None, logged_out() if logged_out else None)
+        full = inventory_payload(sessions, set(), empty_windows() if empty_windows else None, logged_out() if logged_out else None,
+                                 login_ends() if login_ends else None)
         save_snapshot(full, path)
         payload = apply_exclude(full, exclude)
         payload["stale"] = False
@@ -253,12 +260,26 @@ def build_payload(
     return payload
 
 
+def login_end_epochs(payload: dict) -> dict[str, float]:
+    """The payload's login_ends as epoch seconds; an entry that does not
+    parse is left out."""
+    found = {}
+    for account, at in (payload.get("login_ends") or {}).items():
+        try:
+            found[account] = datetime.fromisoformat(at).timestamp()
+        except (TypeError, ValueError):
+            continue
+    return found
+
+
 def machine_lines(payload: dict) -> list[str]:
     """The machine as plain lines, and the stale note first when there is
     one: what the table and status views print under or above the sessions."""
     lines = [payload["stale_note"]] if payload.get("stale") and payload.get("stale_note") else []
     if payload.get("logged_out_accounts"):
         lines.append(voice.logged_out_line(payload["logged_out_accounts"], payload.get("login_expired", [])))
+    if payload.get("login_ends"):
+        lines.append(voice.login_ends_line(login_end_epochs(payload), time.time()))
     if payload.get("release"):
         lines.append(voice.release_line(payload["release"]))
     if payload.get("unlisted_terminals"):
@@ -346,6 +367,8 @@ def render_status(payload: dict) -> str:
         lines.append(f"paused: {', '.join(paused_names)}")
     if payload.get("logged_out_accounts"):
         lines.append(voice.logged_out_line(payload["logged_out_accounts"], payload.get("login_expired", [])))
+    if payload.get("login_ends"):
+        lines.append(voice.login_ends_line(login_end_epochs(payload), time.time()))
 
     for g in groups:
         lines.append(f"same repo: {g['repo']} ({', '.join(g['sessions'])})")

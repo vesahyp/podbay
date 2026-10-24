@@ -44,7 +44,8 @@ from . import mood
 from . import reviewer
 from . import iterm as iterm_mod
 from . import machine as machine_mod
-from .accounts import Account, by_label, discover, logged_in, logged_out_labels
+from .accounts import Account, by_label, discover, logged_in, logged_out_labels, login_deadline, login_deadlines, read_credential
+from . import logins as logins_mod
 from . import logs
 from . import notifications
 from . import notify as notify_mod
@@ -147,6 +148,7 @@ RESTART_PATIENCE_SECONDS = 120
 # transcript behind, and the figure moves in whole percent over minutes.
 USAGE_REFRESH_SECONDS = 600
 MACHINE_REFRESH_SECONDS = 15
+LOGIN_CHECK_SECONDS = 60  # the warnings and the expired push (logins.py)
 
 SHELL_READ_DEBOUNCE = 0.25
 SHELL_TEXT_TTL = 3.0
@@ -1048,6 +1050,7 @@ class PodbayApp(App):
         self._refresh_machine()
         self.set_interval(MACHINE_REFRESH_SECONDS, self._refresh_machine)
         self.set_interval(CODE_CHECK_SECONDS, self._check_code_version)
+        self.set_interval(LOGIN_CHECK_SECONDS, self._check_logins)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
             self.push_screen(PromptScreen(voice.name_question(), glyph=glyphs.MESSAGE), self._name_given)
@@ -1213,6 +1216,20 @@ class PodbayApp(App):
                 overload_mod.write_state(new_state)
         except Exception:  # noqa: BLE001 -- the check must never take the screen down
             log.warning("overload check failed", exc_info=True)
+
+    def _check_logins(self) -> None:
+        """Push a warning before an account's login ends, and one line when
+        a session answers "Login expired" (logins.py)."""
+        if self._quitting or self._restart_waiting_since is not None:
+            return
+        self._logins_worker(list(self._live_sessions.values()))
+
+    @work(thread=True, exclusive=True, group="logins")
+    def _logins_worker(self, sessions: list[Session]) -> None:
+        try:
+            logins_mod.check(login_deadlines(self._accounts), sessions, datetime.now(), notify_mod.send)
+        except Exception:  # noqa: BLE001 -- the check must never take the screen down
+            log.warning("login check failed", exc_info=True)
 
     def _refresh_usage(self) -> None:
         """Kick off a background /usage refresh; a no-op while one is
@@ -2233,7 +2250,7 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
     lister = iterm_mod.ItermLister()
     sessions = sources.gather_sessions(StateStore(), lister, status_snapshots=snapshots)
     accounts = discover()
-    payload = inventory_payload(sessions, set(), lister.empty_windows(), logged_out_labels(accounts))
+    payload = inventory_payload(sessions, set(), lister.empty_windows(), logged_out_labels(accounts), login_deadlines(accounts))
     limits = {a.label: sources.newest_limits(snapshots, a.label) for a in accounts}
     headlines, problem = board.load_headlines()
     if problem:
@@ -2426,6 +2443,7 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
         lambda: sources.gather_sessions(state_store, iterm_lister), set(exclude),
         empty_windows=iterm_lister.empty_windows,
         logged_out=lambda: logged_out_labels(discover()),
+        login_ends=lambda: login_deadlines(discover()),
     )
     if payload.get("stale"):
         print(payload.get("stale_note", ""), file=sys.stderr)
@@ -2463,7 +2481,7 @@ def _quota_entries(accounts: list[Account], fetch: bool = True) -> list[dict]:
         quota.account_entry(
             a, sources.newest_limits(snapshots, a.label),
             account_usage(a) if fetch else usage.read_cache(usage.cache_path_for(a)), now,
-            quota.SEEN_PATH, logged_in(a),
+            quota.SEEN_PATH, logged_in(a), login_deadline(read_credential(a)),
         )
         for a in accounts
     ]

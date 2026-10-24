@@ -26,9 +26,11 @@ import logging
 import os
 import re
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import voice
 from .accounts import Account
 
 log = logging.getLogger(__name__)
@@ -128,13 +130,14 @@ def remember(path: Path, label: str, aliases: list[str]) -> list[str]:
 
 def account_entry(
     account: Account, limits: dict, usage_data: dict | None, now: float,
-    seen_path: Path | None = None, logged_in: bool | None = None,
+    seen_path: Path | None = None, logged_in: bool | None = None, login_ends_at: float | None = None,
 ) -> dict:
     """One account: its plan, its overall windows, and every per-model
     weekly window /usage lists for it. The snapshots are the newer source
     for the overall windows; /usage fills in one the snapshots lack.
     `logged_in` is accounts.logged_in: False marks the account logged out,
-    None (unknown) is read as logged in."""
+    None (unknown) is read as logged in. `login_ends_at` is
+    accounts.login_deadline: when the login stops working."""
     entries = (usage_data or {}).get("entries", [])
     by_key = {e.get("key"): e for e in entries if e.get("key") in ("session", "week_all")}
     five = window(limits.get("five_pct"), limits.get("five_resets_at"), now)
@@ -155,6 +158,7 @@ def account_entry(
     return {
         "account": account.label,
         "logged_out": logged_in is False,
+        "login_ends_at": None if logged_in is False else _iso(login_ends_at),
         "plan": tier,
         "quota_multiplier": multiplier,
         "five_hour": five,
@@ -237,9 +241,10 @@ def render(data: dict) -> str:
             lines.append(f"{e['account']}: logged out, never suggested; run /login in a session on it")
             continue
         models = "  ".join(f"{m['model']} {_pct(m['seven_day'])}" for m in e["models"])
+        ends = f"  {voice.login_ends(datetime.fromisoformat(e['login_ends_at']).timestamp() - time.time())}" if e.get("login_ends_at") else ""
         lines.append(
             f"{e['account']} ({e['plan'] or 'plan unknown'}, x{e['quota_multiplier']}): "
-            f"5h {_pct(e['five_hour'])}  7d {_pct(e['seven_day'])}" + (f"  {models}" if models else "")
+            f"5h {_pct(e['five_hour'])}  7d {_pct(e['seven_day'])}" + (f"  {models}" if models else "") + ends
         )
     for kind, s in data["suggested"].items():
         lines.append(f"{kind}: " + (f"--account {s['account']} --model {s['model']} ({s['left_pct']:.0f}% left)" if s else f"nothing under {LIMIT_PCT:.0f}%"))

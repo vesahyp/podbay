@@ -118,8 +118,9 @@ window inside it. Run this before every `podbay open`, every time:
   a model at or above 85 percent of a window, nor an account with
   `logged_out: true`, and it prefers the account with the larger quota.
 - A session with `login_expired: true` in the inventory answers every
-  prompt with "Login expired". Do not send it work. Tell the user which
-  account to `/login` (`logged_out_accounts`), once.
+  prompt with "Login expired". Do not send it work. podbay pushes the
+  expiry to the phone itself, and warns 24 hours and 1 hour before a
+  login ends (`login_ends`), so do not push it again.
 - Choose by the job. Design, game feel, architecture, a hard bug or a
   review that must be right: take `suggested.heavy`. Routine fixes, copy
   edits, dependency bumps, doc updates and anything mechanical: take
