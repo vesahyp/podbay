@@ -138,9 +138,11 @@ def write_cache(data: dict, path: Path | None = None) -> None:
         raise
 
 
-def read_cache(path: Path | None = None, max_age: float | None = None) -> dict | None:
-    """None when the file is missing, malformed, or (with max_age set) older
-    than that many seconds."""
+def read_cache(path: Path | None = None, max_age: float | None = None, login: int | None = None) -> dict | None:
+    """None when the file is missing, malformed, (with max_age set) older
+    than that many seconds, or (with login set) written under another
+    login than that accounts.login_stamp: figures from before a /login
+    are not the new login's, so a login gets a new /usage run at once."""
     path = path or CACHE_PATH
     try:
         data = json.loads(path.read_text())
@@ -150,4 +152,6 @@ def read_cache(path: Path | None = None, max_age: float | None = None) -> dict |
         fetched_at = data.get("fetched_at")
         if fetched_at is None or time.time() - fetched_at > max_age:
             return None
+    if login is not None and data.get("login") != login:
+        return None
     return data

@@ -10,6 +10,7 @@ name ("claude" for the default one, "personal" for ~/.claude-personal).
 
 from __future__ import annotations
 
+import getpass
 import hashlib
 import json
 import os
@@ -109,17 +110,40 @@ def by_label(accounts: list[Account], label: str | None) -> Account | None:
     return next((a for a in accounts if a.label == label), None)
 
 
+def _keychain_user() -> str:
+    """The keychain account Claude Code files its login under: the login
+    user's name."""
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError):
+        return ""
+
+
 def _read_keychain(service: str) -> str | None:
     """The keychain item's secret, or None when there is no such item or
-    no `security` command (not macOS). Never raises."""
-    try:
-        result = subprocess.run(
-            ["security", "find-generic-password", "-s", service, "-w"],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return result.stdout if result.returncode == 0 else None
+    no `security` command (not macOS). Never raises.
+
+    Several items can share one service name, told apart by their account
+    attribute, and a lookup by service alone returns whichever comes
+    first. On 2026-10-24 a second "Claude Code-credentials" item with
+    account "unknown" and only MCP logins in it appeared beside the real
+    one (account "vesa"), and podbay read it and called the default
+    account logged out through a fresh /login. So the item under the
+    login user's name is read first, and the service-only lookup is the
+    fallback."""
+    user = _keychain_user()
+    lookups = ([["-a", user]] if user else []) + [[]]
+    for extra in lookups:
+        try:
+            result = subprocess.run(
+                ["security", "find-generic-password", "-s", service, *extra, "-w"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode == 0:
+            return result.stdout
+    return None
 
 
 def credential_logged_out(credential: dict | None, now: float | None = None) -> bool:
@@ -188,6 +212,17 @@ def login_deadline(credential: dict | None, now: float | None = None) -> float |
     if isinstance(access_end, (int, float)) and access_end / 1000 > now:
         return access_end / 1000
     return None
+
+
+def login_stamp(credential: dict | None) -> int | None:
+    """What tells one login from the next without touching a token: the
+    refresh token's end, which every /login sets anew and a refresh does
+    not move. None when the account is logged out or the item does not
+    say."""
+    if credential_logged_out(credential):
+        return None
+    end = credential["claudeAiOauth"].get("refreshTokenExpiresAt")
+    return int(end) if isinstance(end, (int, float)) and end else None
 
 
 def login_deadlines(accounts: list[Account], read_keychain=_read_keychain, now: float | None = None) -> dict[str, float]:

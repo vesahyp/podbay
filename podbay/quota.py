@@ -83,12 +83,13 @@ def _iso(epoch: float | None) -> str | None:
 
 
 def window(pct: float | None, resets_at: float | None, now: float) -> dict | None:
-    """One window. A figure whose reset time has passed is read as 0 used:
-    the window started over after the reading was taken."""
+    """One window. A figure whose reset time has passed is read as 0 used
+    with no reset time: the window started over after the reading was
+    taken, and the old reset time says nothing about the new one."""
     if pct is None:
         return None
     if resets_at is not None and resets_at <= now:
-        pct = 0.0
+        pct, resets_at = 0.0, None
     return {"used_pct": round(float(pct), 1), "left_pct": round(100 - float(pct), 1), "resets_at": _iso(resets_at)}
 
 
@@ -140,11 +141,14 @@ def account_entry(
     accounts.login_deadline: when the login stops working."""
     entries = (usage_data or {}).get("entries", [])
     by_key = {e.get("key"): e for e in entries if e.get("key") in ("session", "week_all")}
+    # A snapshot window whose reset has passed is older than any /usage
+    # run since: the account has had no session to write a newer one (a
+    # login that was gone for days, 2026-10-25), so /usage fills it in.
     five = window(limits.get("five_pct"), limits.get("five_resets_at"), now)
-    if five is None and "session" in by_key:
+    if (five is None or five["resets_at"] is None) and "session" in by_key:
         five = window(by_key["session"].get("pct"), by_key["session"].get("resets_at"), now)
     week = window(limits.get("week_pct"), limits.get("week_resets_at"), now)
-    if week is None and "week_all" in by_key:
+    if (week is None or week["resets_at"] is None) and "week_all" in by_key:
         week = window(by_key["week_all"].get("pct"), by_key["week_all"].get("resets_at"), now)
     models = []
     for e in entries:

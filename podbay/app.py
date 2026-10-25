@@ -44,7 +44,7 @@ from . import mood
 from . import reviewer
 from . import iterm as iterm_mod
 from . import machine as machine_mod
-from .accounts import Account, by_label, discover, logged_in, logged_out_labels, login_deadline, login_deadlines, read_credential
+from .accounts import Account, by_label, discover, logged_in, logged_out_labels, login_deadline, login_deadlines, login_stamp, read_credential
 from . import logins as logins_mod
 from . import logs
 from . import notifications
@@ -1246,12 +1246,13 @@ class PodbayApp(App):
         results: dict[str, dict | None] = {}
         for account in self._accounts:
             path = usage.cache_path_for(account)
-            data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS)
+            stamp = login_stamp(read_credential(account))
+            data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS, login=stamp)
             if data is None:
                 with self._polling("usage"):
                     data = usage.fetch(account=account)
                 if data is not None:
-                    usage.write_cache(data, path)
+                    usage.write_cache({**data, "login": stamp}, path)
             results[account.label] = data
         self.call_from_thread(self._apply_usage, results)
 
@@ -2459,13 +2460,16 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
 
 def account_usage(account: Account) -> dict | None:
     """The account's `claude -p /usage` figures: the TUI's cache while it is
-    fresh, else one new run written back to it, else the stale cache."""
+    fresh and from the current login, else one new run written back to it,
+    else the stale cache."""
     path = usage.cache_path_for(account)
-    data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS)
+    stamp = login_stamp(read_credential(account))
+    data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS, login=stamp)
     if data is not None:
         return data
     data = usage.fetch(account=account)
     if data is not None:
+        data = {**data, "login": stamp}
         usage.write_cache(data, path)
         return data
     return usage.read_cache(path)

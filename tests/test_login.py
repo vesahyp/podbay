@@ -123,3 +123,56 @@ def test_board_machine_room_shows_the_logged_out_account_and_its_sessions():
     assert "<b>claude</b> <span class=\"out\">logged out · run /login</span>" in room
     assert room.count("<b>claude</b>") == 1 and "<b>personal</b>" in room
     assert "login expired" in room
+
+
+class _Done:
+    def __init__(self, code, out=""):
+        self.returncode, self.stdout = code, out
+
+
+def test_the_login_users_keychain_item_wins_over_a_stray_one_under_the_same_service(monkeypatch):
+    # 2026-10-25: an item with account "unknown" and only MCP logins in it
+    # came first in a service-only lookup, so a fresh /login read as logged out.
+    items = {("Claude Code-credentials", "vesa"): json.dumps(LOGGED_IN),
+             ("Claude Code-credentials", "unknown"): json.dumps({"mcpOAuth": {}})}
+    calls = []
+
+    def fake_run(cmd, **_kw):
+        calls.append(cmd)
+        service = cmd[cmd.index("-s") + 1]
+        if "-a" in cmd:
+            secret = items.get((service, cmd[cmd.index("-a") + 1]))
+        else:
+            secret = items[(service, "unknown")]  # what the keychain returns first
+        return _Done(0, secret) if secret else _Done(44)
+
+    monkeypatch.setattr(accounts.subprocess, "run", fake_run)
+    monkeypatch.setattr(accounts, "_keychain_user", lambda: "vesa")
+    assert json.loads(accounts._read_keychain("Claude Code-credentials")) == LOGGED_IN
+    # No item under the user's name: the service-only lookup still answers.
+    monkeypatch.setattr(accounts, "_keychain_user", lambda: "someone")
+    assert json.loads(accounts._read_keychain("Claude Code-credentials")) == {"mcpOAuth": {}}
+    assert all("-w" in c for c in calls)
+
+
+def test_a_new_login_makes_the_usage_cache_stale_at_once(tmp_path):
+    old = {"claudeAiOauth": {**LOGGED_IN["claudeAiOauth"], "refreshTokenExpiresAt": 1_801_000_000_000}}
+    new = {"claudeAiOauth": {**LOGGED_IN["claudeAiOauth"], "refreshTokenExpiresAt": 1_802_000_000_000}}
+    assert accounts.login_stamp(LOGGED_OUT) is None
+    assert accounts.login_stamp(old) == 1_801_000_000_000
+    path = tmp_path / "usage.json"
+    usage.write_cache({"fetched_at": 9e12, "entries": [], "login": accounts.login_stamp(old)}, path)
+    assert usage.read_cache(path, login=accounts.login_stamp(old)) is not None
+    assert usage.read_cache(path, login=accounts.login_stamp(new)) is None
+
+
+def test_a_five_hour_window_past_its_reset_takes_the_usage_figure(tmp_path):
+    default, _ = _accounts(tmp_path)
+    # The newest snapshot is from before the login went, days ago.
+    stale = {"five_pct": 91.0, "five_resets_at": NOW - 5 * 86400, "week_pct": 25.0, "week_resets_at": LATER}
+    fresh = {"fetched_at": NOW, "entries": [{"key": "session", "label": None, "pct": 12.0, "resets_at": LATER}]}
+    entry = quota.account_entry(default, stale, fresh, NOW, logged_in=True)
+    assert entry["five_hour"]["used_pct"] == 12.0
+    assert entry["five_hour"]["resets_at"] == quota._iso(LATER)
+    # Without a /usage figure the old reset time is dropped, not shown.
+    assert quota.account_entry(default, stale, None, NOW)["five_hour"] == {"used_pct": 0.0, "left_pct": 100.0, "resets_at": None}
