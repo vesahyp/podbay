@@ -117,3 +117,13 @@ def test_an_unreadable_seen_file_is_treated_as_empty(tmp_path):
     seen.write_text("{not json")
     entry = quota.account_entry(_account(tmp_path), _limits(1, 1), _usage(("Fable", 5)), NOW, seen)
     assert entry["models_seen"] == ["fable"]
+
+
+def test_an_excluded_model_falls_back_to_opus_and_is_shown(tmp_path):
+    listed = quota.account_entry(_account(tmp_path, "claude", "default_claude_max_5x"), _limits(10, 10), _usage(("Fable", 10)), NOW)
+    data = quota.payload([listed], ["fable"])
+    assert data["suggested"]["heavy"]["model"] == "opus"
+    assert data["suggested"]["heavy"]["account"] == "claude"
+    assert all(o["model"] != "fable" for o in data["options"])
+    assert "never suggested" in quota.render(data) and "fable" in quota.render(data)
+    assert quota.best_model([listed], "claude", ["fable"]) == "opus"

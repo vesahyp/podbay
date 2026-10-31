@@ -36,7 +36,7 @@ def test_cmd_config_prints_and_sets(tmp_path, monkeypatch, capsys):
     path = tmp_path / "config.json"
     monkeypatch.setattr(config, "CONFIG_PATH", path)
     cmd_config(None, None)
-    assert capsys.readouterr().out == "comment-sweep = \nhead-jeeves = \nhead-jeeves-account = \nhead-jeeves-compact-at = \nhome-repo = \nnotify-command = \nreview-model = \nuser-name = \nvoice = \n"
+    assert capsys.readouterr().out == "comment-sweep = \nhead-jeeves = \nhead-jeeves-account = \nhead-jeeves-compact-at = \nhome-repo = \nnever-suggest-models = \nnotify-command = \nreview-model = \nuser-name = \nvoice = \n"
     cmd_config("home-repo", "jeeves")
     assert "home-repo = jeeves" in capsys.readouterr().out
     cmd_config("home-repo", None)
@@ -50,3 +50,12 @@ def test_comment_sweep_is_on_unless_set_off(tmp_path):
     assert not config.comment_sweep_on(path)
     config.set_value("comment-sweep", "on", path)
     assert config.comment_sweep_on(path)
+
+
+def test_never_suggest_models_defaults_to_fable(tmp_path):
+    path = tmp_path / "config.json"
+    assert config.never_suggest_models(path) == ["fable"]
+    config.set_value("never-suggest-models", "Fable, sonnet", path)
+    assert config.never_suggest_models(path) == ["fable", "sonnet"]
+    config.set_value("never-suggest-models", "none", path)
+    assert config.never_suggest_models(path) == []

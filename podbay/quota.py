@@ -182,14 +182,17 @@ def _left(windows: list[dict | None]) -> float | None:
     return min((w["left_pct"] for w in known), default=100.0)
 
 
-def options(entries: list[dict]) -> list[dict]:
-    """Every account and model that may be suggested, the most room first."""
+def options(entries: list[dict], excluded=()) -> list[dict]:
+    """Every account and model that may be suggested, the most room first.
+    A model in `excluded` (config never-suggest-models) is never listed."""
     found = []
     for e in entries:
         if e.get("logged_out"):
             continue
         per_model = {m["alias"]: m["seven_day"] for m in e["models"]}
         for alias in MODELS:
+            if alias in excluded:
+                continue
             if alias in LISTED_ONLY and alias not in per_model and alias not in e.get("models_seen", []):
                 continue
             left = _left([e["five_hour"], e["seven_day"], per_model.get(alias)])
@@ -205,11 +208,11 @@ def options(entries: list[dict]) -> list[dict]:
     return found
 
 
-def suggest(entries: list[dict], start: str) -> dict | None:
+def suggest(entries: list[dict], start: str, excluded=()) -> dict | None:
     """The strongest model from `start` down that some account has room
     for, on the account with the most room for it. None when every
     account or model is at or above LIMIT_PCT."""
-    ranked = options(entries)
+    ranked = options(entries, excluded)
     for alias in MODELS[MODELS.index(start):]:
         for o in ranked:
             if o["model"] == alias:
@@ -217,20 +220,22 @@ def suggest(entries: list[dict], start: str) -> dict | None:
     return None
 
 
-def best_model(entries: list[dict], account: str) -> str | None:
+def best_model(entries: list[dict], account: str, excluded=()) -> str | None:
     """The strongest model `account` has room for; None when it has room
     for none."""
-    fits = {o["model"] for o in options(entries) if o["account"] == account}
+    fits = {o["model"] for o in options(entries, excluded) if o["account"] == account}
     return next((alias for alias in MODELS if alias in fits), None)
 
 
-def payload(entries: list[dict]) -> dict:
+def payload(entries: list[dict], excluded=()) -> dict:
+    excluded = list(excluded)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "limit_pct": LIMIT_PCT,
         "accounts": entries,
-        "suggested": {"heavy": suggest(entries, MODELS[0]), "routine": suggest(entries, ROUTINE_FROM)},
-        "options": options(entries),
+        "excluded_models": excluded,
+        "suggested": {"heavy": suggest(entries, MODELS[0], excluded), "routine": suggest(entries, ROUTINE_FROM, excluded)},
+        "options": options(entries, excluded),
     }
 
 
@@ -250,6 +255,8 @@ def render(data: dict) -> str:
             f"{e['account']} ({e['plan'] or 'plan unknown'}, x{e['quota_multiplier']}): "
             f"5h {_pct(e['five_hour'])}  7d {_pct(e['seven_day'])}" + (f"  {models}" if models else "") + ends
         )
+    if data.get("excluded_models"):
+        lines.append("never suggested (podbay config never-suggest-models): " + ", ".join(data["excluded_models"]))
     for kind, s in data["suggested"].items():
         lines.append(f"{kind}: " + (f"--account {s['account']} --model {s['model']} ({s['left_pct']:.0f}% left)" if s else f"nothing under {LIMIT_PCT:.0f}%"))
     return "\n".join(lines)

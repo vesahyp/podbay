@@ -102,7 +102,7 @@ podbay config                    # show every setting
 per-model weekly window that `claude -p /usage` lists (such as Fable), and
 the account and model to open a new session on: one for heavy work (the
 strongest model with room) and one for routine work (Sonnet and below).
-Nothing at or above 85 percent of any window is suggested. Among the rest
+Nothing at or above 85 percent of any window is suggested, nor a model listed in `podbay config never-suggest-models` (default `fable`; `none` allows all), which the output names. Heavy work then falls back to Opus. Among the rest
 the most room wins, counted as percent left times the plan's multiplier
 (Max 5x counts five times), so the larger quota wins a tie. The windows
 come from the same snapshots and `/usage` cache as the header; a cache older

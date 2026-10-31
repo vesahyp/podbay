@@ -592,7 +592,7 @@ class AccountScreen(ModalScreen["tuple[Account, str | None] | None"]):
         super().__init__()
         self._accounts = accounts
         self._entries = {e["account"]: e for e in entries}
-        self._models = {a.label: quota.best_model(entries, a.label) for a in accounts}
+        self._models = {a.label: quota.best_model(entries, a.label, config.never_suggest_models()) for a in accounts}
         self._suggested = suggested
         self._live_counts = live_counts
         self._done = False
@@ -1876,9 +1876,9 @@ class PodbayApp(App):
                 return
             entries = _quota_entries(self._accounts, fetch=False)
             if len(self._accounts) == 1:
-                handle_account(directory, (self._accounts[0], quota.best_model(entries, self._accounts[0].label)))
+                handle_account(directory, (self._accounts[0], quota.best_model(entries, self._accounts[0].label, config.never_suggest_models())))
                 return
-            pick = quota.suggest(entries, quota.MODELS[0])
+            pick = quota.suggest(entries, quota.MODELS[0], config.never_suggest_models())
             self.push_screen(
                 AccountScreen(self._accounts, entries, pick["account"] if pick else None, self._live_counts()),
                 lambda picked: handle_account(directory, picked),
@@ -2564,7 +2564,7 @@ def _send_limit_resume(session: Session, text: str) -> str:
 def cmd_accounts(as_json: bool) -> None:
     """Every account's windows and a suggested account and model for a new
     session (see quota.py)."""
-    data = quota.payload(_quota_entries(discover()))
+    data = quota.payload(_quota_entries(discover()), config.never_suggest_models())
     if as_json:
         json.dump(data, sys.stdout)
         sys.stdout.write("\n")

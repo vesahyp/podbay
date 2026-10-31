@@ -33,6 +33,11 @@ Keys:
               script with fixed arguments, split like a shell line). Empty,
               the default, means off: nothing is sent.
 
+  never_suggest_models  comma-separated model aliases `podbay accounts` and
+              `podbay open` never suggest (quota.py); heavy work falls back
+              to the next model on the same account. Unset means fable (it
+              spends quota too fast, 2026-10-31); "none" allows every model.
+
   user_name   how HAL addresses you, in the splash, the shutdown and every
               remark. The screen asks for it at the first start and saves
               it here; set it again to change it, clear it ("") to be asked
@@ -59,6 +64,7 @@ KEYS = {
     "comment-sweep": "comment_sweep",
     "notify-command": "notify_command",
     "user-name": "user_name",
+    "never-suggest-models": "never_suggest_models",
 }
 
 
@@ -151,3 +157,10 @@ def home_repo(path: Path | None = None) -> str:
 
 def user_name(path: Path | None = None) -> str:
     return str(read(path).get("user_name") or "").strip()
+
+
+def never_suggest_models(path: Path | None = None) -> list[str]:
+    raw = str(read(path).get("never_suggest_models") or "fable").strip().lower()
+    if raw == "none":
+        return []
+    return [m.strip() for m in raw.split(",") if m.strip()]
