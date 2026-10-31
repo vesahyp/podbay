@@ -85,6 +85,9 @@ class Session:
     # When Claude Code answered "Login expired" in it, while that is still
     # the newest answer: the session is dead until /login (logins.py).
     login_expired_at: datetime | None = None
+    # The usage limit it sits on, or None: {"kind": "message" | "wrap_up" |
+    # "agent", "at": local datetime, "label", "reset_text"} (autoresume.py).
+    limit_stop: dict | None = None
 
     # Background Bash commands and Monitors the transcript started:
     # {"id", "ts" (local datetime), "timeout_ms" (Monitor only), "ended"}.

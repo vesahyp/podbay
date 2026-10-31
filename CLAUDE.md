@@ -80,6 +80,9 @@ podbay/
   notifications.py  the history behind `h`
   notify.py         `podbay notify`: one line to the user's phone through
                       the configured command (config notify-command)
+  autoresume.py     continues a session stopped on a usage limit after the
+                      reset, once, and tells Head Jeeves; its header has the
+                      three forms of a stop and the conditions
   logins.py         the push before a Claude login ends and the one when a
                       session says "Login expired"; docs/login-expiry.md
                       has how the end is known

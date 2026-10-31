@@ -67,6 +67,9 @@ def _session_dict(s: Session, now: datetime, paused: dict[str, dict] | None = No
         # has answered "Login expired · Please run /login" itself: it is
         # dead until someone runs /login in it (accounts.logged_in).
         "login_expired": s.account in (logged_out or set()) or s.login_expired_at is not None,
+        # The usage limit it sits on; podbay resumes it after the reset
+        # (autoresume.py).
+        "limit_stop": {**s.limit_stop, "at": s.limit_stop["at"].isoformat()} if s.limit_stop else None,
         "remote_url": s.remote_url,
         "tab": s.terminal,
         "short_id": s.session_id[:6],

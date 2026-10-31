@@ -681,6 +681,22 @@ def overload_cleared_command(paused: list[str]) -> str:
     return f"/head-jeeves overload-cleared The load has been normal for 5 min.{tail}"
 
 
+LIMIT_RESET_MESSAGE = "The usage limit has reset. Continue where you stopped."
+
+
+def limit_resume_command(resumed: list[str], uncertain: list[str], gave_up: list[tuple[str, str]]) -> str:
+    """The event for what one auto-resume check did (autoresume.py)."""
+    parts = []
+    if resumed:
+        parts.append(f"The usage limit reset and podbay resumed: {', '.join(resumed)}.")
+    if uncertain:
+        parts.append(f"The resume message timed out and may have arrived, check: {', '.join(uncertain)}.")
+    if gave_up:
+        parts.append("Not resumed, resume by hand: " + "; ".join(f"{n} ({why})" for n, why in gave_up) + ".")
+    names = [*resumed, *uncertain, *(n for n, _why in gave_up)]
+    return f"/head-jeeves event {', '.join(names)}: {' '.join(parts)}"
+
+
 PAUSE_MESSAGE = (
     "The machine is overloaded and Head Jeeves paused this session. Finish the current step, commit it, "
     "then stop and wait. Do not start the next step until a resume message arrives."

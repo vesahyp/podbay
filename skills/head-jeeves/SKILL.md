@@ -368,7 +368,12 @@ the session alone. A session waiting for a permission has a dialog open in
 its terminal that the transcript does not show; the excerpt ends at the
 tool call waiting for it, so tell the user what it asks for. An ended
 session is gone from the inventory, so its event carries its last words:
-pass on what they say it finished. No file. Then refresh the board. If the
+pass on what they say it finished. An event that says the usage limit reset
+names the sessions podbay itself sent "The usage limit has reset. Continue
+where you stopped.": do not send them anything for the limit, and resume by
+hand only the ones it says it could not resume. A session that sits on a
+limit shows `limit_stop` in the inventory, and podbay resumes it after the
+reset, so never restart one by hand before then. No file. Then refresh the board. If the
 session finished, its `opened_by` is `head-jeeves` and nothing in it waits
 on the user, quit its claude (see Rules).
 

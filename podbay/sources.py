@@ -289,6 +289,9 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
         "user_prompts": [],  # the newest typed prompts, oldest first (see mood.py)
         "last_assistant_text": None,
         "login_expired_at": None,  # when Claude Code answered "Login expired", if that is the newest answer
+        "limit_stop": None,  # the usage limit it sits on (see _note_limit_answer)
+        "limit_wrap_up_at": None,  # Claude Code gave the grace allowance; the turn still runs
+        "engaged_at": None,  # the newest typed prompt or answer that is no limit stop
         "git_branch": None,
         "last_turn": None,
         "last_turn_ts": None,
@@ -369,6 +372,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
                 stop_reason = "tool_use"
 
             if relevant:
+                _note_limit_answer(record, texts, stop_reason, result)
                 tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
                 for block in tool_uses:
                     _note_repos(block, result)
@@ -386,6 +390,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
                         result["resolved_tool_use_ids"].add(block["tool_use_id"])
+            _note_limit_user_record(record, content, result)
             if not record.get("isMeta") and not _is_interrupt_record(record):
                 typed = _user_entry_text(content)
                 if typed and not typed.startswith("<"):  # a slash command or a notice is not a prompt
@@ -424,6 +429,120 @@ def _is_login_expired(record: dict, texts: list[str]) -> bool:
     if (record.get("message") or {}).get("model") != "<synthetic>":
         return False
     return any(t.startswith(LOGIN_EXPIRED_TEXTS) for t in texts)
+
+
+# Claude Code's words for a usage limit, in a synthetic answer and in the
+# failed task notification of an agent. Not the spend limits, the team budget
+# or fast mode: none of them ends at a reset of the windows. Any words between
+# "your" and "limit": "session", "5-hour", "weekly", "Opus".
+LIMIT_RE = re.compile(
+    r"You['’]ve hit your (?P<label>[\w. -]*?)\s*limit\b"
+    r"(?:\s*·\s*resets (?P<reset>[^·\n(]+(?:\([^)\n]*\))?))?"
+)
+_NOT_WINDOW_LIMITS = ("spend", "fast", "budget")
+_LIMIT_WORD_RE = re.compile(r"\b(usage|session|weekly|5-hour|rate)[ -]limit|\blimit (was )?(reached|resets?)\b", re.IGNORECASE)
+
+
+def _limit_phrase(text: str) -> tuple[str, str | None] | None:
+    """(label, reset phrase) of Claude Code's limit words in `text`."""
+    m = LIMIT_RE.search(text)
+    if m is None or any(word in m["label"].lower() for word in _NOT_WINDOW_LIMITS):
+        return None
+    return m["label"].strip(), (m["reset"] or "").strip() or None
+
+
+def _note_limit_answer(record: dict, texts: list[str], stop_reason: str | None, result: dict) -> None:
+    """A stop stays open until the session does something new. The model
+    answering clears it, except while a grace allowance turn runs or when
+    the turn ends speaking of the limit: a wrap_up stop, or a report on an
+    agent that stopped on it."""
+    ts = _iso_to_local_dt(record.get("timestamp"))
+    text = "\n".join(texts)
+    if (record.get("message") or {}).get("model") == "<synthetic>":
+        phrase = _limit_phrase(text) if text.startswith("You") else None
+        if phrase is not None:
+            result["limit_stop"] = {"kind": "message", "at": ts, "label": phrase[0], "reset_text": phrase[1]}
+            result["limit_wrap_up_at"] = None
+        else:
+            result["limit_stop"] = None
+        return
+    stop = result["limit_stop"]
+    wrap_up = result["limit_wrap_up_at"]
+    if stop_reason != "end_turn":
+        if stop is not None and stop["kind"] != "agent":
+            result["limit_stop"] = None  # the model runs again: that stop is over
+        if wrap_up is None and result["limit_stop"] is None and ts is not None:
+            result["engaged_at"] = ts
+        return
+    speaks_of_limit = bool(_LIMIT_WORD_RE.search(text))
+    if wrap_up is not None and speaks_of_limit:
+        result["limit_stop"] = {"kind": "wrap_up", "at": ts, "label": None, "reset_text": None}
+    elif not (stop is not None and stop["kind"] == "agent" and speaks_of_limit):
+        result["limit_stop"] = None
+        result["engaged_at"] = ts
+    result["limit_wrap_up_at"] = None
+
+
+def _note_limit_user_record(record: dict, content, result: dict) -> None:
+    """The grace allowance note, an agent's failed notification, or a typed
+    prompt or Esc, which ends any stop. A notification of an agent that did
+    not fail, a reminder or a tool result leaves the stop as it is: the session
+    in the live case got one right after its limit message and still sat."""
+    ts = _iso_to_local_dt(record.get("timestamp"))
+    if record.get("usageLimitNote"):
+        result["limit_wrap_up_at"] = ts
+        return
+    if record.get("isMeta"):
+        return
+    if isinstance(content, str) and "<task-notification>" in content:
+        if "<status>failed</status>" in content and result["limit_stop"] is None:
+            phrase = _limit_phrase(content)
+            if phrase is not None:
+                result["limit_stop"] = {"kind": "agent", "at": ts, "label": phrase[0], "reset_text": phrase[1]}
+        return
+    text = _user_entry_text(content)
+    if _is_interrupt_record(record) or (text and not text.startswith("<")):
+        result["limit_stop"] = None
+        result["limit_wrap_up_at"] = None
+        result["engaged_at"] = ts
+
+
+# Subagent transcripts are read for a stop only when written since the session
+# last did something, and this recently: older ones cannot be resumed anyway.
+LIMIT_AGENT_MAX_AGE = timedelta(hours=24)
+LIMIT_AGENT_TAIL_BYTES = 64 * 1024
+
+
+def agent_limit_stop(slug_dir: Path, session_id: str, since: datetime | None, now: datetime) -> dict | None:
+    """The newest usage limit an agent of the session stopped on and still
+    sits on, when that came after the session last did something."""
+    subagents_dir = slug_dir / session_id / "subagents"
+    if not subagents_dir.is_dir():
+        return None
+    oldest = max(since.timestamp() if since is not None else 0.0, (now - LIMIT_AGENT_MAX_AGE).timestamp())
+    newest = None
+    for path in subagents_dir.glob("*.jsonl"):
+        try:
+            if path.stat().st_mtime < oldest:
+                continue
+        except OSError:
+            continue
+        stop = tail_read_transcript(path, LIMIT_AGENT_TAIL_BYTES, include_sidechain=True)["limit_stop"]
+        if stop is None or stop["kind"] != "message" or stop["at"] is None or (since is not None and stop["at"] <= since):
+            continue
+        if newest is None or stop["at"] > newest["at"]:
+            newest = {**stop, "kind": "agent"}
+    return newest
+
+
+def read_limit_stop(path: Path, session_id: str, transcript: dict | None = None, now: datetime | None = None) -> dict | None:
+    """The usage limit the session sits on now, its own or an agent's."""
+    transcript = transcript if transcript is not None else tail_read_transcript(path)
+    if transcript["limit_stop"] is not None:
+        return transcript["limit_stop"] if transcript["limit_stop"]["at"] is not None else None
+    if transcript["limit_wrap_up_at"] is not None:
+        return None  # the grace turn still runs
+    return agent_limit_stop(path.parent, session_id, transcript["engaged_at"] or transcript["last_turn_ts"], now or datetime.now())
 
 
 def _note_background_task(record: dict, tasks: dict) -> None:
@@ -1003,6 +1122,7 @@ def gather_sessions(
         waiting_on = None
         subagents_running = 0
         subagent_written_at = None
+        limit_stop = None
         path = transcript_path_for(cwd, session_id, projects_dir)
         if path is not None:
             transcript = tail_read_transcript(path)
@@ -1020,6 +1140,7 @@ def gather_sessions(
                 started_at=_ms_to_dt(entry.get("startedAt")),
                 notified_agents=transcript.get("notified_agents"))
             subagent_written_at = newest_subagent_write(path.parent, session_id)
+            limit_stop = read_limit_stop(path, session_id, transcript)
             waiting_on = compute_waiting_on(transcript, entry.get("status", "idle"), idle_minutes, subagents_running)
             if transcript.get("last_turn") != "in_progress":
                 sub = subagent_activity(path, session_id, transcript.get("last_turn_ts"))
@@ -1053,6 +1174,7 @@ def gather_sessions(
                 last_turn=transcript.get("last_turn"),
                 last_turn_ts=transcript.get("last_turn_ts"),
                 login_expired_at=transcript.get("login_expired_at"),
+                limit_stop=limit_stop,
                 main_turn_ts=main_last_turn_ts,
                 tab_busy=tab.busy if tab else None,
                 context_pct=snapshot.get("context_pct") if snapshot else None,

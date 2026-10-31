@@ -45,6 +45,7 @@ from . import reviewer
 from . import iterm as iterm_mod
 from . import machine as machine_mod
 from .accounts import Account, by_label, discover, logged_in, logged_out_labels, login_deadline, login_deadlines, login_stamp, read_credential
+from . import autoresume
 from . import logins as logins_mod
 from . import logs
 from . import notifications
@@ -952,6 +953,7 @@ class PodbayApp(App):
         # mounts the app must not toast about the real sessions.
         self._voice_mode = voice_mode
         self._hal = hal.Memory()
+        self._limit_check_running = False
         # Head Jeeves (skills/head-jeeves, reviewer.py): a standing session
         # podbay starts and feeds. Off unless asked, for the same reason: it
         # starts a Claude session and sends it work that spends tokens.
@@ -1051,6 +1053,7 @@ class PodbayApp(App):
         self.set_interval(MACHINE_REFRESH_SECONDS, self._refresh_machine)
         self.set_interval(CODE_CHECK_SECONDS, self._check_code_version)
         self.set_interval(LOGIN_CHECK_SECONDS, self._check_logins)
+        self.set_interval(autoresume.CHECK_SECONDS, self._check_limit_stops)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
             self.push_screen(PromptScreen(voice.name_question(), glyph=glyphs.MESSAGE), self._name_given)
@@ -1230,6 +1233,32 @@ class PodbayApp(App):
             logins_mod.check(login_deadlines(self._accounts), sessions, datetime.now(), notify_mod.send)
         except Exception:  # noqa: BLE001 -- the check must never take the screen down
             log.warning("login check failed", exc_info=True)
+
+    def _check_limit_stops(self) -> None:
+        """Continue the sessions that stopped on a usage limit once it has
+        reset, and tell Head Jeeves which (autoresume.py)."""
+        if not self._head_jeeves or self._quitting or self._restart_waiting_since is not None or self._limit_check_running:
+            return
+        self._limit_check_running = True  # a slow pass is never overlapped: exclusive only cancels, and a thread runs on
+        self._limit_stops_worker(list(self._live_sessions.values()))
+
+    @work(thread=True, exclusive=True, group="autoresume")
+    def _limit_stops_worker(self, sessions: list[Session]) -> None:
+        try:
+            with self._polling("auto-resume"):
+                outcome = autoresume.check(
+                    sessions, lambda since: _limit_quota_entries(self._accounts, since), paused_mod.ids(),
+                    lambda s, key: _still_on_limit(self._accounts, s, key),
+                    lambda s: _session_screen(s), iterm_mod.screen_waits_for_input, _send_limit_resume, datetime.now(),
+                )
+            if outcome.resumed or outcome.uncertain or outcome.gave_up:
+                command = voice.limit_resume_command(outcome.resumed, outcome.uncertain, outcome.gave_up)
+                if self.call_from_thread(self._send_to_head_jeeves, command):
+                    autoresume.mark_announced()
+        except Exception:  # noqa: BLE001 -- the check must never take the screen down
+            log.warning("auto-resume check failed", exc_info=True)
+        finally:
+            self._limit_check_running = False
 
     def _refresh_usage(self) -> None:
         """Kick off a background /usage refresh; a no-op while one is
@@ -2489,6 +2518,47 @@ def _quota_entries(accounts: list[Account], fetch: bool = True) -> list[dict]:
         )
         for a in accounts
     ]
+
+
+def _limit_quota_entries(accounts: list[Account], since: dict[str, datetime]) -> dict[str, dict]:
+    """Quota entries by account for autoresume. An account in `since` gets a
+    new /usage run when its cache is older than that time: a reading from
+    before the reset cannot tell that the window reset."""
+    for account in accounts:
+        when = since.get(account.label)
+        if when is None:
+            continue
+        path = usage.cache_path_for(account)
+        cached = usage.read_cache(path)
+        if cached is None or cached.get("fetched_at", 0) < when.timestamp():
+            data = usage.fetch(account=account)
+            if data is not None:
+                usage.write_cache({**data, "login": login_stamp(read_credential(account))}, path)
+    return {e["account"]: e for e in _quota_entries(accounts, fetch=False)}
+
+
+def _still_on_limit(accounts: list[Account], session: Session, key: str) -> bool:
+    """A last read of the transcript: the scan behind `session` can be many
+    seconds old on a loaded machine."""
+    account = next((a for a in accounts if a.label == session.account), None)
+    path = sources.transcript_path_for(session.cwd, session.session_id, account.projects_dir) if account else None
+    stop = sources.read_limit_stop(path, session.session_id) if path else None
+    return stop is not None and autoresume.stop_key(session.session_id, stop) == key
+
+
+def _session_screen(session: Session) -> str | None:
+    tty = iterm_mod.find_tty(session.pid)
+    return iterm_mod.read_session_text(tty, max_lines=25) if tty else None
+
+
+def _send_limit_resume(session: Session, text: str) -> str:
+    tty = iterm_mod.find_tty(session.pid)
+    if not tty:
+        return "missing"
+    outcome = iterm_mod.send_text_retrying(tty, text)
+    if outcome == "sent":
+        opened_mod.record_sent(session.session_id, text, "podbay", datetime.now())
+    return outcome
 
 
 def cmd_accounts(as_json: bool) -> None:

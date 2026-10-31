@@ -349,6 +349,19 @@ board is published, podbay also types a short comment check
 into his session. He reads the threads only when the watch status line
 lists a comment still awaiting a reply, so an idle check costs almost nothing.
 
+### Usage limits
+
+A session that stops on a Claude Code usage limit continues by itself. podbay
+records the session, its account and the reset time, and a minute and a half
+after the reset it types "The usage limit has reset. Continue where you
+stopped." into the session, once, and tells Head Jeeves which sessions it
+resumed. It does this only when `/usage` shows that the window really reset
+and the session still sits on the stop with an empty input box. A session whose
+subagent stopped on the limit gets the same message. A paused session, or one
+that has moved on, gets nothing. If it cannot send for 30 minutes, Head Jeeves
+gets the session's name and the reason. The record is in
+`~/.local/state/podbay/autoresume.json`.
+
 ### Pushes to your phone
 
 podbay has no push transport of its own. Give it one with `podbay config
