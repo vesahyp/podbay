@@ -127,6 +127,7 @@ window inside it. Run this before every `podbay open`, every time:
   `suggested.routine`.
 - Pass both: `--account <label> --model <model>`. Never leave `--model`
   off: the default model is often the one with the least room left.
+- Never launch on Fable: heavy work uses Opus. podbay already leaves Fable out of `suggested` (`podbay config never-suggest-models`).
 - When the user names an account or a model, use it, but say in one line
   when `podbay accounts` shows it at or above 85 percent.
 - When a suggestion is null, nothing has room. Do not open the session.
