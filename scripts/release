@@ -8,7 +8,8 @@
 #
 # The path is derived from the git common dir, so `make install` from any
 # worktree updates the same copy. If the tests fail at the new commit, the
-# copy goes back to the commit it was at and this exits non-zero.
+# copy stays where it was and this exits non-zero. Tests run in a scratch
+# worktree first, so a failing run never touches .release/.
 set -euo pipefail
 
 repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
@@ -17,22 +18,23 @@ release="$repo/.release"
 git -C "$repo" fetch -q origin main
 target=$(git -C "$repo" rev-parse origin/main)
 
-if [ ! -e "$release/.git" ]; then
-  git -C "$repo" worktree add -q --detach "$release" "$target"
-  previous=""
-else
-  previous=$(git -C "$release" rev-parse HEAD)
-  git -C "$release" checkout -q --detach "$target"
-fi
+# The running screen watches .release/ and restarts when it changes, so the
+# tests run in a scratch worktree and .release/ moves only after they pass.
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/podbay-release.XXXXXX")
+trap 'git -C "$repo" worktree remove --force "$scratch" 2>/dev/null || true; rm -rf "$scratch"' EXIT
+git -C "$repo" worktree add -q --detach "$scratch" "$target"
 
-if ! (cd "$release" && uv run --project . pytest -q); then
-  echo "✗ tests failed at $(git -C "$release" rev-parse --short HEAD)" >&2
-  if [ -n "$previous" ]; then
-    git -C "$release" checkout -q --detach "$previous"
+if ! (cd "$scratch" && uv run --project . pytest -q); then
+  echo "✗ tests failed at $(git -C "$scratch" rev-parse --short HEAD)" >&2
+  if [ -e "$release/.git" ]; then
     echo "  installed copy stays at $(git -C "$release" rev-parse --short HEAD)" >&2
-  else
-    git -C "$repo" worktree remove --force "$release"
   fi
   exit 1
+fi
+
+if [ ! -e "$release/.git" ]; then
+  git -C "$repo" worktree add -q --detach "$release" "$target"
+else
+  git -C "$release" checkout -q --detach "$target"
 fi
 echo "→ $release at $(git -C "$release" log --oneline -1)"

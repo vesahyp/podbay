@@ -241,6 +241,70 @@ async def test_splash_backdrop_shows_then_dissolves(monkeypatch):
         screen = app.screen
         assert isinstance(screen, SplashScreen)
         canvas = screen.query_one("#canvas", Static)
+        # Frame timers make the state depend on when the pause lands, so the
+        # test stops the materialise timer, rewinds it and steps the frames.
+        screen._mat_timer.stop()
+        screen._mat_idx = 0
+        screen._backdrop_t = 0.0
+        screen._tick_materialise()
+        await pilot.pause()
+        early = str(canvas.render())
+        wanted = sum(len(line.replace(" ", "")) for line in backdrop)
+        assert screen._backdrop_t < 0.7
+        assert len(early.replace(" ", "").replace("\n", "")) >= wanted * 0.6
+        for _ in range(len(splash_mod.MATERIALISE_FRAMES_ART)):
+            screen._tick_materialise()
+        await pilot.pause()
+        late = str(canvas.render())
+        assert "drwxr" not in late  # dissolved away once the eye is in
+        assert screen._backdrop_t >= 1.0
+        await pilot.press("space")
+        await pilot.pause(splash_mod.FADE_SECONDS + splash_mod.FADE_IN_SECONDS + 0.6)
+        await app.workers.wait_for_complete()
+
+
+@pytest.mark.asyncio
+async def test_quit_plays_shutdown_eye_then_exits():
+    from podbay.splash import ShutdownScreen
+
+    app = PodbayApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause(splash_mod.FADE_SECONDS + splash_mod.FADE_IN_SECONDS + 0.6)
+        await app.workers.wait_for_complete()
+        await pilot.press("q")
+        await pilot.pause(splash_mod.FADE_OUT_SECONDS + 0.3)
+        assert isinstance(app.screen, ShutdownScreen)
+        await pilot.press("q")  # a second key exits at once
+        await pilot.pause()
+    assert app.return_code is not None or app._exit
+
+
+@pytest.mark.asyncio
+async def test_quit_without_splash_exits_at_once():
+    app = PodbayApp(no_splash=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("q")
+        await pilot.pause()
+    assert app._exit
+
+
+@pytest.mark.asyncio
+async def test_splash_backdrop_shows_then_dissolves(monkeypatch):
+    # The splash runs on frame timers: a real session gather competing for the
+    # GIL makes the first pause land late, so the scan is stubbed out.
+    from podbay import app as app_mod
+
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [])
+    backdrop = ["$ ls -la", "total 42", "drwxr-xr-x  podbay", "$ podbay"]
+    app = PodbayApp(backdrop=backdrop)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, SplashScreen)
+        canvas = screen.query_one("#canvas", Static)
         early = str(canvas.render())
         # The dissolve starts at once and the first pause lands at a scheduler-
         # dependent moment, so a whole word can already have lost a cell:

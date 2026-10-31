@@ -133,7 +133,7 @@ class _Done:
 def test_the_login_users_keychain_item_wins_over_a_stray_one_under_the_same_service(monkeypatch):
     # 2026-10-25: an item with account "unknown" and only MCP logins in it
     # came first in a service-only lookup, so a fresh /login read as logged out.
-    items = {("Claude Code-credentials", "vesa"): json.dumps(LOGGED_IN),
+    items = {("Claude Code-credentials", "alice"): json.dumps(LOGGED_IN),
              ("Claude Code-credentials", "unknown"): json.dumps({"mcpOAuth": {}})}
     calls = []
 
@@ -147,7 +147,7 @@ def test_the_login_users_keychain_item_wins_over_a_stray_one_under_the_same_serv
         return _Done(0, secret) if secret else _Done(44)
 
     monkeypatch.setattr(accounts.subprocess, "run", fake_run)
-    monkeypatch.setattr(accounts, "_keychain_user", lambda: "vesa")
+    monkeypatch.setattr(accounts, "_keychain_user", lambda: "alice")
     assert json.loads(accounts._read_keychain("Claude Code-credentials")) == LOGGED_IN
     # No item under the user's name: the service-only lookup still answers.
     monkeypatch.setattr(accounts, "_keychain_user", lambda: "someone")
