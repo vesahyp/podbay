@@ -45,7 +45,19 @@ def changed(started_at: str | None, now: str | None) -> bool:
     return started_at is not None and now is not None and started_at != now
 
 
-def restart(argv: list[str], root: Path = ROOT) -> None:
-    """Replace this process with a fresh screen on the installed code."""
+def restart(argv: list[str], root: Path = ROOT, prefix: str = sys.prefix) -> None:
+    """Replace this process with a fresh screen on the installed code.
+
+    The screen runs as the child of a `uv run`, which waits for it. Exec'ing
+    `uv run` again replaced only the child: the old `uv run` stayed, and every
+    release added one more process to the chain, each holding the uv cache
+    lock (38 deep on 2026-11-01). So the venv is synced first, in a child that
+    ends, and the venv's own entry script takes this process's place: the
+    parent `uv run` now waits on the new screen, and the chain stays one deep."""
     args = [a for a in argv if a != "--no-splash"] + ["--no-splash"]
-    os.execvp("uv", ["uv", "run", "--project", str(root), "podbay", *args])
+    try:
+        subprocess.run(["uv", "sync", "--project", str(root), "--quiet"], timeout=300, check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass  # the old dependencies most likely still do; start anyway
+    script = str(Path(prefix) / "bin" / "podbay")
+    os.execv(script, [script, *args])

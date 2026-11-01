@@ -108,3 +108,39 @@ def test_release_lag_names_a_push_that_skipped_make_install(tmp_path):
 
 def test_release_lag_is_unknown_outside_git(tmp_path):
     assert selfupdate.release_lag(tmp_path) is None
+
+
+def test_a_restart_replaces_the_process_and_leaves_no_parent_behind(tmp_path):
+    """The restart must take the running process's place. Starting the new
+    screen as a child kept every old one alive, one level per release."""
+    import os
+    import sys
+    import textwrap
+
+    prefix, bindir, out = tmp_path / "venv", tmp_path / "bin", tmp_path / "out"
+    (prefix / "bin").mkdir(parents=True)
+    bindir.mkdir()
+    entry = prefix / "bin" / "podbay"
+    entry.write_text(f'#!/bin/sh\necho "new $$ $PPID $*" >> "{out}"\n')
+    uv = bindir / "uv"
+    uv.write_text(f'#!/bin/sh\necho "uv $*" >> "{out}"\n')
+    entry.chmod(0o755)
+    uv.chmod(0o755)
+
+    code = textwrap.dedent(f"""
+        import os
+        from pathlib import Path
+        from podbay import selfupdate
+        with open({str(out)!r}, "a") as f:
+            f.write(f"old {{os.getpid()}} {{os.getppid()}}\\n")
+        selfupdate.restart(["list", "--no-splash"], root=Path({str(tmp_path)!r}), prefix={str(prefix)!r})
+    """)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+    old = subprocess.Popen([sys.executable, "-c", code], env=env)
+    assert old.wait(timeout=30) == 0
+
+    lines = out.read_text().splitlines()
+    assert lines[0] == f"old {old.pid} {os.getpid()}"
+    assert lines[1] == f"uv sync --project {tmp_path} --quiet"
+    # the same pid, with this test as its parent: replaced, not nested
+    assert lines[2] == f"new {old.pid} {os.getpid()} list --no-splash"
