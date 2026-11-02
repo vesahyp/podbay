@@ -645,7 +645,8 @@ def render(
         f"{len(finished)} finished today" if finished else "",
         f"{len(progress)} in progress" if progress else "",
     ) if x)
-    stamp = f"{now:%A %-d %b, %H:%M}"
+    # payload["mac"] names the Mac the board comes from (machine.mac_name).
+    stamp = " · ".join(x for x in (payload.get("mac") or "", f"{now:%A %-d %b, %H:%M}") if x)
     return f"""<title>Status Board</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>{_CSS}</style>

@@ -276,6 +276,18 @@ def sparkline(values: list[float | None], width: int = 24, top: float | None = N
     )
 
 
+def mac_name() -> str:
+    """This Mac's short name for the board header: the Computer Name
+    without the owner's "Name's " in front ("MacBook Pro"). With two Macs
+    on podbay, the header says which one the board comes from. Empty when
+    scutil gives nothing."""
+    name = _run(["/usr/sbin/scutil", "--get", "ComputerName"]).strip()
+    head, sep, rest = name.partition(" ")
+    if sep and rest and head.endswith(("’s", "'s")):
+        return rest
+    return name
+
+
 def snapshot() -> dict:
     """A sample with its history, what `inventory --json` and the board carry.
     Records the sample as a side effect, so the chart grows whenever

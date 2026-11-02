@@ -189,3 +189,16 @@ def test_every_line_opens_the_composer_addressed_and_quoted():
         assert "Tap a line to comment on it." in section
     room = html[html.index("Machine room"):]
     assert 'data-target="#12 atlas" data-quote="' in room
+
+
+def test_the_header_names_the_mac_the_board_comes_from():
+    html = board.render({"sessions": [], "mac": "MacBook Pro"}, NOW)
+    assert '<p class="when">MacBook Pro · ' in html
+    assert '<p class="when">MacBook' not in board.render({"sessions": []}, NOW)
+
+
+def test_mac_name_drops_the_owner(monkeypatch):
+    from podbay import machine
+    for full, short in (("Someone’s MacBook Air", "MacBook Air"), ("studio", "studio"), ("", "")):
+        monkeypatch.setattr(machine, "_run", lambda cmd, out=full: out + "\n")
+        assert machine.mac_name() == short
