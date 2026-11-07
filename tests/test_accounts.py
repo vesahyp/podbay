@@ -391,7 +391,7 @@ async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started
         await app.workers.wait_for_complete()
         await pilot.pause()
         # first scan: no Head Jeeves is live, so one is started in the free shell
-        assert sent == [("/dev/ttys005", f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves")]  # default account, default model
+        assert sent == [("/dev/ttys005", f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves --remote-control head-jeeves")]  # default account, default model
         app.trigger_refresh()  # the session turns hot: the checkup replaces the queued report for duty
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -446,7 +446,7 @@ async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tm
     async with app.run_test(size=(160, 40)) as pilot:
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert sent == [f"cd {tmp_path / 'jeeves'} && CLAUDE_CONFIG_DIR=~/.claude-personal claude -n head-jeeves"]
+        assert sent == [f"cd {tmp_path / 'jeeves'} && CLAUDE_CONFIG_DIR=~/.claude-personal claude -n head-jeeves --remote-control head-jeeves"]
         for _ in range(4):
             app.trigger_refresh()
             await app.workers.wait_for_complete()

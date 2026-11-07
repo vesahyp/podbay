@@ -593,6 +593,10 @@ def login_ends_line(ends: dict[str, float], now: float) -> str:
     return "logins: " + ", ".join(f"{a} ends in {time_left(t - now)}" for a, t in sorted(ends.items()))
 
 
+def open_refused_logged_out(label: str) -> str:
+    return f"I'm sorry, {USER_NAME}. The account {label} is not logged in; a session there would stop at once. Nothing was started."
+
+
 def account_logged_out() -> str:
     """The account picker's model cell for an account with no login."""
     return "logged out"

@@ -22,6 +22,11 @@ from pathlib import Path
 DEFAULT_DIRNAME = ".claude"
 DEFAULT_LABEL = "claude"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
+# What _read_keychain returns when the keychain answers that there is no
+# such item (`security` exit 44): the account has never logged in on this
+# Mac, which is a known state, unlike a keychain podbay cannot read.
+NO_ITEM = ""
+_SECURITY_NOT_FOUND = 44
 
 
 @dataclass(frozen=True)
@@ -120,8 +125,9 @@ def _keychain_user() -> str:
 
 
 def _read_keychain(service: str) -> str | None:
-    """The keychain item's secret, or None when there is no such item or
-    no `security` command (not macOS). Never raises.
+    """The keychain item's secret; NO_ITEM when the keychain says there is
+    no such item; None when it cannot be read or there is no `security`
+    command (not macOS). Never raises.
 
     Several items can share one service name, told apart by their account
     attribute, and a lookup by service alone returns whichever comes
@@ -133,6 +139,7 @@ def _read_keychain(service: str) -> str | None:
     fallback."""
     user = _keychain_user()
     lookups = ([["-a", user]] if user else []) + [[]]
+    not_found = True
     for extra in lookups:
         try:
             result = subprocess.run(
@@ -143,7 +150,8 @@ def _read_keychain(service: str) -> str | None:
             return None
         if result.returncode == 0:
             return result.stdout
-    return None
+        not_found = not_found and result.returncode == _SECURITY_NOT_FOUND
+    return NO_ITEM if not_found else None
 
 
 def credential_logged_out(credential: dict | None, now: float | None = None) -> bool:
@@ -163,14 +171,18 @@ def credential_logged_out(credential: dict | None, now: float | None = None) -> 
 
 def read_credential(account: Account, read_keychain=_read_keychain) -> dict | None:
     """The account's stored login: the keychain item on macOS, else
-    <config dir>/.credentials.json (Linux). None when neither exists or
-    parses. The tokens in it are never printed or logged."""
+    <config dir>/.credentials.json (Linux). None when neither can be read
+    or parses. When the keychain says there is no item and there is no
+    file either, the account has never logged in here, and the answer is
+    an empty login, so it counts as logged out: a config dir made ready
+    for an account that is not logged in yet must never be suggested or
+    started (2026-11-07). The tokens are never printed or logged."""
     raw = read_keychain(account.keychain_service)
-    if raw is None:
+    if raw is None or raw == NO_ITEM:
         try:
             raw = (account.config_dir / ".credentials.json").read_text()
         except OSError:
-            return None
+            return {} if raw == NO_ITEM else None
     try:
         credential = json.loads(raw)
     except ValueError:

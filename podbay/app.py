@@ -44,7 +44,7 @@ from . import mood
 from . import reviewer
 from . import iterm as iterm_mod
 from . import machine as machine_mod
-from .accounts import Account, by_label, discover, logged_in, logged_out_labels, login_deadline, login_deadlines, login_stamp, read_credential
+from .accounts import Account, by_label, credential_logged_out, discover, logged_in, logged_out_labels, login_deadline, login_deadlines, login_stamp, read_credential
 from . import autoresume
 from . import logins as logins_mod
 from . import logs
@@ -1275,9 +1275,10 @@ class PodbayApp(App):
         results: dict[str, dict | None] = {}
         for account in self._accounts:
             path = usage.cache_path_for(account)
-            stamp = login_stamp(read_credential(account))
+            credential = read_credential(account)
+            stamp = login_stamp(credential)
             data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS, login=stamp)
-            if data is None:
+            if data is None and _can_fetch_usage(credential):
                 with self._polling("usage"):
                     data = usage.fetch(account=account)
                 if data is not None:
@@ -1416,7 +1417,11 @@ class PodbayApp(App):
             self._head_jeeves_pending["follow_up"] = follow_up
             return
         account = self._head_jeeves_account()
-        args = f"-n {HEAD_JEEVES_NAME}" + (f" --model {shlex.quote(self._review_model)}" if self._review_model else "")
+        # --remote-control bridges him to the Claude app on the phone. The
+        # flag, not remoteControlAtStartup in settings.json: that setting
+        # bridges every session of the account, and his account is the one
+        # every other session runs on too (2026-11-07).
+        args = f"-n {HEAD_JEEVES_NAME} --remote-control {HEAD_JEEVES_NAME}" + (f" --model {shlex.quote(self._review_model)}" if self._review_model else "")
         command = self._claude_command(account, self._open_default_dir(None), args)
         launched_at = datetime.now()
         ok, _used_pane = self._dispatch_command(self._free_shell_sessions(), command)
@@ -2204,6 +2209,9 @@ def cmd_open(
     if account is None:
         print(f"no account {account_label!r}; known: {', '.join(a.label for a in accounts)}", file=sys.stderr)
         sys.exit(1)
+    if logged_in(account) is False:
+        print(voice.open_refused_logged_out(account.label), file=sys.stderr)
+        sys.exit(1)
     launch_dir, prompt = open_launch(directory, prompt)
     prompt_file = _write_prompt_file(prompt) if prompt else None
     command = open_command(account, launch_dir, name, prompt_file, model)
@@ -2488,15 +2496,23 @@ def cmd_inventory(as_table: bool, as_status: bool, exclude: list[str]) -> None:
         sys.stdout.write("\n")
 
 
+def _can_fetch_usage(credential: dict | None) -> bool:
+    """False for a logged-out account: `claude -p /usage` fails there after
+    some seconds and writes Claude Code's files into a config dir that is
+    waiting for its first /login. An unreadable login (None) still runs."""
+    return credential is None or not credential_logged_out(credential)
+
+
 def account_usage(account: Account) -> dict | None:
     """The account's `claude -p /usage` figures: the TUI's cache while it is
     fresh and from the current login, else one new run written back to it,
     else the stale cache."""
     path = usage.cache_path_for(account)
-    stamp = login_stamp(read_credential(account))
+    credential = read_credential(account)
+    stamp = login_stamp(credential)
     data = usage.read_cache(path, max_age=USAGE_REFRESH_SECONDS, login=stamp)
-    if data is not None:
-        return data
+    if data is not None or not _can_fetch_usage(credential):
+        return data or usage.read_cache(path)
     data = usage.fetch(account=account)
     if data is not None:
         data = {**data, "login": stamp}
@@ -2531,6 +2547,9 @@ def _limit_quota_entries(accounts: list[Account], since: dict[str, datetime]) ->
             continue
         path = usage.cache_path_for(account)
         cached = usage.read_cache(path)
+        credential = read_credential(account)
+        if not _can_fetch_usage(credential):
+            continue
         if cached is None or cached.get("fetched_at", 0) < when.timestamp():
             data = usage.fetch(account=account)
             if data is not None:

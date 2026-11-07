@@ -184,6 +184,9 @@ Claude has used (`podbay/accounts.py`) and labels sessions with the suffix:
 
 - the **Acct** column and the detail pane name the account
 - the header shows one quota group per account, labelled
+- an account that is logged out, or has never logged in (a config dir made
+  ready with an empty `projects/` folder), is shown as logged out: podbay
+  never suggests it, never runs `/usage` there, and `podbay open` refuses it
 
 With one config dir nothing changes: no label, no Acct value.
 
@@ -322,10 +325,9 @@ and sends him work as prompts:
   replacement session with that prompt and closes the old one. You never
   trigger it
 
-He is also the operator you talk to from elsewhere. Run him as the account
-that bridges at startup (`podbay config head-jeeves-account personal` with
-`remoteControlAtStartup` on for that account) and his session is the one
-the Claude app shows on your phone. podbay forwards him every event it
+He is also the operator you talk to from elsewhere. podbay starts him with
+`--remote-control head-jeeves`, so his session is the one the Claude app
+shows on your phone, and the other sessions of his account stay off it. podbay forwards him every event it
 toasts (a session finished, asked, stalled, ended) and he reports it to
 you in one line there; you can ask him what is going on, tell him to start
 a session somewhere with a task (`podbay open`), or to pass a message to a

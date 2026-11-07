@@ -176,3 +176,35 @@ def test_a_five_hour_window_past_its_reset_takes_the_usage_figure(tmp_path):
     assert entry["five_hour"]["resets_at"] == quota._iso(LATER)
     # Without a /usage figure the old reset time is dropped, not shown.
     assert quota.account_entry(default, stale, None, NOW)["five_hour"] == {"used_pct": 0.0, "left_pct": 100.0, "resets_at": None}
+
+
+def test_an_account_that_never_logged_in_here_counts_as_logged_out(tmp_path, monkeypatch):
+    # 2026-11-07: a config dir made ready for an account whose first /login
+    # waits. The keychain says "no such item" (exit 44): logged out, never
+    # suggested. A keychain that cannot be read stays unknown.
+    default, other = _accounts(tmp_path)
+    assert accounts.logged_in(other, lambda _s: accounts.NO_ITEM) is False
+    assert accounts.logged_out_labels([default, other], lambda _s: accounts.NO_ITEM) == {"claude", "personal"}
+    (other.config_dir / ".credentials.json").write_text(json.dumps(LOGGED_IN))
+    assert accounts.logged_in(other, lambda _s: accounts.NO_ITEM) is True
+
+    codes = {"code": 44}
+    monkeypatch.setattr(accounts.subprocess, "run", lambda cmd, **_kw: _Done(codes["code"]))
+    assert accounts._read_keychain("Claude Code-credentials-x") == accounts.NO_ITEM
+    codes["code"] = 51  # e.g. the keychain is locked
+    assert accounts._read_keychain("Claude Code-credentials-x") is None
+
+
+def test_podbay_open_refuses_a_logged_out_account(tmp_path, monkeypatch, capsys):
+    import pytest
+
+    from podbay import app as app_mod
+
+    default, other = _accounts(tmp_path)
+    monkeypatch.setattr(app_mod, "discover", lambda: [default, other])
+    monkeypatch.setattr(app_mod.machine_mod, "memory_critical", lambda: None)
+    monkeypatch.setattr(app_mod, "logged_in", lambda a: a.label == "claude")
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: pytest.fail("must not look for a terminal"))
+    with pytest.raises(SystemExit):
+        app_mod.cmd_open(str(tmp_path), "personal", None, "")
+    assert "personal is not logged in" in capsys.readouterr().err
