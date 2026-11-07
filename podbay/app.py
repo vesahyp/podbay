@@ -1473,8 +1473,10 @@ class PodbayApp(App):
     def _ensure_head_jeeves(self) -> None:
         """Start Head Jeeves when he is wanted and not up, with nothing
         queued but his own report for duty; events find him there. A launch
-        already pending keeps whatever it has queued."""
-        if not self._head_jeeves or not self._live_sessions or self._head_jeeves_pending is not None:
+        already pending keeps whatever it has queued. Runs only after a scan
+        has landed, so a scan with no Claude session at all (every terminal
+        at a shell prompt) still starts him."""
+        if not self._head_jeeves or self._head_jeeves_pending is not None:
             return
         if self._head_jeeves_session() is None:
             self._start_head_jeeves("/head-jeeves")

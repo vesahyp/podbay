@@ -405,6 +405,44 @@ async def test_a_hot_session_gets_a_checkup_and_a_missing_head_jeeves_is_started
 
 
 @pytest.mark.asyncio
+async def test_head_jeeves_is_started_when_no_claude_session_runs_at_all(tmp_path, monkeypatch):
+    """podbay restarted with every terminal at a shell prompt: the first scan
+    has no Claude session, and Head Jeeves must still start in a free one,
+    not wait until someone runs claude by hand."""
+    from datetime import datetime
+
+    from tests.test_app import _selection_session
+
+    accounts = _accounts(tmp_path)
+    now = datetime.now()
+    first = _selection_session("sh1", now, last_turn=None, has_transcript=False, is_shell=True, tty="/dev/ttys001")
+    second = _selection_session("sh2", now, last_turn=None, has_transcript=False, is_shell=True, tty="/dev/ttys002")
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [first, second])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    monkeypatch.setattr(app_mod.sources, "busy_ttys", lambda: set())
+    monkeypatch.setattr(app_mod.sources, "screen_ttys", lambda: set())
+    monkeypatch.setattr(app_mod.iterm_mod, "at_empty_prompt", lambda tty: True)
+    monkeypatch.setattr(app_mod.sources, "REPOS_DIR", tmp_path)
+    (tmp_path / "jeeves").mkdir()
+    monkeypatch.setattr(app_mod, "HOME_BASE", "jeeves")
+    sent = []
+    monkeypatch.setattr(app_mod.iterm_mod, "send_text", lambda tty, text: sent.append((tty, text)) or True)
+    app = app_mod.PodbayApp(
+        state_store=StateStore(tmp_path / "s.json"), no_splash=True, accounts=accounts,
+        head_jeeves=True, reviews_dir=tmp_path / "reviews",
+    )
+    monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert len(sent) == 1
+    assert sent[0][1] == f"cd {tmp_path / 'jeeves'} && claude -n head-jeeves --remote-control head-jeeves"
+    assert app._head_jeeves_pending is not None
+
+
+@pytest.mark.asyncio
 async def test_head_jeeves_runs_as_the_configured_account_and_gets_the_events(tmp_path, monkeypatch):
     from datetime import datetime, timedelta
 
