@@ -190,7 +190,7 @@ mobile-deploy: | infra/.terraform
 mobile-test: | infra/.terraform
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(if $(SEND),$(PODBAY) podbay mobile passkey-allow >/dev/null &&) \
-	  $(MOBILE_ENV) $(PODBAY) --with playwright python scripts/mobile_test.py $(if $(SEND),--send)
+	  $(MOBILE_ENV) $(PODBAY) --with playwright python scripts/mobile_app_check.py $(if $(SEND),--send)
 
 # The API through CloudFront as the test user: refusals and reads.
 mobile-check: | infra/.terraform
