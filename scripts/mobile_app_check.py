@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -23,6 +24,7 @@ import time
 from pathlib import Path
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from playwright.async_api import async_playwright
 
 REPO = Path(__file__).resolve().parent.parent
@@ -155,11 +157,24 @@ async def main() -> int:
             await page.locator("button[data-send]").click()
             await page.wait_for_selector(f"text={text}", timeout=15000)
             await shot(page, "mobile-app-7-sent.png", full=True)
-            items = boto3.resource("dynamodb").Table(os.environ["MOBILE_TABLE"]).query(
-                KeyConditionExpression=boto3.dynamodb.conditions.Key("pk").eq("MSG"), ScanIndexForward=False, Limit=20)["Items"]
+            table = boto3.resource("dynamodb").Table(os.environ["MOBILE_TABLE"])
+            items = table.query(KeyConditionExpression=Key("pk").eq("MSG"), ScanIndexForward=False, Limit=20)["Items"]
             sent = next((i for i in items if i.get("text") == text), None)
             check("send: the message is in the table, marked test", bool(sent and sent.get("test") is True), sent)
             check("send: queued with a 2 hour expiry", bool(sent and int(sent["expires"]) - int(sent["created"]) == 7200), sent)
+            # The screen marks a test message delivered without typing it.
+            row: dict = {}
+            for _ in range(45):
+                row = table.get_item(Key={"pk": "MSG", "sk": sent["sk"]}).get("Item", {}) if sent else {}
+                if row.get("state") == "delivered":
+                    break
+                await page.wait_for_timeout(1000)
+            check("send: the Mac takes it and does not type it", row.get("note") == "test user, not typed", row)
+            # The virtual passkey goes with the browser; remove its record.
+            sub = json.loads(base64.urlsafe_b64decode(auth["access"].split(".")[1] + "==")).get("sub")
+            for item in table.query(KeyConditionExpression=Key("pk").eq("PASSKEY"))["Items"]:
+                if item.get("sub") == sub:
+                    table.delete_item(Key={"pk": "PASSKEY", "sk": item["sk"]})
 
         check("no page errors other than the planted one", all("podbay mobile test error" in e for e in errors), errors)
         await browser.close()

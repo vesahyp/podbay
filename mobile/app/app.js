@@ -392,7 +392,7 @@
       runs + page;
   }
 
-  var STATE_WORD = { queued: "queued", delivered: "delivered", answered: "answered", expired: "not sent" };
+  var STATE_WORD = { queued: "queued", delivering: "sending", delivered: "delivered", answered: "answered", expired: "not sent" };
   function thread() {
     var list = app.messages;
     if (!list.length) return '<h1>Thread</h1><p class="sub">Everything you send, and what Head Jeeves did with it.</p><p class="none">Nothing sent yet.</p>';

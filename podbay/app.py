@@ -1058,7 +1058,9 @@ class PodbayApp(App):
         self.set_interval(autoresume.CHECK_SECONDS, self._check_limit_stops)
         if config.mobile_on():
             self._mobile_uploader = mobile_mod.Uploader()
+            self._mobile_store = mobile_mod.Store()
             self.set_interval(mobile_mod.SNAPSHOT_EVERY, self._mobile_snapshot)
+            self.set_interval(mobile_mod.POLL_EVERY, self._mobile_poll)
             self.call_later(self._mobile_snapshot)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
@@ -1244,6 +1246,23 @@ class PodbayApp(App):
                 log.debug("mobile snapshot uploaded")
         except Exception:  # noqa: BLE001 -- the phone's view must never take the TUI down
             log.warning("mobile snapshot failed", exc_info=True)
+
+    def _deliver_phone(self, line: str) -> bool:
+        """Type one phone message to Head Jeeves. Not while he is off or a
+        launch is pending: a pending launch keeps one follow-up only, so a
+        second message would replace the first. The poller tries again."""
+        if not self._head_jeeves or self._head_jeeves_pending is not None or self._quitting:
+            return False
+        return self._send_to_head_jeeves(line)
+
+    @work(thread=True, exclusive=True, group="mobile-poll")
+    def _mobile_poll(self) -> None:
+        """Deliver the messages the phone app queued (mobile.poll)."""
+        try:
+            for msg_id, outcome in mobile_mod.poll(self._mobile_store, lambda line: bool(self.call_from_thread(self._deliver_phone, line))):
+                log.info("phone message %s: %s", msg_id, outcome)
+        except Exception:  # noqa: BLE001 -- the next poll tries again
+            log.warning("phone message poll failed", exc_info=True)
 
     @work(thread=True, exclusive=True, group="logins")
     def _logins_worker(self, sessions: list[Session]) -> None:
@@ -2371,6 +2390,30 @@ def cmd_snapshot(out: Path | None) -> None:
           + f" · {len(state['nightly']['jobs'])} nightly jobs · {len(state['accounts'])} accounts · {len(state['lines'])} lines")
 
 
+def cmd_reply(msg_id: str, text: str) -> int:
+    """Head Jeeves' answer to a message from the phone app."""
+    if mobile_mod.reply(mobile_mod.Store(), msg_id, text):
+        print(f"replied to {msg_id}")
+        return 0
+    print(f"no message {msg_id}", file=sys.stderr)
+    return 1
+
+
+def cmd_mobile(action: str) -> int:
+    """podbay mobile passkey-allow | signout | audit (mobile.py)."""
+    store = mobile_mod.Store()
+    if action == "passkey-allow":
+        until = mobile_mod.passkey_allow(store)
+        print(f"The app may add a passkey until {datetime.fromtimestamp(until):%H:%M}. Open a reply sheet in the app and tap Add a passkey.")
+    elif action == "signout":
+        users, grants = mobile_mod.signout(store)
+        print(f"Signed out {users} users and removed {grants} send grants. The app asks for a new sign-in.")
+    elif action == "audit":
+        lines = mobile_mod.audit_lines(store)
+        print("\n".join(lines) if lines else "No requests in the last 7 days.")
+    return 0
+
+
 def cmd_excerpt(target: str, turns: int, last: bool = False) -> None:
     match = _find_session(target)
     if match is None or match.is_shell:
@@ -2718,6 +2761,11 @@ def main() -> None:
     board_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {board.BOARD_PATH})")
     board_parser.add_argument("--url", default=None, metavar="URL", help="record the URL the board is published at; printed by every later `podbay board`")
 
+    reply_parser = sub.add_parser("reply", help="answer a message from the phone app; the app shows it under the message")
+    reply_parser.add_argument("id", help="the message id from the /head-jeeves phone event")
+    reply_parser.add_argument("text", nargs="+", help="one line")
+    mobile_parser = sub.add_parser("mobile", help="the phone app: passkey-allow opens a 15 minute passkey window, signout ends every sign-in, audit prints 7 days")
+    mobile_parser.add_argument("action", choices=["passkey-allow", "signout", "audit"])
     snapshot_parser = sub.add_parser("snapshot", help="write the phone app's state as JSON (podbay/snapshot.py)")
     snapshot_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {SNAPSHOT_PATH})")
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
@@ -2772,6 +2820,10 @@ def main() -> None:
         cmd_board(Path(args.out) if args.out else None, args.url)
     elif args.command == "snapshot":
         cmd_snapshot(Path(args.out) if args.out else None)
+    elif args.command == "reply":
+        sys.exit(cmd_reply(args.id, " ".join(args.text)))
+    elif args.command == "mobile":
+        sys.exit(cmd_mobile(args.action))
     elif args.command == "screen":
         cmd_screen(args.target, args.lines)
     elif args.command == "excerpt":

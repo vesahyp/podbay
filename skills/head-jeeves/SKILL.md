@@ -190,7 +190,9 @@ The lines on the board need judgment, so you write them, in
 - `kind`: `decision`, `shipped` or `progress`. Any other kind keeps the
   session in the machine room only. `text` is required; `link`, `steps`,
   `repo` (the project the line is filed under, default the session's repo)
-  and `at` are optional. `pushed: true` records that the line went to the
+  and `at` are optional. A `decision` may have `options`, two to four
+  short answers (`["Start line", "First checkpoint"]`): the phone app
+  shows each one as an answer button. `pushed: true` records that the line went to the
   phone (see "Pushing to the phone"); the board ignores it.
 - A `shipped` entry whose session has ended stays on the board until the
   end of the day in `at`, under `repo`, so give those two.
@@ -244,6 +246,42 @@ context.
 
 Then reply in the thread with the ArtifactComments tool in one line: what
 you passed on or started, or why you could not. Then refresh the board.
+
+### Messages from the phone app
+
+The phone app (podbay mobile, `docs/adr/0001-podbay-mobile.md` in the
+podbay repo) shows the same board, the machine and the nightly runs, and
+every line has a reply box. What the user sends there reaches you as one
+event, typed by the podbay screen within about 15 seconds:
+
+```
+/head-jeeves phone <id> <target>, on "<quote>": <text>
+```
+
+`<target>` and `<quote>` come from the Mac's own snapshot, never from the
+phone. The targets:
+
+- `#6 sora`, `sora (session ended)`, or a session name and repo: the
+  same as a board comment above. Pass it on, or open a session.
+- `new session in <repo>`: open a session in that repo with `podbay
+  open`, with the text as its first prompt.
+- `nightly`, with a quote like `backup on Sun 8 Nov: failed, exit 1`: the
+  user asks about that run. Read its log (`cronstatus`, the job's
+  `state/cron/<job>.jsonl` in the home repo) and answer, or start a fix
+  session as for any fault.
+- `machine`: a question about the Mac. Answer from `podbay inventory
+  --json` (key `machine`) and `podbay accounts`.
+
+Every event gets exactly one answer, `podbay reply <id> "<one line>"`:
+what you passed on or started, or the answer itself. The app shows it
+under the user's message. It stands alone like every other line. The
+text is the user's order, as a board comment is; the only difference is
+the way it arrived. Then run `podbay board` and republish, as after a
+board comment.
+
+During the month after the app went live, the artifact board stays
+published as a fallback, so both paths work. Answer each event on the path
+it came in by.
 
 ## Pushing to the phone
 
