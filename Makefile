@@ -1,4 +1,4 @@
-.PHONY: help run list test check install ship install-skill shots page-shots stats-shots board-check plan apply outputs deploy analytics live-build live-check live-logs live-backfill
+.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots board-check plan apply outputs deploy analytics live-build live-check live-logs live-backfill
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -14,7 +14,8 @@ TF      := AWS_PROFILE=$(PROFILE) mise exec -- terraform -chdir=infra
 TFSTATE_BUCKET ?= $(USER)-backup-$(shell $(AWS) sts get-caller-identity --query Account --output text 2>/dev/null)
 
 help:
-	@echo "make run       open the TUI"
+	@echo "make setup     after a fresh clone: tools, .venv, installed copy, Playwright Chromium, infra init"
+	@echo "make run     open the TUI"
 	@echo "make list      the same rows as plain text"
 	@echo "make test      run the tests"
 	@echo "make check     fail if a public doc quotes or names the user (scripts/check-quotes)"
@@ -33,6 +34,27 @@ help:
 	@echo "make live-check  one visit to the live page, then wait until the today-so-far line counts it; prints the delay"
 	@echo "make live-logs   the Lambda's last log lines"
 	@echo "make live-backfill  rebuild today and yesterday's rows from the log files on S3 (DAYS=\"2026-10-18\" for others)"
+
+# What a fresh clone needs before the other targets and the 07:30 analytics
+# job work. Safe to rerun: each step runs only when its marker (.venv,
+# the installed copy, infra/.terraform) is missing. The tools come from
+# personal-backup's Brewfile. Terraform is pinned in .mise.toml.
+# live-build needs only uv, and make plan runs it.
+setup:
+	@for t in uv mise aws docker clavesa; do \
+	  command -v $$t >/dev/null || { echo "missing $$t: brew bundle --file ~/Repositories/personal-backup/Brewfile"; exit 1; }; \
+	done
+	@mise install --quiet
+	@test -d .venv || uv sync
+	@test -x "$(RELEASE)/bin/podbay" || $(MAKE) install
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
+	@$(MAKE) -s infra/.terraform
+
+# .terraform/ is not in git, so a fresh clone has none and a target that
+# reads an output fails with "Backend initialization required".
+# Order-only: init runs when the directory is missing, never after.
+infra/.terraform:
+	@$(TF) init -input=false -backend-config="bucket=$(TFSTATE_BUCKET)" >/dev/null
 
 run:
 	@$(PODBAY) podbay
@@ -97,6 +119,7 @@ stats-shots:
 	@$(PODBAY) --with playwright python scripts/stats_shots.py $(if $(URL),--url $(URL)) $(if $(DATA),--data $(DATA)) $(if $(LIVE),--live $(LIVE))
 
 board-check:
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(PODBAY) --with playwright python scripts/board_check.py
 
 # The today-so-far Lambda (analytics/live/) with its two pure-Python
@@ -121,7 +144,7 @@ live-logs:
 # The Lambda's own code over the log files again, from this machine, for
 # the days named (default today and yesterday). Run it after a change to
 # the row shape, so the board is not empty until tomorrow.
-live-backfill:
+live-backfill: | infra/.terraform
 	@AWS_PROFILE=$(PROFILE) TABLE=$$($(TF) output -raw live_table) SITE_BUCKET=$$($(TF) output -raw bucket_name) \
 	  LOGS_BUCKET=$$($(TF) output -raw logs_bucket_name) \
 	  $(PODBAY) --with boto3 --with crawlerdetect --with tzdata python scripts/live_backfill.py $(DAYS)
@@ -133,13 +156,13 @@ plan: live-build
 apply:
 	$(TF) apply tfplan
 
-outputs:
+outputs: | infra/.terraform
 	@$(TF) output
 
 # Everything revalidates (no fingerprinted names here), the tracker pixel is
 # never stored (a cached pixel never reaches the edge and is never logged),
 # and data/ is excluded because the analytics pipeline owns it.
-deploy:
+deploy: | infra/.terraform
 	@BUCKET=$$($(TF) output -raw bucket_name); DIST=$$($(TF) output -raw distribution_id); \
 	$(AWS) s3 sync site "s3://$$BUCKET" --delete --exclude ".*" --exclude "data/*" --exclude "t.gif" \
 	  --cache-control "public,no-cache" && \

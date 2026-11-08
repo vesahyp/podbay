@@ -9,6 +9,8 @@ the code.
 ## Commands
 
 ```
+make setup      after a fresh clone: checks the tools, uv sync, make install,
+                Playwright Chromium, terraform init in infra/. Safe to rerun
 make run        the TUI (uv run --project . podbay)
 make list       the same rows as plain text
 make test       pytest, about a minute; the app tests mount the real TUI
