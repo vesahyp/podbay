@@ -27,6 +27,8 @@ make ship       git push origin main, then make install. Always this,
 make shots      the site's screenshots into site/img/ (Playwright)
 make page-shots the landing page, full page, on desktop and iPhone 16 into
                   .shots/, not committed; site/ served locally, URL= for live
+make mobile-shots  the podbay mobile vision mock on an iPhone 16 into
+                  mobile/mock/shots/, committed (docs/adr/0001)
 make stats-shots  the stats board on desktop and iPhone, into .shots/,
                   not committed; URL= and DATA= check a local copy first
 make plan       terraform plan for infra/, saved to infra/tfplan
@@ -89,6 +91,9 @@ podbay/
                       session says "Login expired"; docs/login-expiry.md
                       has how the end is known
 docs/               findings about Claude Code that the code depends on
+docs/adr/           architecture decisions; 0001 is podbay mobile (proposed)
+mobile/mock/        the podbay mobile vision mock: one static page, made-up
+                      data, and its screenshots; the design, not the app
 tests/              pytest; conftest pins one account and a home base
 scripts/shots.py    the site's screenshots: the real TUI and board over
                       made-up sessions, rendered by Playwright

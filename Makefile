@@ -1,4 +1,4 @@
-.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots board-check plan apply outputs deploy analytics live-build live-check live-logs live-backfill
+.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots mobile-shots board-check plan apply outputs deploy analytics live-build live-check live-logs live-backfill
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -24,6 +24,7 @@ help:
 	@echo "make install-skill HOME_REPO=~/Repositories/jeeves   link skills/head-jeeves into that repo"
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
 	@echo "make page-shots  the landing page on desktop and iPhone 16, full page, into .shots/ (site/ served locally; URL= for the live one)"
+	@echo "make mobile-shots  the podbay mobile vision mock on an iPhone 16, one PNG per screen, into mobile/mock/shots/"
 	@echo "make stats-shots  the stats board on desktop and iPhone, into .shots/ (URL=, DATA=, LIVE= for a local check)"
 	@echo "make board-check  tap every board line on a phone, check what reaches Head Jeeves"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
@@ -114,6 +115,12 @@ page-shots:
 	@$(PODBAY) --with playwright python scripts/page_shots.py $(if $(URL),--url $(URL))
 
 # The stats board as a reader sees it, live by default. Not committed.
+# The podbay mobile vision mock (docs/adr/0001-podbay-mobile.md), one PNG per
+# screen. Committed: the build is checked against these.
+mobile-shots:
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
+	@$(PODBAY) --with playwright python scripts/mobile_shots.py
+
 stats-shots:
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(PODBAY) --with playwright python scripts/stats_shots.py $(if $(URL),--url $(URL)) $(if $(DATA),--data $(DATA)) $(if $(LIVE),--live $(LIVE))

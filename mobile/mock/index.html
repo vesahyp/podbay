@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#050505">
+<title>podbay mobile · vision mock</title>
+<!--
+  The vision mock of podbay mobile (docs/adr/0001-podbay-mobile.md). One
+  static page, made-up sessions and jobs, no network. The hash picks the
+  screen: #board, #reply, #machine, #nightly, #log, #thread.
+  scripts/mobile_shots.py takes one iPhone 16 screenshot of each.
+  This is the design only. The app in slice 4 is built fresh in mobile/app/.
+-->
+<style>
+:root {
+  --bg: #050505; --panel: #0f0d0c; --panel2: #161311; --line: #2a1d18;
+  --fg: #ece3cb; --muted: #9a917c; --dim: #5d564a;
+  --red: #e0201f; --amber: #ffb000; --green: #6fcf86; --blue: #6aa8f0;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --sans: "IBM Plex Sans", -apple-system, system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font: 15px/1.45 var(--sans); -webkit-text-size-adjust: 100%; padding-bottom: 92px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* Header */
+.top { position: sticky; top: 0; z-index: 5; background: rgba(5,5,5,.94); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: space-between; padding: 54px 16px 10px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 15px var(--mono); letter-spacing: .14em; }
+.eye { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #ffd27a 0 8%, var(--red) 22%, #5a0606 62%, #1a0202 100%); box-shadow: 0 0 10px rgba(224,32,31,.55); }
+.fresh { font: 12px var(--mono); color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.fresh i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+
+main { padding: 6px 16px 0; }
+h1 { font: 600 24px/1.2 var(--sans); margin: 14px 0 2px; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+h2 { font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  margin: 22px 0 8px; display: flex; align-items: center; gap: 8px; }
+h2 .n { background: var(--panel2); border: 1px solid var(--line); color: var(--fg); border-radius: 10px; padding: 0 7px; font-size: 11px; }
+h2.ask { color: var(--amber); }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
+.card.ask { border-color: #4a3410; background: linear-gradient(#17110a, var(--panel)); }
+.repo { font: 600 12px var(--mono); color: var(--amber); letter-spacing: .04em; }
+.repo .t { color: var(--dim); font-weight: 400; margin-left: 6px; }
+.line { margin: 4px 0 0; }
+.meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.link { color: var(--amber); font-size: 13px; word-break: break-all; text-decoration: underline; text-underline-offset: 3px; }
+ol.steps { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+ol.steps li { margin: 2px 0; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.btn { border: 1px solid var(--line); background: var(--panel2); border-radius: 10px; padding: 9px 14px; min-height: 40px; font-weight: 500; }
+.btn.opt { border-color: #6b4a12; background: #2a1d07; color: #ffd27a; }
+.btn.primary { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--muted); }
+.btn.wide { width: 100%; }
+.btn.reply::before { content: "↩ "; color: var(--muted); }
+
+.mini { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.chip { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 2px 6px; white-space: nowrap; }
+.chip.green { color: var(--green); border-color: #1e4a2a; }
+.chip.red { color: #ff7a6a; border-color: #5a1a14; }
+.chip.amber { color: var(--amber); border-color: #4a3410; }
+
+/* Charts */
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font: 10px var(--mono); fill: var(--muted); }
+.chartcard h3 { font: 600 14px var(--sans); margin: 0; }
+.chartcard .q { color: var(--muted); font-size: 12px; margin: 2px 0 8px; }
+.big { font: 600 22px var(--mono); }
+.big small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid2 .card { margin: 0; }
+
+/* Nightly grid */
+.ng { display: grid; grid-template-columns: 104px repeat(7, 1fr); gap: 4px; align-items: center; }
+.ng .h { font: 10px var(--mono); color: var(--muted); text-align: center; }
+.ng .j { font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ng .j small { display: block; color: var(--dim); font-size: 10px; }
+.cell { height: 30px; border-radius: 6px; border: 0; padding: 0; }
+.cell.ok { background: #1f5a33; }
+.cell.fail { background: var(--red); }
+.cell.miss { background: transparent; border: 2px solid var(--red); }
+.cell.none { background: #1a1816; }
+.cell.sel { outline: 2px solid var(--amber); outline-offset: 2px; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font: 11px var(--mono); color: var(--muted); margin-top: 10px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.legend .ok::before { background: #1f5a33; } .legend .fail::before { background: var(--red); }
+.legend .miss::before { border: 2px solid var(--red); width: 6px; height: 6px; } .legend .none::before { background: #1a1816; }
+
+/* Bars (quota, login) */
+.bar { height: 10px; background: #1d1a17; border-radius: 5px; overflow: hidden; position: relative; }
+.bar b { display: block; height: 100%; border-radius: 5px; background: var(--green); }
+.bar b.warn { background: var(--amber); } .bar b.hot { background: var(--red); }
+.qrow { display: grid; grid-template-columns: 84px 1fr 92px; gap: 10px; align-items: center; font-size: 13px; margin: 8px 0; }
+.qrow .r { font: 11px var(--mono); color: var(--muted); text-align: right; }
+.acct { font: 600 13px var(--mono); margin-top: 6px; display: flex; justify-content: space-between; }
+
+/* Tab bar */
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(4, 1fr);
+  background: rgba(10,9,8,.97); border-top: 1px solid var(--line); padding: 0 6px 26px; }
+.tab { background: none; border: 0; padding: 10px 0 4px; font: 11px var(--mono); color: var(--muted); position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.tab svg { width: 22px; height: 22px; }
+.tab svg * { stroke: currentColor; fill: none; stroke-width: 1.7; }
+.tab.on { color: var(--fg); }
+.tab.on::before { content: ""; position: absolute; top: -1px; left: 26%; right: 26%; height: 3px; background: var(--red); border-radius: 0 0 3px 3px; }
+.badge { position: absolute; top: 5px; left: 54%; background: var(--red); color: #fff; font: 600 10px var(--sans); border-radius: 8px; padding: 0 5px; min-width: 16px; text-align: center; }
+.badge.amber { background: var(--amber); color: #000; }
+
+/* Sheet */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.62); z-index: 8; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: #12100e; border-top: 1px solid #3a2a20;
+  border-radius: 20px 20px 0 0; padding: 10px 16px 34px; max-height: 88vh; overflow: auto; }
+.grab { width: 40px; height: 5px; border-radius: 3px; background: #3a342d; margin: 0 auto 12px; }
+.quote { border-left: 3px solid var(--amber); padding: 2px 0 2px 10px; color: var(--muted); font-size: 14px; margin: 8px 0 12px; }
+textarea { width: 100%; min-height: 84px; background: #0a0908; color: var(--fg); border: 1px solid #3a2a20; border-radius: 12px; padding: 10px 12px; font: 15px/1.4 var(--sans); resize: none; }
+.fine { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 12px; }
+.opts .btn { min-height: 52px; text-align: left; }
+.opts .btn small { display: block; color: #c9a65a; font-size: 12px; font-weight: 400; }
+pre.log { background: #0a0908; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 11px/1.5 var(--mono); color: #cfc6ad;
+  white-space: pre-wrap; word-break: break-word; margin: 10px 0; }
+pre.log .e { color: #ff7a6a; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font: 12px var(--mono); color: var(--muted); }
+.kv b { color: var(--fg); font-weight: 500; }
+
+/* Thread */
+.msg { margin-bottom: 14px; }
+.me { background: #2a0d0b; border: 1px solid #4a1712; border-radius: 14px 14px 4px 14px; padding: 10px 12px; margin-left: 40px; }
+.hj { background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 10px 12px; margin-right: 40px; margin-top: 6px; }
+.who { font: 11px var(--mono); color: var(--muted); margin-bottom: 3px; display: flex; justify-content: space-between; gap: 8px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="eye"></span>PODBAY</div>
+  <div class="fresh"><i></i><span id="fresh">Mac · 40 s ago</span></div>
+</header>
+<main id="main"></main>
+<nav class="tabs" id="tabs"></nav>
+<div id="overlay"></div>
+
+<script>
+// Made-up data. The real shape is podbay snapshot's state.json (ADR 0001).
+const NOW_H = 14.6; // 14:36
+const D = {
+  decisions: [
+    { repo: "sora", t: "#6", text: "The lap counter can count from the start line or from the first checkpoint. Which one?",
+      options: [["Start line", "laps match the race clock"], ["First checkpoint", "the first lap is shorter"]] },
+    { repo: "billing", t: "#9", text: "The invoice PDF is ready in two layouts. Ship the one-page layout, or keep the two-page one with the item table?",
+      options: [["One page", "smaller, prints on A4"], ["Two pages", "the full item table"]] },
+  ],
+  test: [
+    { repo: "atlas", t: "#4", text: "The map loads in 1.2 s on a phone, from 3.8 s, ready for you to test",
+      link: "https://atlas.example.com/map", steps: ["Open the link on the phone with Wi-Fi off", "The map shows tiles before the spinner ends"] },
+    { repo: "lumen", t: "#11", text: "The newsletter sign-up form sends the code mail from the site's own address, ready for you to test",
+      link: "https://lumen.example.com/join", steps: ["Sign up with a new address", "The mail is from no-reply@lumen.example.com"] },
+  ],
+  progress: [
+    { repo: "kettle", t: "#3", text: "Moving the recipe search to the new index", when: "about 40 min" },
+    { repo: "harbor", t: "#7", text: "Writing the Terraform for the second log bucket", when: "about 20 min" },
+    { repo: "sora", t: "#12", text: "Recording the phone run for the balance check", when: "about 1 h" },
+  ],
+  done: [
+    { repo: "atlas", text: "The nightly tile build skips unchanged regions", at: "09:12" },
+    { repo: "podbay", text: "send confirms delivery after an iTerm2 timeout", at: "11:40" },
+  ],
+};
+const JOBS = [
+  ["scraper", "02:00"], ["site-stats", "04:00"], ["radio-stats", "05:00"], ["atlas-stats", "06:00"],
+  ["kettle-stats", "07:00"], ["podbay-stats", "07:30"], ["lumen-stats", "08:00"], ["backup", "09:00"],
+  ["statswatch", "09:30"], ["weather-grid", "10:00"], ["facts-check", "10:15"], ["dnswatch", "10:30"],
+  ["runs-publish", "10:45"], ["diskclean", "Sun 11:15"],
+];
+const NIGHTS = ["Su 2", "Mo 3", "Tu 4", "We 5", "Th 6", "Fr 7", "Sa 8"];
+function cellState(j, n) {
+  if (JOBS[j][0] === "diskclean") return n === 0 ? "ok" : "none";
+  if (JOBS[j][0] === "radio-stats" && n === 4) return "fail";
+  if (JOBS[j][0] === "scraper" && n === 6) return "fail";
+  if (n === 5 && j < 3) return "miss"; // Friday: the Mac slept until 05:40
+  return "ok";
+}
+
+const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- charts (inline SVG) ---------- */
+function series(n, f) { return Array.from({ length: n }, (_, i) => f(i)); }
+function lineChart({ ys, w = 340, h = 96, max, min = 0, unit = "", color = "var(--amber)", limit, limitLabel, area = true, bare = false, xl = ["00", "06", "12", "18", "now"] }) {
+  const pl = bare ? 0 : 28, pb = bare ? 2 : 16, iw = w - pl, ih = h - pb;
+  const x = (i) => pl + (i / (ys.length - 1)) * iw;
+  const y = (v) => ih - ((v - min) / (max - min)) * ih;
+  const pts = ys.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const grid = bare ? "" : [min, (min + max) / 2, max].map((v) => `<line x1="${pl}" x2="${w}" y1="${y(v)}" y2="${y(v)}" stroke="#221c18"/><text x="${pl - 4}" y="${y(v) + 3}" text-anchor="end">${Math.round(v)}${unit}</text>`).join("");
+  const xs = bare ? "" : xl.map((l, i) => `<text x="${pl + (i / (xl.length - 1)) * iw}" y="${h - 3}" text-anchor="${i === xl.length - 1 ? "end" : "middle"}">${l}</text>`).join("");
+  const lim = limit != null ? `<line x1="${pl}" x2="${w}" y1="${y(limit)}" y2="${y(limit)}" stroke="var(--red)" stroke-dasharray="4 3"/><text x="${w}" y="${y(limit) - 4}" text-anchor="end" style="fill:#ff7a6a">${limitLabel}</text>` : "";
+  const fill = area ? `<polygon points="${pl},${ih} ${pts} ${w},${ih}" fill="${color}" opacity=".14"/>` : "";
+  return `<svg viewBox="0 0 ${w} ${h}" role="img">${grid}${fill}<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round"/>${lim}${xs}<circle cx="${x(ys.length - 1)}" cy="${y(ys[ys.length - 1])}" r="3" fill="${color}"/></svg>`;
+}
+function timeline({ spans, w = 340, h = 22, label }) {
+  // spans: [[fromHour, toHour, "up"|"down"]]
+  const pl = 0, x = (hr) => pl + (hr / 24) * (w - pl);
+  const r = spans.map(([a, b, s]) => `<rect x="${x(a)}" y="4" width="${Math.max(1, x(b) - x(a))}" height="12" rx="2" fill="${s === "up" ? "#1f5a33" : "var(--red)"}"/>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${label}">${r}</svg>`;
+}
+function hourBars(vals, w = 340, h = 70) {
+  const pl = 18, pb = 14, iw = w - pl, ih = h - pb, bw = iw / 24 - 2, max = 6;
+  const bars = vals.map((v, i) => `<rect x="${pl + i * (iw / 24) + 1}" y="${ih - (v / max) * ih}" width="${bw}" height="${(v / max) * ih}" rx="1.5" fill="${i > NOW_H ? "#1a1816" : "var(--amber)"}" opacity="${i === Math.floor(NOW_H) ? 1 : .75}"/>`).join("");
+  const ax = [0, 6, 12, 18].map((hr) => `<text x="${pl + hr * (iw / 24)}" y="${h - 2}">${String(hr).padStart(2, "0")}</text>`).join("");
+  const yl = [0, 3, 6].map((v) => `<text x="${pl - 4}" y="${ih - (v / max) * ih + 3}" text-anchor="end">${v}</text>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" role="img">${yl}${bars}${ax}</svg>`;
+}
+function stacked(w = 340, h = 150) {
+  const projects = [["scraper", "#e0201f"], ["site", "#6aa8f0"], ["atlas", "#ffb000"], ["kettle", "#6fcf86"], ["lumen", "#b88cf0"]];
+  const data = [[38, 12, 9, 7, 6], [41, 11, 10, 7, 6], [36, 13, 9, 8, 6], [44, 12, 11, 7, 7], [52, 12, 9, 7, 6], [0, 0, 10, 8, 6], [61, 14, 10, 7, 6]];
+  const pl = 26, pb = 16, iw = w - pl, ih = h - pb - 22, max = 100, step = iw / 7, bw = step - 10;
+  let s = "";
+  [0, 50, 100].forEach((v) => { const y = 22 + ih - (v / max) * ih; s += `<line x1="${pl}" x2="${w}" y1="${y}" y2="${y}" stroke="#221c18"/><text x="${pl - 4}" y="${y + 3}" text-anchor="end">${v}</text>`; });
+  data.forEach((col, i) => {
+    let acc = 0;
+    col.forEach((v, k) => { if (!v) return; const y = 22 + ih - ((acc + v) / max) * ih; s += `<rect x="${pl + i * step + 5}" y="${y}" width="${bw}" height="${(v / max) * ih - 1}" fill="${projects[k][1]}" opacity=".85"/>`; acc += v; });
+    s += `<text x="${pl + i * step + step / 2}" y="${h - 2}" text-anchor="middle">${NIGHTS[i].split(" ")[0]}</text>`;
+    if (i === 5) s += `<text x="${pl + i * step + step / 2}" y="${22 + ih - 30}" text-anchor="middle" style="fill:#ff7a6a">slept</text>`;
+  });
+  s += `<text x="${pl - 4}" y="10" text-anchor="end">min</text>`;
+  let lx = pl;
+  projects.forEach(([n, c]) => { s += `<rect x="${lx}" y="2" width="9" height="9" rx="2" fill="${c}"/><text x="${lx + 12}" y="10">${n}</text>`; lx += 14 + n.length * 6.4 + 8; });
+  return `<svg viewBox="0 0 ${w} ${h}" role="img">${s}</svg>`;
+}
+
+/* ---------- screens ---------- */
+const replyBtn = (label = "Reply") => `<button class="btn reply">${label}</button>`;
+
+function board() {
+  const ask = D.decisions.map((d) => `<article class="card ask">
+      <div class="repo">${esc(d.repo)}<span class="t">${d.t}</span></div>
+      <p class="line">${esc(d.text)}</p>
+      <div class="row">${d.options.map(([o]) => `<button class="btn opt">${esc(o)}</button>`).join("")}${replyBtn("Other")}</div>
+    </article>`).join("");
+  const test = D.test.map((d) => `<article class="card">
+      <div class="mini"><div class="repo">${esc(d.repo)}<span class="t">${d.t}</span></div><span class="chip green">shipped 13:10</span></div>
+      <p class="line">${esc(d.text)}</p>
+      <a class="link">${esc(d.link)}</a>
+      <ol class="steps">${d.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
+      <div class="row"><button class="btn">Works</button><button class="btn">Found a fault</button>${replyBtn()}</div>
+    </article>`).join("");
+  const prog = D.progress.map((d) => `<article class="card">
+      <div class="mini"><div class="repo">${esc(d.repo)}<span class="t">${d.t}</span></div><span class="chip amber">${esc(d.when)}</span></div>
+      <p class="line">${esc(d.text)}</p>
+      <div class="row">${replyBtn()}</div>
+    </article>`).join("");
+  const done = D.done.map((d) => `<article class="card">
+      <div class="mini"><div class="repo">${esc(d.repo)}</div><span class="chip">${d.at}</span></div>
+      <p class="line">${esc(d.text)}</p>
+    </article>`).join("");
+  const work = [0,0,0,0,0,0,0,1,2,3,4,4,5,3,4,0,0,0,0,0,0,0,0,0];
+  return `
+    <h1>Sunday</h1>
+    <p class="sub">2 decisions wait for you. 4 sessions work.</p>
+    <article class="card chartcard"><h3>Sessions at work today</h3><p class="q">Working sessions per hour, Helsinki time</p>${hourBars(work)}</article>
+    <h2 class="ask">Decisions for you <span class="n">${D.decisions.length}</span></h2>${ask}
+    <h2>Ready for you to test <span class="n">${D.test.length}</span></h2>${test}
+    <h2>In progress <span class="n">${D.progress.length}</span></h2>${prog}
+    <h2>Finished today <span class="n">${D.done.length}</span></h2>${done}
+    <div class="row" style="margin:18px 0 8px"><button class="btn primary wide">Start a session</button></div>`;
+}
+
+function machine() {
+  const load = series(73, (i) => { const hr = i / 3; return 1.2 + (hr > 2 && hr < 3.6 ? 9 : 0) + (hr > 4 && hr < 8.6 ? 6 + 2 * Math.sin(i) : 0) + (hr > 9 && hr < 14.6 ? 2.5 + Math.sin(i * .7) : 0); });
+  const disk = series(73, (i) => 62 - (i > 6 && i < 26 ? (i - 6) * 1.1 : i >= 26 ? 22 - (i - 26) * 0.05 : 0));
+  const batt = series(73, (i) => (i < 22 ? 100 - i * 0.6 : Math.min(100, 87 + (i - 22) * 1.2)));
+  return `
+    <h1>Machine</h1>
+    <p class="sub">The main Mac. Nothing needs you.</p>
+    <div class="grid2">
+      <article class="card"><div class="q" style="color:var(--muted);font-size:12px">Power</div><div class="big">100<small>% · on cable</small></div>${lineChart({ ys: batt, w: 160, h: 30, max: 100, color: "var(--green)", bare: true })}</article>
+      <article class="card"><div class="q" style="color:var(--muted);font-size:12px">Docker</div><div class="big" style="color:var(--green)">up<small>since 01:45</small></div>${timeline({ spans: [[0, 1.75, "down"], [1.75, NOW_H, "up"]], w: 160, label: "Docker today" })}</article>
+    </div>
+    <h2>Last 24 hours</h2>
+    <article class="card chartcard"><h3>CPU load</h3><p class="q">1-minute load average. Over the red line, podbay calls the Mac overloaded.</p>${lineChart({ ys: load, max: 16, limit: 12, limitLabel: "overloaded", xl: ["00", "06", "12", "now"] })}</article>
+    <article class="card chartcard"><h3>Disk free</h3><p class="q">GiB free on the data volume. Under 15 the push says deal with it today.</p>${lineChart({ ys: disk, max: 80, unit: "", limit: 15, limitLabel: "15 GiB", color: "var(--blue)", xl: ["00", "06", "12", "now"] })}</article>
+    <h2>Background jobs today</h2>
+    <article class="card">
+      ${["keepawake", "powerwatch", "dockerup"].map((n) => `<div class="qrow"><span class="mono" style="font-family:var(--mono);font-size:12px">${n}</span>${timeline({ spans: [[0, NOW_H, "up"]], w: 200, label: n })}<span class="r">running</span></div>`).join("")}
+    </article>
+    <h2>Claude logins</h2>
+    <article class="card">
+      <div class="qrow"><span style="font-family:var(--mono);font-size:12px">personal</span><div class="bar"><b style="width:78%"></b></div><span class="r">ends in 6 d</span></div>
+      <div class="qrow"><span style="font-family:var(--mono);font-size:12px">work</span><div class="bar"><b class="warn" style="width:14%"></b></div><span class="r">ends in 19 h</span></div>
+    </article>
+    <h2>Quota windows</h2>
+    <article class="card">
+      <div class="acct"><span>personal</span><span class="chip green">use this one</span></div>
+      <div class="qrow"><span>5 hours</span><div class="bar"><b style="width:31%"></b></div><span class="r">31% · 17:00</span></div>
+      <div class="qrow"><span>Week</span><div class="bar"><b style="width:44%"></b></div><span class="r">44% · Thu</span></div>
+      <div class="qrow"><span>Week, Opus</span><div class="bar"><b class="warn" style="width:71%"></b></div><span class="r">71% · Thu</span></div>
+      <div class="acct" style="margin-top:12px"><span>work</span><span class="chip red">near the limit</span></div>
+      <div class="qrow"><span>5 hours</span><div class="bar"><b class="hot" style="width:92%"></b></div><span class="r">92% · 15:00</span></div>
+      <div class="qrow"><span>Week</span><div class="bar"><b class="warn" style="width:66%"></b></div><span class="r">66% · Tue</span></div>
+    </article>
+    <div class="row" style="margin:14px 0 8px">${replyBtn("Ask Head Jeeves about the Mac")}</div>`;
+}
+
+function nightly(sel) {
+  let g = `<div class="ng"><span></span>${NIGHTS.map((n) => `<span class="h">${n}</span>`).join("")}`;
+  JOBS.forEach(([name, at], j) => {
+    g += `<span class="j">${name}<small>${at}</small></span>`;
+    NIGHTS.forEach((_, n) => { const s = cellState(j, n); g += `<button class="cell ${s}${sel && sel[0] === j && sel[1] === n ? " sel" : ""}" aria-label="${name} ${NIGHTS[n]} ${s}"></button>`; });
+  });
+  g += "</div>";
+  return `
+    <h1>Nightly runs</h1>
+    <p class="sub">Last night: 12 of 13 passed, scraper failed. Tap a night for its log.</p>
+    <article class="card chartcard"><h3>Every job, the last 7 nights</h3><p class="q">One cell per scheduled run</p>${g}
+      <div class="legend"><span class="ok">passed</span><span class="fail">failed</span><span class="miss">did not run</span><span class="none">not scheduled</span></div>
+    </article>
+    <article class="card chartcard"><h3>Where the pipeline time goes</h3><p class="q">clavesa run minutes per night, by project</p>${stacked()}</article>
+    <div class="row" style="margin:14px 0 8px"><button class="btn wide">Open the full runs chart</button></div>`;
+}
+
+function thread() {
+  const m = [
+    ["sora #6", "on “The lap counter can count from the start line…”", "Start line", "delivered 14:21", "Passed to sora #6. It moves the counter to the start line and asks for a phone run after."],
+    ["New session", "kettle", "The search box should keep the last query when I come back to the page", "delivered 13:02", "Started kettle #3 with your line as its first prompt."],
+    ["atlas #4", "on “The map loads in 1.2 s on a phone…”", "Works", "delivered 12:40", "Thanks. atlas is closed; the line moves to finished today."],
+    ["Machine", "", "Why was Friday's scraper missing?", "expired 02:44", null],
+  ];
+  return `<h1>Thread</h1><p class="sub">Everything you sent, and what Head Jeeves did with it.</p>` + m.map(([to, about, text, st, ans]) => `
+    <div class="msg">
+      <div class="me"><div class="who"><span>to ${esc(to)}</span><span>${esc(st)}</span></div>${about ? `<div class="meta" style="margin:0 0 4px">${esc(about)}</div>` : ""}${esc(text)}</div>
+      ${ans ? `<div class="hj"><div class="who"><span>Head Jeeves</span></div>${esc(ans)}</div>` : `<div class="hj" style="border-color:#5a1a14"><div class="who"><span style="color:#ff7a6a">Not sent: the Mac was asleep for 30 min</span></div><div class="row" style="margin-top:4px"><button class="btn">Send again</button></div></div>`}
+    </div>`).join("");
+}
+
+function replySheet() {
+  const d = D.decisions[0];
+  return `<div class="scrim"></div><section class="sheet" role="dialog" aria-label="Answer">
+    <div class="grab"></div>
+    <div class="mini"><div class="repo">${esc(d.repo)}<span class="t">${d.t} asks</span></div><button class="btn ghost" style="min-height:32px;padding:4px 10px">Close</button></div>
+    <div class="quote">${esc(d.text)}</div>
+    <div class="opts">${d.options.map(([o, s]) => `<button class="btn opt">${esc(o)}<small>${esc(s)}</small></button>`).join("")}</div>
+    <label class="fine" for="t" style="display:block;margin:0 0 6px">Or write the answer</label>
+    <textarea id="t">Start line, and show the lap time under the counter</textarea>
+    <div class="row"><button class="btn primary wide">Send to Head Jeeves</button></div>
+    <p class="fine">Reaches Head Jeeves in about 15 s and goes to sora #6 with the question quoted. If the Mac does not take it in 30 min, it is not sent and the Thread tab says so.</p>
+  </section>`;
+}
+
+function logSheet() {
+  return `<div class="scrim"></div><section class="sheet" role="dialog" aria-label="Run log">
+    <div class="grab"></div>
+    <div class="mini"><div class="repo">radio-stats<span class="t">Thu 5 Nov 05:00</span></div><span class="chip red">failed · exit 1</span></div>
+    <div class="kv" style="margin-top:10px"><span>started</span><b>05:00:00</b><span>ended</span><b>05:06:41</b><span>took</span><b>6 min 41 s</b><span>usual</span><b>5 to 7 min</b></div>
+    <pre class="log">05:06:12 events: 1 412 rows from 38 log files
+05:06:30 sessions: joined 412 visits
+05:06:38 publish: PutObject data/analytics.json
+<span class="e">05:06:40 ERROR ExpiredToken: the security token
+  included in the request is expired</span>
+<span class="e">05:06:41 run-analytics.sh: publish failed, exit 1</span></pre>
+    <p class="fine" style="margin-bottom:10px">Head Jeeves got this failure at 05:06 and opened a fix session (radio #14).</p>
+    <div class="row"><button class="btn primary wide">Ask Head Jeeves about this run</button></div>
+  </section>`;
+}
+
+/* ---------- tabs and routing ---------- */
+const ICONS = {
+  board: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>',
+  machine: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 13l3-3 3 2 4-4 2 2"/></svg>',
+  nightly: '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+  thread: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+};
+function tabs(on) {
+  const t = [["board", "Board", '<span class="badge amber">2</span>'], ["machine", "Machine", ""], ["nightly", "Nightly", '<span class="badge">1</span>'], ["thread", "Thread", ""]];
+  return t.map(([id, label, b]) => `<button class="tab${id === on ? " on" : ""}" aria-current="${id === on ? "page" : "false"}">${ICONS[id]}${label}${b}</button>`).join("");
+}
+function route() {
+  const h = (location.hash || "#board").slice(1);
+  const screens = { board, reply: board, machine, nightly: () => nightly(), log: () => nightly([2, 4]), thread };
+  const tab = { reply: "board", log: "nightly" }[h] || h;
+  document.getElementById("main").innerHTML = (screens[h] || board)();
+  document.getElementById("tabs").innerHTML = tabs(tab);
+  document.getElementById("overlay").innerHTML = h === "reply" ? replySheet() : h === "log" ? logSheet() : "";
+  window.scrollTo(0, 0);
+  document.body.dataset.ready = h;
+}
+addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>
