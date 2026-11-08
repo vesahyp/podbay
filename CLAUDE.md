@@ -35,6 +35,9 @@ make plan       terraform plan for infra/, saved to infra/tfplan
 make apply      apply the saved plan
 make deploy     sync site/ to the bucket and invalidate
 make analytics  the traffic rollup now; cron runs it nightly at 07:30
+make mobile-build  the podbay mobile API Lambda with its Linux arm64
+                  wheels, for Terraform (make plan runs it)
+make mobile-check  the mobile API through CloudFront as the test user
 make live-build zip the today-so-far Lambda for Terraform (make plan runs it)
 make live-check one visit, then the minutes until the board's today chart counts it
 make live-logs  the Lambda's last log lines
@@ -98,6 +101,13 @@ docs/               findings about Claude Code that the code depends on
 docs/adr/           architecture decisions; 0001 is podbay mobile (accepted)
 mobile/mock/        the podbay mobile vision mock: one static page, made-up
                       data, and its screenshots; the design, not the app
+mobile/api/         the mobile API Lambda (every /api/ route, passkeys,
+                      rate limit, audit; table layout in its header) and
+                      the Cognito pre-signup allowlist
+infra/mobile.tf     app.podbay.tienoo.com: Cognito, SES, the app and state
+                      buckets, CloudFront with /api/* to the HTTP API, the
+                      table. The owner's address is the SSM parameter
+                      /podbay/mobile/owner-email, never in this repo
 tests/              pytest; conftest pins one account and a home base
 scripts/shots.py    the site's screenshots: the real TUI and board over
                       made-up sessions, rendered by Playwright

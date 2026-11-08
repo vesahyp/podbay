@@ -156,7 +156,28 @@ live-backfill: | infra/.terraform
 	  LOGS_BUCKET=$$($(TF) output -raw logs_bucket_name) \
 	  $(PODBAY) --with boto3 --with crawlerdetect --with tzdata python scripts/live_backfill.py $(DAYS)
 
-plan: live-build
+# The podbay mobile API Lambda (mobile/api/) for Terraform's archive_file.
+# py_webauthn needs cryptography, a compiled wheel, so the install asks for
+# Lambda's platform (Linux arm64), never this Mac's.
+mobile-build:
+	@rm -rf infra/.build/mobile-api && mkdir -p infra/.build/mobile-api
+	@uv pip install --quiet --no-compile --target infra/.build/mobile-api --python-version 3.13 \
+	  --python-platform aarch64-manylinux2014 --only-binary :all: -r mobile/api/requirements.txt
+	@cp mobile/api/handler.py infra/.build/mobile-api/
+	@echo "→ infra/.build/mobile-api ($$(du -sh infra/.build/mobile-api | cut -f1))"
+
+# The Terraform outputs the mobile scripts read, as environment variables.
+MOBILE_ENV = AWS_PROFILE=$(PROFILE) MOBILE_URL=$$($(TF) output -raw mobile_url) \
+  MOBILE_POOL_ID=$$($(TF) output -raw mobile_pool_id) MOBILE_CLIENT_ID=$$($(TF) output -raw mobile_client_id) \
+  MOBILE_TEST_CLIENT_ID=$$($(TF) output -raw mobile_test_client_id) MOBILE_TEST_EMAIL=$$($(TF) output -raw mobile_test_email) \
+  MOBILE_TEST_PASSWORD=$$($(TF) output -raw mobile_test_password) MOBILE_TABLE=$$($(TF) output -raw mobile_table) \
+  MOBILE_STATE_BUCKET=$$($(TF) output -raw mobile_state_bucket)
+
+# The API through CloudFront as the test user: refusals and reads.
+mobile-check: | infra/.terraform
+	@$(MOBILE_ENV) $(PODBAY) --with boto3 python scripts/mobile_check.py
+
+plan: live-build mobile-build
 	$(TF) init -input=false -backend-config="bucket=$(TFSTATE_BUCKET)"
 	$(TF) plan -out=tfplan
 
