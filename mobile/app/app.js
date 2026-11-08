@@ -152,10 +152,19 @@
     });
   }
   function loadMe() {
-    return api("GET", "me").then(function (m) { app.me = m; }, function () {});
+    return api("GET", "me").then(function (m) {
+      var changed = JSON.stringify(m) !== JSON.stringify(app.me);
+      app.me = m;
+      if (changed && app.route === "thread") { app.chatRedraw = !($("#chat") && $("#chat").value); render(); }
+    }, function () {});
   }
   function loadMessages() {
-    return api("GET", "messages").then(function (m) { app.messages = m.messages || []; if (app.route === "thread") render(); }, function () {});
+    return api("GET", "messages").then(function (m) {
+      var next = m.messages || [], changed = JSON.stringify(next) !== JSON.stringify(app.messages);
+      app.messages = next;
+      app.messagesLoaded = true;
+      if (changed) render();
+    }, function () {});
   }
 
   // ---- passkeys -----------------------------------------------------------------
@@ -370,22 +379,22 @@
     var ask = (sec.decision || []).map(function (d) {
       return '<article class="card ask" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") +
-        '<div class="row">' + (d.options || []).map(function (o) { return '<button class="btn opt" type="button" data-reply="' + esc(d.id) + '" data-option="' + esc(o) + '">' + esc(o) + "</button>"; }).join("") +
+        lineThread(d.id) + '<div class="row">' + (d.options || []).map(function (o) { return '<button class="btn opt" type="button" data-reply="' + esc(d.id) + '" data-option="' + esc(o) + '">' + esc(o) + "</button>"; }).join("") +
         replyBtn(d.id, (d.options || []).length ? "Other" : "Answer") + "</div></article>";
     });
     var test = (sec.shipped || []).map(function (d) {
       return '<article class="card" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") + steps(d.steps) +
-        '<div class="row">' + replyBtn(d.id, "Works", "Works") + replyBtn(d.id, "Found a fault", "Found a fault: ") + replyBtn(d.id) + "</div></article>";
+        lineThread(d.id) + '<div class="row">' + replyBtn(d.id, "Works", "Works") + replyBtn(d.id, "Found a fault", "Found a fault: ") + replyBtn(d.id) + "</div></article>";
     });
     var done = (sec.finished || []).map(function (d) {
       return '<article class="card" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") +
-        '<div class="row">' + replyBtn(d.id) + "</div></article>";
+        lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
     });
     var prog = (sec.progress || []).map(function (d) {
       return '<article class="card" id="line-' + esc(d.id) + '"><div class="mini">' + head(d) + (d.when ? '<span class="chip amber">' + esc(d.when) + "</span>" : "") + "</div>" +
-        '<p class="line">' + esc(d.text) + '</p><div class="row">' + replyBtn(d.id) + "</div></article>";
+        '<p class="line">' + esc(d.text) + '</p>' + lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
     });
     var now = new Date();
     return "<h1>" + esc(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][now.getDay()]) + "</h1>" +
@@ -572,42 +581,90 @@
       runsBlock(s);
   }
 
-  var STATE_WORD = { queued: "queued", delivering: "sending", delivered: "delivered", answered: "answered", expired: "not sent" };
-  // The chat with Head Jeeves: a text box not tied to any board line (line
-  // id "head-jeeves", the same passkey gate, limits and audit as every
-  // send), then every message, newest first, with his answer under it, and
-  // the lines he wrote to you himself (podbay say).
+  // ---- the chat with Head Jeeves -------------------------------------------------
+  // docs/adr/0002-one-phone-app.md, Update 2026-11-08. thread.js puts the
+  // items in time order; this draws them: his messages on the right, Head
+  // Jeeves' on the left, a day label where the day changes, and a reply to
+  // a board line as one compact entry that opens that line's sheet.
+
   var CHAT_LINE = "head-jeeves";
-  function chatBox() {
-    var me = app.me || {}, act;
-    if (canSend()) act = '<button class="btn primary" type="button" data-chat-send="1">Send</button>';
-    else if (me.passkeys > 0) act = '<button class="btn primary" type="button" data-chat-send="1">Confirm with your passkey and send</button>';
-    else if (me.enrol_open) act = '<button class="btn primary" type="button" data-add-passkey="1">Add a passkey to send</button>';
-    else act = '<p class="fine">Sending needs a passkey, and one can be added only from the Mac: podbay mobile passkey-allow.</p>';
-    return '<div class="chat"><label class="f" for="chat">Message Head Jeeves</label>' +
-      '<textarea id="chat" maxlength="1000" placeholder="Anything you would type to Head Jeeves"></textarea>' +
-      '<div class="row">' + act + '</div><p class="err" id="chat-err" hidden></p>' +
-      '<p class="fine">Reaches Head Jeeves in about 15 s. If the Mac does not take it within 2 hours, it is not sent.</p></div>';
+  var STATE_WORD = { queued: "waiting for the Mac", delivering: "sending", delivered: "delivered", answered: "answered", expired: "not sent" };
+  function dayLabel(epoch) {
+    var d = new Date(epoch * 1000), t = new Date();
+    var start = function (x) { return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+    var diff = Math.round((start(t) - start(d)) / 86400000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()] + " " + d.getDate() + " " +
+      ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
+  }
+  function clip(text, n) {
+    var t = String(text || "").replace(/\s+/g, " ").trim();
+    return t.length > n ? t.slice(0, n - 1) + "…" : t;
+  }
+  // The small line under one of his own messages: its time and what
+  // happened to it; a message the Mac never took gets "Send again".
+  function myMeta(m) {
+    if (m.state === "expired") return '<div class="meta bad">' + esc(hhmm(m.created)) + " · not sent: the Mac did not take it within 2 hours" +
+      ' <button class="link-btn" type="button" data-again="' + esc(m.id) + '">Send again</button></div>';
+    var word = m.state === "delivered" && m.delivered_at ? "delivered " + hhmm(m.delivered_at) : (STATE_WORD[m.state] || m.state || "");
+    return '<div class="meta">' + esc(hhmm(m.created)) + (word && m.state !== "answered" ? " · " + esc(word) : "") + "</div>";
+  }
+  // Bubbles for a list from thread.js. In the chat, an answer that does
+  // not come right after its message quotes the first words of it.
+  function bubbles(items, opts) {
+    var out = [], day = "";
+    items.forEach(function (it, i) {
+      var m = it.msg, d = dayLabel(it.at);
+      if (opts.days && d !== day) { out.push('<div class="day"><span>' + esc(d) + "</span></div>"); day = d; }
+      if (it.kind === "me") {
+        out.push('<div class="b me" data-at="' + it.at + '"><div class="bub">' + esc(m.text) + "</div>" + myMeta(m) + "</div>");
+      } else if (it.kind === "hj" || it.kind === "say") {
+        var text = it.kind === "hj" ? m.reply : m.text;
+        var prev = items[i - 1];
+        var re = it.kind === "hj" && !(prev && prev.id === it.id && prev.kind === "me") ? '<div class="re">re: ' + esc(clip(m.text, 60)) + "</div>" : "";
+        out.push('<div class="b hj" data-at="' + it.at + '"><div class="bub">' + re + esc(text) + '</div><div class="meta">' + esc(hhmm(it.at)) + "</div></div>");
+      } else {
+        var ns = String(m.line || "").indexOf("new-session:") === 0;
+        var about = ns ? "New session in " + m.line.slice(12) : "“" + clip(m.quote || m.target || m.line, 70) + "”";
+        var st = m.state === "answered" ? '<span class="st ok">answered</span>' : m.state === "expired" ? '<span class="st bad">not sent</span>' : '<span class="st">' + esc(STATE_WORD[m.state] || m.state || "") + "</span>";
+        var tag = ns ? "div" : "button";
+        out.push('<div class="b me" data-at="' + it.at + '"><' + tag + ' class="lref"' + (ns ? "" : ' type="button" data-open-line="' + esc(m.line) + '"') + ">" +
+          '<span class="lq">' + esc(about) + "</span>" +
+          '<span class="lt">' + esc(clip(m.text, 90)) + "</span>" +
+          '<span class="lf">' + (ns ? "" : esc(m.target || "") + " · ") + st + (ns ? "" : ' <span class="go">›</span>') + "</span></" + tag + '><div class="meta">' + esc(hhmm(m.created)) + "</div></div>");
+      }
+    });
+    return out.join("");
   }
   function threadList() {
-    var list = app.messages;
-    if (!list.length) return '<p class="none">Nothing sent yet.</p>';
-    return list.map(function (m) {
-      if (m.from === "head-jeeves") {
-        return '<div class="msg"><div class="hj said"><div class="who"><span>Head Jeeves</span><span>' + esc(hhmm(m.created)) + "</span></div>" + esc(m.text) + "</div></div>";
-      }
-      var when = m.state === "delivered" && m.delivered_at ? "delivered " + hhmm(m.delivered_at) : (STATE_WORD[m.state] || m.state) + " " + hhmm(m.created);
-      var answer = m.reply ? '<div class="hj"><div class="who"><span>Head Jeeves</span><span>' + (m.replied_at ? hhmm(m.replied_at) : "") + "</span></div>" + esc(m.reply) + "</div>"
-        : m.state === "expired" ? '<div class="hj bad"><div class="who"><span class="bad">Not sent: the Mac did not take it within 2 hours</span></div><div class="row"><button class="btn" type="button" data-again="' + esc(m.id) + '">Send again</button></div></div>'
-        : m.state === "queued" ? '<div class="hj"><div class="who"><span>Waiting for the Mac</span></div></div>' : "";
-      var to = m.line === CHAT_LINE ? "to Head Jeeves" : "to " + m.target;
-      return '<div class="msg"><div class="me"><div class="who"><span>' + esc(to) + "</span><span>" + esc(when) + "</span></div>" +
-        (m.quote ? '<p class="about">on “' + esc(m.quote) + "”</p>" : "") + esc(m.text) + "</div>" + answer + "</div>";
-    }).join("");
+    var items = window.PodbayThread.chat(app.messages);
+    if (!items.length) return '<p class="none center">No messages yet. Write to Head Jeeves below.</p>';
+    return bubbles(items, { days: true });
+  }
+  function composer() {
+    var me = app.me || {}, act;
+    if (!app.me) return '<div class="composer"><div class="cin"><textarea id="chat" rows="1" disabled placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"></textarea></div></div>';
+    if (canSend() || me.passkeys > 0) act = '<button class="send" type="button" data-chat-send="1" aria-label="' + (canSend() ? "Send" : "Confirm with your passkey and send") + '"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
+    else if (me.enrol_open) return '<div class="composer"><button class="btn primary wide" type="button" data-add-passkey="1">Add a passkey to send</button></div>';
+    else return '<div class="composer"><p class="fine">Sending needs a passkey, and one can be added only from the Mac: podbay mobile passkey-allow.</p></div>';
+    return '<div class="composer"><p class="err" id="chat-err" hidden></p><div class="cin">' +
+      '<textarea id="chat" rows="1" maxlength="1000" placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"></textarea>' + act + "</div>" +
+      (canSend() ? "" : '<p class="fine">Send asks for your passkey once, then works for 30 days.</p>') + "</div>";
   }
   function thread() {
-    return '<h1>Thread</h1><p class="sub">Talk to Head Jeeves here. Everything you send, and what he did with it.</p>' +
-      chatBox() + '<div id="thread-list">' + threadList() + "</div>";
+    return '<div class="chathead"><span class="eye" aria-hidden="true"></span><div><b>Head Jeeves</b><small>Gets your message in about 15 s</small></div></div>' +
+      '<div id="thread-list" class="convo">' + threadList() + "</div>" + composer();
+  }
+  // On a board card: how many replies the line has and the latest state,
+  // so a reply and its answer are found where the line is.
+  function lineThread(id) {
+    var mine = window.PodbayThread.forLine(app.messages, id).filter(function (it) { return it.kind === "me"; });
+    if (!mine.length) return "";
+    var last = mine[mine.length - 1].msg;
+    var word = last.state === "answered" ? "answered " + (last.replied_at ? hhmm(last.replied_at) : "") : (STATE_WORD[last.state] || last.state);
+    return '<button class="thr' + (last.state === "answered" ? " ok" : last.state === "expired" ? " bad" : "") + '" type="button" data-reply="' + esc(id) + '">' +
+      mine.length + (mine.length === 1 ? " reply" : " replies") + " · " + esc(word) + "</button>";
   }
 
   // ---- sheets -------------------------------------------------------------------
@@ -631,9 +688,21 @@
       '<p class="fine">The Mac opened a passkey window. Add one now; it lets this phone send for 30 days at a time.</p>';
     return '<p class="err">Sending needs a passkey, and one can be added only from the Mac. On the Mac, run: podbay mobile passkey-allow. Then open this sheet again.</p>';
   }
+  // A line's sheet: the line quoted, every reply to it and Head Jeeves'
+  // answers in time order, then the box for the next one.
+  function lineHistory(id) {
+    var items = window.PodbayThread.forLine(app.messages, id);
+    return items.length ? '<div class="convo insheet">' + bubbles(items, { days: false }) + "</div>" : "";
+  }
   function replySheet(id, prefill, option) {
-    var info = lineInfo(id), item = findItem(id);
-    if (!info) return '<button class="scrim" type="button" data-close="1" aria-label="Close"></button><section class="sheet" role="dialog"><div class="grab"></div><p class="err">That line is no longer on the board.</p><div class="row"><button class="btn wide" type="button" data-close="1">Close</button></div></section>';
+    var info = lineInfo(id), item = findItem(id), hist = lineHistory(id);
+    if (!info) {
+      var old = app.messages.filter(function (m) { return m.line === id && m.from !== "head-jeeves"; })[0];
+      return '<button class="scrim" type="button" data-close="1" aria-label="Close"></button><section class="sheet" role="dialog" aria-label="Replies"><div class="grab"></div>' +
+        (old ? '<div class="mini"><div class="repo">' + esc(old.target || "") + '</div><button class="btn ghost" type="button" data-close="1">Close</button></div>' +
+          (old.quote ? '<div class="quote">' + esc(old.quote) + "</div>" : "") + hist : "") +
+        '<p class="err">That line is no longer on the board, so a new reply cannot go to it.</p><div class="row"><button class="btn wide" type="button" data-close="1">Close</button></div></section>';
+    }
     var opts = item && item.options && item.options.length ? '<div class="opts">' + item.options.map(function (o) {
       return '<button class="btn opt' + (o === option ? " on" : "") + '" type="button" data-pick="' + esc(o) + '">' + esc(o) + "</button>";
     }).join("") + "</div>" : "";
@@ -642,11 +711,11 @@
     var title = newSession ? "Start a session" : info.target;
     return '<button class="scrim" type="button" data-close="1" aria-label="Close"></button><section class="sheet" role="dialog" aria-label="Message">' +
       '<div class="grab"></div><div class="mini"><div class="repo">' + esc(title) + '</div><button class="btn ghost" type="button" data-close="1">Close</button></div>' +
-      (info.quote ? '<div class="quote">' + esc(info.quote) + "</div>" : "") + opts + repos +
-      '<label class="f" for="text">' + (opts ? "Or write the answer" : newSession ? "What the session should do" : "Your message") + "</label>" +
+      (info.quote ? '<div class="quote">' + esc(info.quote) + "</div>" : "") + hist + opts + repos +
+      '<label class="f" for="text">' + (opts ? "Or write the answer" : newSession ? "What the session should do" : hist ? "Another reply" : "Your message") + "</label>" +
       '<textarea id="text" maxlength="1000" placeholder="One line for Head Jeeves">' + esc(option || prefill || "") + "</textarea>" +
       sendBlock() + '<p class="err" id="sheet-err" hidden></p>' +
-      '<p class="fine">Reaches Head Jeeves in about 15 s' + (info.target && !newSession ? " and goes to " + esc(info.target) : "") + ' with the line quoted. If the Mac does not take it within 2 hours, it is not sent and the Thread tab says so.</p></section>';
+      '<p class="fine">Reaches Head Jeeves in about 15 s' + (info.target && !newSession ? " and goes to " + esc(info.target) : "") + ' with the line quoted. His answer shows here. If the Mac does not take it within 2 hours, it is not sent.</p></section>';
   }
   function logSheet(label, day) {
     var job = ((app.state && app.state.nightly.jobs) || []).filter(function (j) { return j.label === label; })[0];
@@ -709,8 +778,11 @@
       // While the chat box is in use, a poll redraws only the list under
       // it: the keyboard stays up and nothing typed is lost.
       var chat = $("#chat");
+      var atEnd = app.route === "thread" && (app.stick || window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160);
+      document.body.classList.toggle("chatting", app.route === "thread");
       if (app.route === "thread" && chat && (document.activeElement === chat || chat.value) && $("#thread-list") && !app.chatRedraw) {
         $("#thread-list").innerHTML = threadList();
+        if (atEnd) window.scrollTo(0, document.documentElement.scrollHeight);
         return;
       }
       app.chatRedraw = false;
@@ -722,22 +794,28 @@
       else if (app.route === "stats") html = stats();
       else html = board(s);
       if (app.error && s) html = '<p class="err">' + esc(app.error) + "</p>" + html;
-      html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
+      if (app.route !== "thread") html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
       var keep = window.scrollY;
       $("#main").innerHTML = html;
-      window.scrollTo(0, keep);
+      // The chat opens at its newest message and stays there while new
+      // ones arrive, unless he scrolled up to read.
+      if (atEnd) { window.scrollTo(0, document.documentElement.scrollHeight); if (s && app.messagesLoaded) app.stick = false; }
+      else window.scrollTo(0, keep);
       var sheet = "";
       if (app.sheet && s) sheet = app.sheet.kind === "log" ? logSheet(app.sheet.label, app.sheet.day) : replySheet(app.sheet.line, app.sheet.prefill, app.sheet.option);
       // Redraw the sheet only when it or what it offers changed, and keep
       // what was typed: a poll must never wipe a half-written message.
       var overlay = $("#overlay"), hadText = $("#text") ? $("#text").value : null;
       var me = app.me || {};
-      var sheetKey = JSON.stringify([app.sheet, canSend(), me.passkeys, me.enrol_open]);
+      var hist = app.sheet && app.sheet.kind === "reply" ? window.PodbayThread.forLine(app.messages, app.sheet.line).map(function (it) { return [it.id, it.kind, it.msg.state]; }) : null;
+      var sheetKey = JSON.stringify([app.sheet, canSend(), me.passkeys, me.enrol_open, hist]);
       if (overlay.getAttribute("data-sheet") !== sheetKey || !app.sheet) {
         var sameSheet = JSON.parse(overlay.getAttribute("data-sheet") || "[null]")[0];
         overlay.innerHTML = sheet;
         overlay.setAttribute("data-sheet", sheetKey);
         if (hadText != null && $("#text") && JSON.stringify(sameSheet) === JSON.stringify(app.sheet)) $("#text").value = hadText;
+        var sh = overlay.querySelector(".sheet .insheet");
+        if (sh) { var box = overlay.querySelector(".sheet"); box.scrollTop = Math.max(0, sh.offsetTop + sh.offsetHeight - box.clientHeight * 0.6); }
       }
       applyWidths();
     } catch (e) {
@@ -750,6 +828,7 @@
     var hash = "#" + route + (arg ? "/" + arg : "");
     if (location.hash !== hash) history.replaceState(null, "", hash);
     track("tab", { name: route });
+    app.stick = route === "thread";
     window.scrollTo(0, 0);
     render();
   }
@@ -767,7 +846,7 @@
     } else {
       app.route = ["board", "machine", "nightly", "thread", "stats"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
     }
-    if (app.route === "thread") loadMessages();
+    if (app.route === "thread") { app.stick = true; loadMessages(); }
     if (app.route === "stats") loadStats();
     render();
   }
@@ -797,9 +876,13 @@
       return api("POST", "messages", { line: line, text: text, key: sh.key || (sh.key = key()) });
     }).then(function () {
       track("send", { kind: line.split(":")[0] === "new-session" ? "new-session" : line.split(":")[0] === "nightly" ? "nightly" : line === "machine" ? "machine" : "board" });
-      app.sheet = null;
-      loadMessages();
-      go("thread");
+      if (sh.line === "new-session:") { app.sheet = null; loadMessages(); go("thread"); return; }
+      // A reply to a line stays with the line: the sheet stays open and
+      // shows it under the earlier ones, with its state.
+      if ($("#text")) $("#text").value = "";
+      app.sheet = { kind: "reply", line: sh.line, prefill: "", option: "" };
+      if (btn) btn.disabled = false;
+      return loadMessages().then(render);
     }).catch(function (e) {
       if (btn) btn.disabled = false;
       if (e && e.name === "NotAllowedError") sheetError("The passkey check was cancelled.");
@@ -824,9 +907,11 @@
       track("send", { kind: "chat" });
       app.chatKey = null;
       box.value = "";
+      box.style.height = "";
       box.blur();
       app.chatRedraw = true;
-      return loadMessages();
+      app.stick = true;
+      return loadMessages().then(render);
     }).catch(function (e) {
       if (btn) btn.disabled = false;
       if (e && e.name === "NotAllowedError") chatError("The passkey check was cancelled.");
@@ -837,6 +922,11 @@
   function sendAgain(id) {
     var m = app.messages.filter(function (x) { return x.id === id; })[0];
     if (!m) return;
+    if (m.line === CHAT_LINE) {
+      var box = $("#chat");
+      if (box) { box.value = m.text; box.focus(); }
+      return;
+    }
     app.sheet = { kind: "reply", line: m.line, prefill: m.text };
     render();
   }
@@ -860,6 +950,13 @@
       app.sheet = { kind: "reply", line: t.dataset.reply, prefill: t.dataset.prefill || "", option: t.dataset.option || "" };
       history.replaceState(null, "", "#line/" + encodeURIComponent(t.dataset.reply));
       track("reply-open", { kind: t.dataset.option ? "option" : t.dataset.prefill ? "prefill" : "reply" });
+      loadMe().then(render);
+      render();
+      return;
+    }
+    if (t.dataset.openLine) {
+      app.sheet = { kind: "reply", line: t.dataset.openLine, prefill: "", option: "" };
+      track("reply-open", { kind: "chat" });
       loadMe().then(render);
       render();
       return;
@@ -910,6 +1007,13 @@
     }
   });
 
+  // The chat box grows with what is typed, up to the CSS max-height.
+  document.addEventListener("input", function (ev) {
+    if (ev.target.id !== "chat") return;
+    ev.target.style.height = "auto";
+    ev.target.style.height = Math.min(140, ev.target.scrollHeight + 2) + "px";
+  });
+
   window.addEventListener("hashchange", fromHash);
   // A tapped notification while the app is open: go to its line.
   if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", function (ev) {
@@ -932,7 +1036,7 @@
     loadMe();
     loadMessages();
     timers.push(setInterval(function () { if (!document.hidden) loadState(); }, STATE_EVERY));
-    timers.push(setInterval(function () { if (!document.hidden && (app.route === "thread" || app.messages.some(function (m) { return m.state === "queued"; }))) loadMessages(); }, MESSAGES_EVERY));
+    timers.push(setInterval(function () { if (!document.hidden && (app.route === "thread" || (app.sheet && app.sheet.kind === "reply") || app.messages.some(function (m) { return m.state === "queued" || m.state === "delivered"; }))) loadMessages(); }, MESSAGES_EVERY));
     timers.push(setInterval(function () { if (app.state) freshness(); }, 5000));
   }
   if ("serviceWorker" in navigator) {

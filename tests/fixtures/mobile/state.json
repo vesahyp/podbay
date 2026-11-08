@@ -1,0 +1,119 @@
+{
+ "v": 1,
+ "generated_at": 1794221700,
+ "mac": "fixture-mac",
+ "board": {
+  "summary": "2 sessions work. One decision waits on you.",
+  "sections": {
+   "decision": [
+    {
+     "id": "fixture-decision",
+     "project": "ledger",
+     "target": "#3 ledger",
+     "text": "Rewrite the CSV reader, or patch the date parsing only?",
+     "link": null,
+     "steps": [],
+     "when": "",
+     "options": [
+      "Rewrite it",
+      "Patch it"
+     ]
+    }
+   ],
+   "shipped": [
+    {
+     "id": "shipped:fixture-login",
+     "project": "meadow",
+     "target": "meadow (session ended)",
+     "text": "The new sign-in page is live at https://meadow.example/",
+     "link": "https://meadow.example/",
+     "steps": [
+      "Sign in with your email",
+      "The code mail arrives in under 30 s"
+     ],
+     "when": "",
+     "options": []
+    }
+   ],
+   "finished": [],
+   "progress": [
+    {
+     "id": "fixture-progress",
+     "project": "render",
+     "target": "#4 render",
+     "text": "Paused until 12:00, then continues the tile cache rebuild",
+     "link": null,
+     "steps": [],
+     "when": "12:00",
+     "options": []
+    }
+   ]
+  }
+ },
+ "machine": {
+  "load": 3.1,
+  "cores": 10,
+  "overload_at": 16,
+  "pressure": "normal",
+  "mem_free_mb": 5200,
+  "mem_low_mb": 1024,
+  "disk_free_gb": 38,
+  "disk_used_pct": 80,
+  "disk_low_gb": 15,
+  "overloaded": null,
+  "power": {
+   "percent": 86,
+   "source": "cable"
+  },
+  "docker_up": true,
+  "agents": [
+   {
+    "label": "dockerup",
+    "loaded": true,
+    "running": false,
+    "last_exit": 0
+   }
+  ],
+  "history": []
+ },
+ "accounts": [
+  {
+   "account": "claude",
+   "logged_out": false,
+   "login_ends_at": null,
+   "windows": [
+    {
+     "name": "5 hours",
+     "pct": 42.0,
+     "resets_at": null
+    }
+   ],
+   "suggested": true
+  }
+ ],
+ "nightly": {
+  "days": [],
+  "jobs": []
+ },
+ "runs": {},
+ "lines": {
+  "fixture-decision": {
+   "target": "#3 ledger",
+   "quote": "Rewrite the CSV reader, or patch the date parsing only?"
+  },
+  "shipped:fixture-login": {
+   "target": "meadow (session ended)",
+   "quote": "The new sign-in page is live at https://meadow.example/"
+  },
+  "fixture-progress": {
+   "target": "#4 render",
+   "quote": "Paused until 12:00, then continues the tile cache rebuild"
+  }
+ },
+ "repos": [
+  "ledger",
+  "meadow",
+  "render",
+  "tienoo"
+ ]
+}

@@ -1,0 +1,111 @@
+{
+ "messages": [
+  {
+   "id": "179421960000000000006",
+   "line": "fixture-decision",
+   "target": "#3 ledger",
+   "quote": "Rewrite the CSV reader, or patch the date parsing only?",
+   "text": "Patch it",
+   "state": "delivered",
+   "created": 1794219600,
+   "delivered_at": 1794219614
+  },
+  {
+   "id": "179421492000000000001",
+   "line": "head-jeeves",
+   "target": "Head Jeeves",
+   "quote": "",
+   "text": "Morning. What ran overnight?",
+   "state": "answered",
+   "created": 1794214920,
+   "delivered_at": 1794214940,
+   "reply": "All 9 nightly jobs passed. The clavesa run took 41 min, 6 more than the median.",
+   "replied_at": 1794214980
+  },
+  {
+   "id": "17942214000000000000a",
+   "line": "new-session:tienoo",
+   "target": "new session in tienoo",
+   "quote": "",
+   "text": "Fix the map tiles on mobile",
+   "state": "answered",
+   "created": 1794221400,
+   "delivered_at": 1794221415,
+   "reply": "Started #7 tienoo on the claude account.",
+   "replied_at": 1794221520
+  },
+  {
+   "id": "179421726000000000003",
+   "line": "shipped:fixture-login",
+   "target": "meadow (session ended)",
+   "quote": "The new sign-in page is live at https://meadow.example/",
+   "text": "Found a fault: the code mail takes 2 minutes to arrive",
+   "state": "answered",
+   "created": 1794217260,
+   "delivered_at": 1794217275,
+   "reply": "Sent to a new meadow session. It checks the SES queue first.",
+   "replied_at": 1794219300
+  },
+  {
+   "id": "179416080000000000008",
+   "line": "head-jeeves",
+   "target": "Head Jeeves",
+   "quote": "",
+   "text": "Is the backup done?",
+   "state": "expired",
+   "created": 1794160800
+  },
+  {
+   "id": "179421870000000000005",
+   "from": "head-jeeves",
+   "text": "Disk was at 14 GB free. I removed unused Docker images: 38 GB free now.",
+   "state": "said",
+   "created": 1794218700
+  },
+  {
+   "id": "17941611000000000000b",
+   "from": "head-jeeves",
+   "text": "All quiet. 2 sessions work, nothing waits on you.",
+   "state": "said",
+   "created": 1794161100
+  },
+  {
+   "id": "179421600000000000002",
+   "from": "head-jeeves",
+   "text": "meadow: the deploy finished and is ready for you to test.",
+   "state": "said",
+   "created": 1794216000
+  },
+  {
+   "id": "179422110000000000009",
+   "line": "shipped:fixture-login",
+   "target": "meadow (session ended)",
+   "quote": "The new sign-in page is live at https://meadow.example/",
+   "text": "Now the code arrives in 10 s. Works.",
+   "state": "delivered",
+   "created": 1794221100,
+   "delivered_at": 1794221116
+  },
+  {
+   "id": "179421780000000000004",
+   "line": "head-jeeves",
+   "target": "Head Jeeves",
+   "quote": "",
+   "text": "Pause the render session until noon.",
+   "state": "answered",
+   "created": 1794217800,
+   "delivered_at": 1794217812,
+   "reply": "Paused render until 12:00. It continues by itself then.",
+   "replied_at": 1794220200
+  },
+  {
+   "id": "179422080000000000007",
+   "line": "head-jeeves",
+   "target": "Head Jeeves",
+   "quote": "",
+   "text": "Thanks. Tell me when the meadow fix is in.",
+   "state": "queued",
+   "created": 1794220800
+  }
+ ]
+}

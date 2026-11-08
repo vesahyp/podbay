@@ -167,14 +167,47 @@ table.errs th { text-align: left; color: var(--muted); font-weight: 500; padding
 table.errs td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 table.errs td:first-child { color: #ff9a8a; width: 46%; }
 
-/* Thread */
-.msg { margin-bottom: 14px; }
-.me { background: #2a0d0b; border: 1px solid #4a1712; border-radius: 14px 14px 4px 14px; padding: 10px 12px; margin-left: 40px; overflow-wrap: anywhere; }
-.hj { background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 10px 12px; margin-right: 40px; margin-top: 6px; overflow-wrap: anywhere; }
-.hj.bad { border-color: #5a1a14; }
-.hj.said { margin-top: 0; border-color: #3a2c12; }
-.chat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 0 0 18px; }
-.chat textarea { min-height: 72px; }
-.who { font: 11px var(--mono); color: var(--muted); margin-bottom: 3px; display: flex; justify-content: space-between; gap: 8px; }
-.who .bad { color: #ff7a6a; }
-.about { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+/* Thread: one chat with Head Jeeves, oldest at the top, newest next to
+   the input box (docs/adr/0002, Update 2026-11-08). His messages right,
+   Head Jeeves left. A reply to a board line is one compact entry. */
+body.chatting { padding-bottom: calc(150px + var(--safe-bottom)); }
+.chathead { display: flex; align-items: center; gap: 10px; padding: 12px 0 6px; }
+.chathead .eye { width: 32px; height: 32px; flex: none; }
+.chathead b { display: block; font: 600 16px var(--sans); }
+.chathead small { display: block; color: var(--muted); font-size: 12px; }
+.convo { display: flex; flex-direction: column; }
+.day { text-align: center; margin: 18px 0 8px; }
+.day span { font: 11px var(--mono); color: var(--muted); background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 2px 10px; }
+.b { display: flex; flex-direction: column; max-width: 82%; margin: 3px 0 7px; }
+.b.me { align-self: flex-end; align-items: flex-end; }
+.b.hj { align-self: flex-start; align-items: flex-start; }
+.bub { padding: 8px 13px; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; }
+.me .bub { background: #8a1714; color: #fff; border-radius: 18px 18px 5px 18px; }
+.hj .bub { background: var(--panel2); border: 1px solid var(--line); border-radius: 18px 18px 18px 5px; }
+.b .meta { font: 11px var(--mono); color: var(--dim); margin: 3px 8px 0; }
+.b .meta.bad { color: #ff7a6a; text-align: right; }
+.re { font-size: 12px; color: var(--muted); border-left: 2px solid var(--amber); padding-left: 7px; margin: 2px 0 5px; white-space: normal; }
+.link-btn { background: none; border: 0; padding: 4px 0 4px 4px; color: var(--amber); text-decoration: underline; font: inherit; }
+.lref { display: flex; flex-direction: column; gap: 2px; text-align: left; background: var(--panel); border: 1px solid #4a3410; border-radius: 14px 14px 5px 14px; padding: 8px 12px; max-width: 100%; }
+.lq { font-size: 12px; color: var(--amber); overflow-wrap: anywhere; }
+.lt { font-size: 14px; color: var(--fg); overflow-wrap: anywhere; }
+.lf { font: 11px var(--mono); color: var(--muted); }
+.lf .go { color: var(--amber); font-size: 14px; }
+.st.ok { color: var(--green); } .st.bad { color: #ff7a6a; }
+.none.center { text-align: center; margin: 24vh 0 0; }
+.composer { position: fixed; left: 0; right: 0; bottom: calc(61px + var(--safe-bottom)); z-index: 6; background: rgba(10,9,8,.97);
+  border-top: 1px solid var(--line); padding: 8px 12px; }
+.composer > * { max-width: 560px; margin-left: auto; margin-right: auto; }
+.composer .err { margin: 0 0 6px; }
+.composer .fine { margin: 6px auto 0; }
+.cin { display: flex; gap: 8px; align-items: flex-end; }
+.cin textarea { min-height: 40px; max-height: 140px; border-radius: 20px; padding: 8px 14px; line-height: 1.4; }
+.send { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--red); display: grid; place-items: center; padding: 0; }
+.send svg { width: 20px; height: 20px; }
+.send svg * { stroke: #fff; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.send[disabled] { opacity: .5; }
+.insheet { margin: 4px 0 14px; padding: 8px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.insheet .b { max-width: 88%; }
+.thr { display: inline-block; margin-top: 8px; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; min-height: 30px; font: 11px var(--mono); color: var(--muted); }
+.thr.ok { color: var(--green); border-color: #1e4a2a; }
+.thr.bad { color: #ff7a6a; border-color: #5a1a14; }

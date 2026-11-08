@@ -16,11 +16,12 @@
 <!--
   podbay mobile (docs/adr/0001-podbay-mobile.md). No build step: config.js
   is written by `make mobile-deploy` from Terraform; track-config.js sets
-  the tracker up before tracker.js loads; app.js is the whole app.
+  the tracker up before tracker.js loads; thread.js orders the messages; app.js is the rest.
 -->
 <script src="/config.js"></script>
 <script src="/track-config.js"></script>
 <script src="/tracker.js" defer></script>
+<script src="/thread.js" defer></script>
 <script src="/app.js" defer></script>
 </head>
 <body>

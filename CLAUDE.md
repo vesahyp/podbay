@@ -42,6 +42,9 @@ make mobile-deploy the app (mobile/app/) to its bucket; writes config.js
 make mobile-test   the live app on an emulated iPhone 16 as the test user,
                   plus the service worker in Node; SEND=1 also sends one
                   test message through to the Mac. Shots into .shots/
+make mobile-fixture the app on an iPhone 16 over tests/fixtures/mobile, no
+                  AWS: shots into .shots/ and the chat order checks;
+                  BEFORE=<commit> also shoots that commit's app
 make mobile-errors the app's errors of the last 7 days, from the rollup
 make live-build zip the today-so-far Lambda for Terraform (make plan runs it)
 make live-check one visit, then the minutes until the board's today chart counts it
@@ -120,7 +123,9 @@ infra/mobile.tf     app.podbay.tienoo.com: Cognito, SES, the app and state
                       table. The owner's address is the SSM parameter
                       /podbay/mobile/owner-email, never in this repo
 mobile/app/         the phone app, static, no build: index, app.js, app.css,
-                      sw.js (shell cache, push, tap), the vendored tracker
+                      thread.js (the chat's time order, tested in Node by
+                      scripts/thread_check.mjs), sw.js (shell cache, push,
+                      tap), the vendored tracker
   podbay/mobile.py  the Mac side: snapshot upload, the 15 s message poll,
                       podbay reply, podbay say (Head Jeeves' own lines in
                       the thread), podbay mobile ..., push registration

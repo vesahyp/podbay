@@ -1,4 +1,4 @@
-.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots mobile-shots plan apply outputs deploy analytics live-build live-check live-logs live-backfill
+.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots mobile-shots mobile-fixture plan apply outputs deploy analytics live-build live-check live-logs live-backfill
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -25,6 +25,7 @@ help:
 	@echo "make shots     the site's screenshots from demo sessions, into site/img/"
 	@echo "make page-shots  the landing page on desktop and iPhone 16, full page, into .shots/ (site/ served locally; URL= for the live one)"
 	@echo "make mobile-shots  the podbay mobile vision mock on an iPhone 16, one PNG per screen, into mobile/mock/shots/"
+	@echo "make mobile-fixture  the phone app over made-up data on an iPhone 16, checks + shots into .shots/ (BEFORE=<commit>)"
 	@echo "make stats-shots  the stats board on desktop and iPhone, into .shots/ (URL=, DATA=, LIVE= for a local check)"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
 	@echo "make apply     terraform apply the saved plan"
@@ -227,3 +228,13 @@ deploy: | infra/.terraform
 
 analytics:
 	analytics/run-analytics.sh; tail -3 analytics/logs/analytics.log
+
+# The phone app on an emulated iPhone 16 over tests/fixtures/mobile, no AWS:
+# shots into .shots/mobile-fixture-after-*, and the checks (the chat in
+# time order, line replies in their sheet). BEFORE=<commit> also shoots
+# that commit's app as mobile-fixture-before-*.
+mobile-fixture:
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
+	@$(if $(BEFORE),rm -rf .shots/app-before && mkdir -p .shots/app-before && git archive $(BEFORE) mobile/app | tar -x -C .shots/app-before && \
+	  $(PODBAY) --with playwright python scripts/mobile_fixture.py --app .shots/app-before/mobile/app --prefix before --no-check &&) \
+	  $(PODBAY) --with playwright python scripts/mobile_fixture.py

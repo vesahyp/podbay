@@ -106,3 +106,31 @@ Slice 8 of 0001 is done now, without the month of fallback:
 - An old jeeves.tienoo.com bookmark, Home Screen icon or push link now
   fails to load. The old Home Screen icon must be deleted by hand.
 - A public run history page is gone. Nothing linked to it except the app.
+
+## Update 2026-11-08: the Thread tab is one chat
+
+The Thread tab mixed two things in one list, newest first: the replies to
+board lines, each with the answer under it, and the chat with Head Jeeves.
+An answer showed at the time of the message it answered, not at the time
+it was written, so the order was not the order of events.
+
+**The model.** The phone has two places for messages, by what they are
+about:
+
+- **The chat** (Thread tab) is one conversation with Head Jeeves, in
+  strict time order, oldest at the top, newest at the bottom next to the
+  input box. The owner's messages are on the right, Head Jeeves' on the
+  left, each with its time. Each item has its own time: a sent message at
+  `created`, Head Jeeves' answer at `replied_at`, a `podbay say` line at
+  `created`. So an answer that came an hour later shows an hour later.
+- **A board line's reply sheet** holds the replies to that line: the line
+  quoted at the top, then each message and answer in time order, then the
+  input box. A reply to a line shows in the chat only as one compact entry
+  at its send time: the quoted line, the first words of the message and its
+  state. A tap opens that line's sheet. The answer to a line reply is not a
+  second chat entry.
+
+No change to the API or the table: the app builds both views from
+`GET /api/messages`. The timeline is built in `mobile/app/thread.js`,
+a pure function with a test in Node, so the order is tested without a
+browser.
