@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from podbay import board, hal, inventory, overload, paused
+from podbay import hal, inventory, overload, paused
 from podbay.model import Session
 
 NOW = datetime(2026, 10, 6, 7, 5)
@@ -110,14 +110,12 @@ def test_a_paused_session_that_goes_idle_raises_no_finish_or_stall():
     assert lines == [] and memory.events == []
 
 
-def test_inventory_and_board_show_paused():
+def test_inventory_shows_paused():
     paused.record("a", "a", "A", "head-jeeves", NOW)
     payload = inventory.inventory_payload([_session("a"), _session("b")], set())
     rows = {s["name"]: s for s in payload["sessions"]}
     assert rows["a"]["paused"]["by"] == "head-jeeves" and rows["b"]["paused"] is None
     assert "paused: a" in inventory.render_status(payload)
-    html = board.render(payload, NOW)
-    assert "paused · " in html
 
 
 def test_the_screen_sends_the_event_once_and_retries_when_it_did_not_arrive(tmp_path, monkeypatch):

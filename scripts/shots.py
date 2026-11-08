@@ -1,14 +1,14 @@
-"""The site's screenshots: the podbay console and the phone board over
-made-up sessions, and the Head Jeeves chat and one push notification as the
-phone shows them, quoting a real exchange (the author okayed naming the
+"""The site's screenshots: the podbay console over made-up sessions, the
+phone app's board, and the Head Jeeves chat and one push notification as
+the phone shows them, quoting a real exchange (the author okayed naming the
 real projects on the site; the console and board stay a demo).
 
 The console is the real TUI mounted headless with every source of live data
 replaced by the demo below; Textual exports the screen as SVG. The board is
-board.render() over the same sessions. The chat and the push are HTML
-mockups of what the phone shows (CHAT, PUSH below), drawn here because no
-script can screenshot the Claude app. Playwright renders all of them to PNG
-under site/img/, which are committed.
+the phone app's Board tab as the vision mock draws it (mobile/mock/, made-up
+data), on an iPhone 16 screen. The chat and the push are HTML mockups of
+what the phone shows (CHAT, PUSH below). Playwright renders all of them to
+PNG under site/img/, which are committed.
 
     make shots
 """
@@ -33,9 +33,8 @@ sys.path.insert(0, str(REPO))
 from playwright.async_api import async_playwright  # noqa: E402
 
 from podbay import app as app_mod  # noqa: E402
-from podbay import board, iterm, sources, usage  # noqa: E402
+from podbay import iterm, sources, usage  # noqa: E402
 from podbay.accounts import Account  # noqa: E402
-from podbay.inventory import inventory_payload  # noqa: E402
 from podbay.model import Session  # noqa: E402
 from podbay.state import StateStore  # noqa: E402
 
@@ -108,23 +107,6 @@ TRANSCRIPT = [
         "- a declined card is never retried\n\n"
         "Ready to merge the payment retry branch?")},
 ]
-
-# What Head Jeeves writes to headlines.json for the demo sessions above.
-HEADLINES = {
-    f"{7:08x}-demo-0000-0000-000000000000": {
-        "kind": "shipped", "text": "Ledger migration is live on staging",
-        "link": "https://staging.ledger.example.com/accounts",
-        "steps": ["Open an account from before 2024", "Check that its balance matches last month's statement"],
-    },
-    f"{2:08x}-demo-0000-0000-000000000000": {
-        "kind": "progress", "text": "Latency charts for the tile server, ready in about an hour",
-    },
-    # Shipped earlier today by a session that has ended since.
-    "ended-demo": {
-        "kind": "shipped", "text": "Invoice PDFs render on the phone", "repo": "billing", "at": NOW.isoformat(),
-        "link": "https://billing.example.com/invoices",
-    },
-}
 
 LIMITS = {
     "work": {"five_pct": 36, "five_resets_at": None, "week_pct": 41, "week_resets_at": None},
@@ -269,7 +251,7 @@ def chat_html() -> str:
 def push_html() -> str:
     """One push notification as the lock screen shows it: the title is the
     fixed argument of the notify command, the body the line Head Jeeves
-    sent, and tapping it opens the board."""
+    sent, and tapping it opens that line in the phone app."""
     title, body = PUSH
     return f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
@@ -287,16 +269,11 @@ def push_html() -> str:
 </style>
 <div class="screen">
 <div class="time">Monday 19 October<b>08:26</b></div>
-<div class="n"><div class="ic"></div><div class="x"><div class="s">jeeves.tienoo.com</div><div class="h"><span>{title}</span><span>now</span></div><div class="b">{body}</div></div></div>
+<div class="n"><div class="ic"></div><div class="x"><div class="s">podbay</div><div class="h"><span>{title}</span><span>now</span></div><div class="b">{body}</div></div></div>
 </div>"""
 
 
-def board_html() -> str:
-    payload = inventory_payload(demo_sessions(), set())
-    page = board.render(payload, NOW, LIMITS, HEADLINES)
-    # The board is published as an artifact, which supplies the document
-    # around it; here it is a page of its own.
-    return f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{page}'
+MOCK = REPO / "mobile" / "mock" / "index.html"
 
 
 async def main() -> None:
@@ -306,7 +283,6 @@ async def main() -> None:
         patch_sources(tmp)
         (tmp / "console.svg").write_text(await console_svg(tmp))
         (tmp / "open.svg").write_text(await open_svg(tmp))
-        (tmp / "board.html").write_text(board_html())
         (tmp / "chat.html").write_text(chat_html())
         (tmp / "push.html").write_text(push_html())
 
@@ -323,12 +299,11 @@ async def main() -> None:
                 await page.goto((tmp / f"{name}.html").as_uri())
                 await page.locator("img").screenshot(path=str(OUT / f"{name}.png"), omit_background=True)
 
-            # Dark, to sit on the dark page. The board itself follows the
-            # phone's setting.
+            # Dark, to sit on the dark page. The app is dark itself.
             phone = await browser.new_page(
                 viewport={"width": 393, "height": 852}, device_scale_factor=3, color_scheme="dark", is_mobile=True
             )
-            await phone.goto((tmp / "board.html").as_uri())
+            await phone.goto(f"{MOCK.as_uri()}#board")
             await phone.screenshot(path=str(OUT / "board.png"))
             await phone.goto((tmp / "chat.html").as_uri())
             await phone.screenshot(path=str(OUT / "chat.png"))

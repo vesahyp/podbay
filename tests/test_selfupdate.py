@@ -83,9 +83,7 @@ def test_a_poll_that_never_ends_holds_the_restart_only_for_the_patience(monkeypa
 
 
 def test_release_lag_names_a_push_that_skipped_make_install(tmp_path):
-    from datetime import datetime
-
-    from podbay import board, inventory
+    from podbay import inventory
 
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "installed")
@@ -99,7 +97,6 @@ def test_release_lag_names_a_push_that_skipped_make_install(tmp_path):
 
     line = f"installed podbay is 1 commit behind origin/main (installed {lag['installed']}, origin/main {lag['origin_main']})"
     assert any(line in x for x in inventory.machine_lines({"release": lag}))
-    assert line in board.render({"sessions": [], "release": lag}, now=datetime(2026, 10, 24, 13, 0))
 
     _git(tmp_path, "checkout", "-q", "--detach", "origin/main")
     assert selfupdate.release_lag(tmp_path) is None

@@ -4,7 +4,7 @@ been logged out for a day while `podbay accounts` still suggested it)."""
 
 import json
 
-from podbay import accounts, board, quota, usage
+from podbay import accounts, quota, usage
 from podbay.accounts import Account
 from podbay.inventory import inventory_payload, render_status, render_table
 
@@ -108,21 +108,6 @@ def test_inventory_marks_sessions_on_a_logged_out_account():
     assert "logged out: claude (run /login); login expired in: raide-rt2" in render_status(payload)
     assert "login-expired" in render_table(payload)
     assert inventory_payload([dead], set())["login_expired"] == []
-
-
-def test_board_machine_room_shows_the_logged_out_account_and_its_sessions():
-    session = {
-        "name": "raide-rt2", "title": "Raide", "tab": "3", "repo": "raide", "state": "working", "age_seconds": 30,
-        "parked_until": None, "last_text": "x", "waiting_on": None, "has_transcript": True, "head_jeeves": False,
-        "context_pct": 10.0, "work_repo": "raide", "session_id": "s-1", "short_id": "s-1", "login_expired": True,
-    }
-    limits = {"claude": {"five_pct": 0.0, "five_resets_at": None, "week_pct": 25.0, "week_resets_at": None},
-              "personal": {"five_pct": 21.0, "five_resets_at": None, "week_pct": 20.0, "week_resets_at": None}}
-    html = board.render({"sessions": [session], "logged_out_accounts": ["claude"]}, limits=limits)
-    room = html[html.index("Machine room"):]
-    assert "<b>claude</b> <span class=\"out\">logged out · run /login</span>" in room
-    assert room.count("<b>claude</b>") == 1 and "<b>personal</b>" in room
-    assert "login expired" in room
 
 
 class _Done:

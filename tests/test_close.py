@@ -204,7 +204,7 @@ def test_close_refuses_a_session_that_shares_the_screens_terminal(monkeypatch, c
 
 
 def test_idle_shell_is_free_and_only_an_empty_window_is_unlisted(monkeypatch):
-    from podbay import board, inventory
+    from podbay import inventory
     at = datetime.now()
     opened_mod.record("/dev/ttys021", "left-over", "head-jeeves", at)
     shell = _shell("a", "/dev/ttys021")
@@ -217,8 +217,6 @@ def test_idle_shell_is_free_and_only_an_empty_window_is_unlisted(monkeypatch):
     lines = inventory.machine_lines({"unlisted_terminals": found, "free_terminals": free})
     assert lines[0] == "unlisted terminals: #8 empty window"
     assert lines[1] == f"free terminals: #{shell.terminal}"
-    html = board._unlisted([], free)
-    assert "free terminals" in html and "bad" not in html
 
 
 def test_lister_names_windows_with_no_tab():

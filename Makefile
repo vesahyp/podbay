@@ -1,4 +1,4 @@
-.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots mobile-shots board-check plan apply outputs deploy analytics live-build live-check live-logs live-backfill
+.PHONY: setup help run list test check install ship install-skill shots page-shots stats-shots mobile-shots plan apply outputs deploy analytics live-build live-check live-logs live-backfill
 
 PODBAY := uv run --project .
 # The installed copy: a worktree at origin/main that scripts/release moves.
@@ -26,7 +26,6 @@ help:
 	@echo "make page-shots  the landing page on desktop and iPhone 16, full page, into .shots/ (site/ served locally; URL= for the live one)"
 	@echo "make mobile-shots  the podbay mobile vision mock on an iPhone 16, one PNG per screen, into mobile/mock/shots/"
 	@echo "make stats-shots  the stats board on desktop and iPhone, into .shots/ (URL=, DATA=, LIVE= for a local check)"
-	@echo "make board-check  tap every board line on a phone, check what reaches Head Jeeves"
 	@echo "make plan      terraform plan for infra/, saved to infra/tfplan"
 	@echo "make apply     terraform apply the saved plan"
 	@echo "make deploy    ship site/ to podbay.tienoo.com"
@@ -102,8 +101,9 @@ install-skill:
 	@mkdir -p "$(HOME_REPO)/.claude/skills"
 	@ln -sfn "$(CURDIR)/skills/head-jeeves" "$(HOME_REPO)/.claude/skills/head-jeeves" && echo "→ $(HOME_REPO)/.claude/skills/head-jeeves"
 
-# The real TUI and the board, mounted headless over made-up sessions, then
-# rendered to PNG by Playwright. The first run downloads Chromium.
+# The real TUI mounted headless over made-up sessions, and the phone app's
+# board from the vision mock, rendered to PNG by Playwright. The first run
+# downloads Chromium.
 shots:
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(PODBAY) --with playwright python scripts/shots.py
@@ -124,10 +124,6 @@ mobile-shots:
 stats-shots:
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(PODBAY) --with playwright python scripts/stats_shots.py $(if $(URL),--url $(URL)) $(if $(DATA),--data $(DATA)) $(if $(LIVE),--live $(LIVE))
-
-board-check:
-	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
-	@$(PODBAY) --with playwright python scripts/board_check.py
 
 # The today-so-far Lambda (analytics/live/) with its two pure-Python
 # dependencies, laid out for Terraform's archive_file. Pure Python, so the

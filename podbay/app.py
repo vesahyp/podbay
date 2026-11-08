@@ -39,6 +39,7 @@ from textual.widgets import DataTable, Footer, Input, Label, Static
 from . import config
 from . import glyphs
 from . import board
+from . import boardview
 from . import hal
 from . import mood
 from . import reviewer
@@ -52,7 +53,6 @@ from . import notifications
 from . import notify as notify_mod
 from . import opened as opened_mod
 from . import overload as overload_mod
-from . import sweep as sweep_mod
 from . import paused as paused_mod
 from . import quota
 from . import mobile as mobile_mod
@@ -177,7 +177,7 @@ HEAD_JEEVES_LAUNCH_TIMEOUT = timedelta(seconds=90)
 # files (see "What survives a compact" in skills/head-jeeves/SKILL.md).
 # One line: a slash command's arguments end at the first newline.
 HEAD_JEEVES_COMPACT = (
-    "/compact Keep, each with its exact value: the board artifact URL; every open decision "
+    "/compact Keep, each with its exact value: every open decision "
     "waiting on the user; shipped work the user has not tested yet, with its URL and steps; "
     "every session you started that is still running and what each is for; pushes held for "
     "quiet hours; and the standing rules from your skill and memory. "
@@ -204,6 +204,7 @@ ACTIONS = [
     ("t", "toggle_transcript", "Transcript"),
     ("m", "message", "Message"),
     ("j", "message_head_jeeves", "Message Head Jeeves"),
+    ("b", "board", "Board"),
     ("o", "open_session", "Open"),
     ("h", "history", "History"),
     ("v", "view_review", "Review"),
@@ -763,6 +764,49 @@ class ReviewScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class BoardScreen(ModalScreen[None]):
+    """The board: what the phone app shows, from the same state.json
+    (boardview.py, docs/adr/0002-one-phone-app.md). It redraws when the
+    screen writes a new state.json or reads new phone messages. Escape or
+    b closes it."""
+
+    DEFAULT_CSS = """
+    BoardScreen {
+        align: center middle;
+        background: transparent 60%;
+    }
+    #board-box {
+        width: 120;
+        height: 90%;
+        border: round #e0201f;
+        padding: 1 2;
+        background: #000000;
+        color: #d9c9a0;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("b", "close", "Close", show=False)]
+
+    def __init__(self, state: dict | None, messages: list[dict] | None):
+        super().__init__()
+        self._state = state
+        self._messages = messages
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="board-box"):
+            yield Static(boardview.render(self._state, self._messages), id="board-body")
+
+    def on_mount(self) -> None:
+        self.query_one("#board-box", VerticalScroll).focus()
+
+    def show(self, state: dict | None, messages: list[dict] | None) -> None:
+        self._state, self._messages = state, messages
+        self.query_one("#board-body", Static).update(boardview.render(state, messages))
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class HistoryScreen(ModalScreen[None]):
     """Today's notifications and sent warnings, newest first. Escape or h
     closes it."""
@@ -971,10 +1015,14 @@ class PodbayApp(App):
         # The last command podbay typed into him, and the last /compact: a
         # compact goes only once he has answered everything podbay sent.
         self._head_jeeves_sent_at: datetime | None = None
-        self._comment_sweep_at: datetime | None = None
         self._head_jeeves_compacted_at: datetime | None = None
         self._head_jeeves_compact_at = head_jeeves_compact_at
         self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
+        # The board screen's inputs: the last state.json and, with the phone
+        # app on, the last 7 days of phone messages (boardview.py).
+        self._board_state: dict | None = None
+        self._phone_messages: list[dict] | None = None
+        self._mobile_uploader: mobile_mod.Uploader | None = None
         self.state_store = state_store or StateStore()
         self.iterm_lister = iterm_lister or iterm_mod.ItermLister()
         # Every Claude Code config dir on the machine (see accounts.py); the
@@ -1056,12 +1104,14 @@ class PodbayApp(App):
         self.set_interval(CODE_CHECK_SECONDS, self._check_code_version)
         self.set_interval(LOGIN_CHECK_SECONDS, self._check_logins)
         self.set_interval(autoresume.CHECK_SECONDS, self._check_limit_stops)
+        # state.json is built every minute whether or not the phone app is
+        # on: the board screen (key b) reads it too.
+        self.set_interval(mobile_mod.SNAPSHOT_EVERY, self._mobile_snapshot)
+        self.call_later(self._mobile_snapshot)
         if config.mobile_on():
             self._mobile_uploader = mobile_mod.Uploader()
             self._mobile_store = mobile_mod.Store()
-            self.set_interval(mobile_mod.SNAPSHOT_EVERY, self._mobile_snapshot)
             self.set_interval(mobile_mod.POLL_EVERY, self._mobile_poll)
-            self.call_later(self._mobile_snapshot)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
             self.push_screen(PromptScreen(voice.name_question(), glyph=glyphs.MESSAGE), self._name_given)
@@ -1237,15 +1287,28 @@ class PodbayApp(App):
 
     @work(thread=True, exclusive=True, group="mobile-snapshot")
     def _mobile_snapshot(self) -> None:
-        """Build the phone app's state and upload it when it changed or the
-        heartbeat is due (mobile.py). A failure is logged and the next
-        minute tries again: the app shows the age, so a stop is visible."""
+        """Build state.json, write it for the board screen, and with the
+        phone app on, upload it when it changed or the heartbeat is due
+        (mobile.py). A failure is logged and the next minute tries again:
+        both views show the age, so a stop is visible."""
         try:
             state = gather_snapshot()
-            if self._mobile_uploader.tick(state):
+            self._board_state = state
+            write_snapshot(state, SNAPSHOT_PATH)
+            self.call_from_thread(self._refresh_board_screen)
+            if self._mobile_uploader is not None and self._mobile_uploader.tick(state):
                 log.debug("mobile snapshot uploaded")
         except Exception:  # noqa: BLE001 -- the phone's view must never take the TUI down
             log.warning("mobile snapshot failed", exc_info=True)
+
+    def _refresh_board_screen(self) -> None:
+        for screen in self.screen_stack:
+            if isinstance(screen, BoardScreen):
+                screen.show(self._board_state, self._phone_messages)
+
+    def action_board(self) -> None:
+        """The board screen: the same state.json as the phone app."""
+        self.push_screen(BoardScreen(self._board_state, self._phone_messages))
 
     def _deliver_phone(self, line: str) -> bool:
         """Type one phone message to Head Jeeves. Not while he is off or a
@@ -1263,6 +1326,8 @@ class PodbayApp(App):
                 log.info("phone message %s: %s", msg_id, outcome)
             for sub_id, outcome in mobile_mod.register_pushes(self._mobile_store, mobile_mod.run_push_command):
                 log.info("phone push subscription %s: %s", sub_id, outcome)
+            self._phone_messages = mobile_mod.thread(self._mobile_store)
+            self.call_from_thread(self._refresh_board_screen)
         except Exception:  # noqa: BLE001 -- the next poll tries again
             log.warning("phone message poll failed", exc_info=True)
 
@@ -1358,7 +1423,6 @@ class PodbayApp(App):
         self._hal_remarks(sessions, now)
         self._ensure_head_jeeves()
         self._compact_head_jeeves(now)
-        self._sweep_comments(now)
         self._watch_reviews()
 
         try:
@@ -1431,21 +1495,6 @@ class PodbayApp(App):
         self._head_jeeves_compacted_at = now
         self._head_jeeves_sent_at = datetime.now()
         self.notify(voice.head_jeeves_compacting(head.context_pct or 0), title=voice.SHIP_NAME)
-
-    def _sweep_comments(self, now: datetime) -> None:
-        """Ask Head Jeeves to read the board's comment threads (sweep.py)."""
-        if not self._head_jeeves or self._head_jeeves_pending is not None or self._quitting:
-            return
-        if not config.comment_sweep_on():
-            return
-        head = self._head_jeeves_session()
-        url = board.load_url()
-        if head is None or not sweep_mod.due(head, now, url, self._comment_sweep_at, self._head_jeeves_sent_at):
-            return
-        self._comment_sweep_at = now
-        if not self._send_to_session(head, sweep_mod.command(url)):
-            return
-        self._head_jeeves_sent_at = datetime.now()
 
     def _start_head_jeeves(self, follow_up: str) -> None:
         """No Head Jeeves session exists: launch one from the home repo (the
@@ -2319,31 +2368,6 @@ def cmd_open(
     sys.exit(1)
 
 
-def cmd_board(out: Path | None, url: str | None = None) -> None:
-    """Write the board from the live inventory and print its path, then
-    the URL it is published at when one has been recorded (`--url` records
-    it; the file outlives Head Jeeves' context, see board.URL_PATH)."""
-    if url:
-        board.save_url(url)
-    snapshots = sources.read_status_snapshots()
-    lister = iterm_mod.ItermLister()
-    sessions = sources.gather_sessions(StateStore(), lister, status_snapshots=snapshots)
-    accounts = discover()
-    payload = inventory_payload(sessions, set(), lister.empty_windows(), logged_out_labels(accounts), login_deadlines(accounts))
-    limits = {a.label: sources.newest_limits(snapshots, a.label) for a in accounts}
-    headlines, problem = board.load_headlines()
-    if problem:
-        print(f"headlines ignored: {problem}", file=sys.stderr)
-    payload["machine"] = machine_mod.snapshot()
-    payload["mac"] = machine_mod.mac_name()
-    payload["release"] = selfupdate.release_lag()
-    path = board.write(board.render(payload, limits=limits, headlines=headlines), out)
-    print(path)
-    published = board.load_url()
-    if published:
-        print(f"published at {published}")
-
-
 SNAPSHOT_PATH = Path.home() / ".local" / "state" / "podbay" / "mobile" / "state.json"
 
 
@@ -2377,14 +2401,19 @@ def gather_snapshot(now: datetime | None = None) -> dict:
     )
 
 
-def cmd_snapshot(out: Path | None) -> None:
-    """Write the phone app's state as JSON and print the path and a summary."""
-    state = gather_snapshot()
-    path = out or SNAPSHOT_PATH
+def write_snapshot(state: dict, path: Path) -> None:
+    """state.json, atomically: the board screen and the upload read it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(state, default=str))
     os.replace(tmp, path)
+
+
+def cmd_snapshot(out: Path | None) -> None:
+    """Write the phone app's state as JSON and print the path and a summary."""
+    state = gather_snapshot()
+    path = out or SNAPSHOT_PATH
+    write_snapshot(state, path)
     sections = state["board"]["sections"]
     print(path)
     print(f"  {path.stat().st_size // 1024} KB · board " + ", ".join(f"{k} {len(v)}" for k, v in sections.items())
@@ -2751,17 +2780,13 @@ def main() -> None:
 
     notify_parser = sub.add_parser("notify", help="push one line to the user's phone through `podbay config notify-command` (see podbay/notify.py)")
     notify_parser.add_argument("text", nargs="+", help="the message, one standalone sentence")
-    notify_parser.add_argument("--url", default=None, metavar="URL", help="where tapping the notification lands (default: the board, as recorded by `podbay board --url`)")
+    notify_parser.add_argument("--url", default=None, metavar="URL", help="where tapping the notification lands (default: the phone app's board, config mobile-url)")
     notify_parser.add_argument("--no-url", action="store_true", help="no link at all")
     notify_parser.add_argument("--line", default=None, metavar="ID", help="open this line's reply sheet in the phone app (a session id; needs mobile-url)")
 
     config_parser = sub.add_parser("config", help="show or set a podbay setting (see podbay/config.py)")
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
     config_parser.add_argument("value", nargs="?", help="the new value; none prints the current one; '' clears it")
-
-    board_parser = sub.add_parser("board", help="write the status board page (decisions, ready to test, in progress, by project) for Head Jeeves to publish")
-    board_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {board.BOARD_PATH})")
-    board_parser.add_argument("--url", default=None, metavar="URL", help="record the URL the board is published at; printed by every later `podbay board`")
 
     reply_parser = sub.add_parser("reply", help="answer a message from the phone app; the app shows it under the message")
     reply_parser.add_argument("id", help="the message id from the /head-jeeves phone event")
@@ -2821,8 +2846,6 @@ def main() -> None:
         if args.line and url is None:
             url = notify_mod.line_url(args.line)
         sys.exit(cmd_notify(" ".join(args.text), url))
-    elif args.command == "board":
-        cmd_board(Path(args.out) if args.out else None, args.url)
     elif args.command == "snapshot":
         cmd_snapshot(Path(args.out) if args.out else None)
     elif args.command == "reply":

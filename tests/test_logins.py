@@ -5,7 +5,7 @@ expired" (2026-10-24: a personal session died mid task with no warning)."""
 import json
 from datetime import datetime, timedelta
 
-from podbay import accounts, board, logins, quota
+from podbay import accounts, logins, quota
 from podbay.accounts import Account
 from podbay.inventory import inventory_payload, render_status
 from podbay.sources import tail_read_transcript
@@ -157,15 +157,3 @@ def test_inventory_and_accounts_show_the_time_left(tmp_path):
     personal = Account("personal", tmp_path / ".claude-personal")
     entry = quota.account_entry(personal, {}, None, now, logged_in=True, login_ends_at=ends["personal"])
     assert "login ends in 3 d 5 h" in quota.render(quota.payload([entry]))
-
-
-def test_board_machine_room_shows_the_time_left():
-    now = datetime.now()
-    limits = {"personal": {"five_pct": 21.0, "five_resets_at": None, "week_pct": 20.0, "week_resets_at": None},
-              "work": {"five_pct": 1.0, "five_resets_at": None, "week_pct": 2.0, "week_resets_at": None}}
-    payload = inventory_payload([], set(), login_ends={
-        "personal": now.timestamp() + 2 * 86400 + 60, "work": now.timestamp() + 5 * HOUR + 30})
-    room = board.render(payload, limits=limits)
-    room = room[room.index("Machine room"):]
-    assert '<span class="ends">login ends in 2 d 0 h</span>' in room
-    assert '<span class="out">login ends in 5 h 0 min</span>' in room

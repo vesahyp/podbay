@@ -16,45 +16,39 @@ def _session(**over):
     return base
 
 
-def test_board_leads_with_outcomes_grouped_by_project():
+def _by_id(found):
+    return {kind: {i["id"]: i for i in items} for kind, items in found.items()}
+
+
+def test_lines_are_sorted_into_sections_by_what_they_need():
     payload = {"sessions": [
         _session(session_id="s-sora", state="needs_you", age_seconds=600,
                  last_text="**Done, six commits on sora**, all live at https://vesahyp.github.io/sora: - **The race on"),
         _session(session_id="s-ux", name="a", title="ecarbrowser ux", tab="5", repo="jeeves", work_repo="ecarbrowser",
-                 state="needs_you", age_seconds=600, context_pct=73,
-                 waiting_on={"kind": "ask_user_question", "detail": "Which **layout**?"}),
+                 state="needs_you", age_seconds=600, waiting_on={"kind": "ask_user_question", "detail": "Which **layout**?"}),
         _session(session_id="s-ins", name="b", title="Tile cache sizing", tab="9", work_repo="ecarbrowser", state="working",
                  last_text="Comparing the three cache sizes."),
         _session(session_id="s-ug", name="c", title="Greenhouse follow-up", tab="3", repo="greenhouse", work_repo="greenhouse",
                  state="parked", parked_until="2026-10-12T09:00:00", age_seconds=86400 * 9),
         _session(session_id="s-fix", name="podbay-fix-close", title="podbay-fix-close", tab="14", work_repo="podbay", state="working"),
         _session(session_id="s-new", name="d", title="Claude Code", tab="7", repo="", work_repo="", state="empty",
-                 last_text=None, has_transcript=False, context_pct=None),
-        _session(session_id="s-hj", name="head-jeeves", title="head-jeeves", tab="8", state="needs_you", head_jeeves=True, context_pct=7.4),
+                 last_text=None, has_transcript=False),
+        _session(session_id="s-hj", name="head-jeeves", title="head-jeeves", tab="8", state="needs_you", head_jeeves=True),
     ]}
-    limits = {"claude": {"five_pct": 36, "five_resets_at": None, "week_pct": 17, "week_resets_at": None}}
-    html = board.render(payload, NOW, limits)
-
-    assert html.startswith("<title>Status Board</title>")
-    assert "1 decision for you · 1 finished today · 2 in progress" in html
-    order = [html.index(h) for h in ("Decisions for you", "Ready for you to test", "Finished today", "In progress", "Machine room")]
-    assert order == sorted(order)
-    decisions = html[html.index("Decisions for you"):html.index("Ready for you to test")]
+    found = _by_id(board.collect(payload, NOW))
     # only the question is a decision; the finished sora session is not
-    assert 'data-target="#5 ecarbrowser"' in decisions and "Which layout?" in decisions and "sora" not in decisions
+    assert list(found["decision"]) == ["s-ux"]
+    ux = found["decision"]["s-ux"]
+    assert ux["target"] == "#5 ecarbrowser" and ux["text"] == "Which layout?" and ux["project"] == "ecarbrowser"
     # ready to test is Head Jeeves' call; without his line a finished session is only finished
-    assert "Nothing new to test today." in html[html.index("Ready for you to test"):html.index("Finished today")]
-    done = html[html.index("Finished today"):html.index("In progress")]
-    assert "Done, six commits on sora, all live at https://vesahyp.github.io/sora</span>" in done
-    assert 'href="https://vesahyp.github.io/sora"' in done and "*" not in done and "race" not in done
-    progress = html[html.index("In progress"):html.index("Machine room")]
-    assert progress.count('class="proj">ecarbrowser<') == 1 and "parked until Mon 12 Oct" in progress
-    assert "podbay-fix" not in progress and "Claude Code" not in progress
-    room = html[html.index("Machine room"):]
-    assert "podbay-fix-close" in room and "<b>claude</b> 5H 36%  7D 17%" in room and "never used" in room
-    assert '<span class="ctx hot">ctx 73%</span>' in room and "Head Jeeves <span class=\"ctx\">ctx 7%</span>" in room
-    assert "head-jeeves</span>" not in html and "#?" not in html
-    assert "sendToClaude" in html and '${target}, on "${quote}": ${text}' in html
+    assert found["shipped"] == {}
+    done = found["finished"]["s-sora"]
+    assert done["text"] == "Done, six commits on sora, all live at https://vesahyp.github.io/sora"
+    assert done["link"] == "https://vesahyp.github.io/sora"
+    assert set(found["progress"]) == {"s-ins", "s-ug"}
+    assert found["progress"]["s-ug"]["when"] == "parked until Mon 12 Oct"
+    # podbay's own fix sessions, empty tabs and Head Jeeves are not the user's work
+    assert not any(k in kind for kind in found.values() for k in ("s-fix", "s-new", "s-hj"))
 
 
 def test_head_jeeves_headlines_win_and_stale_questions_drop():
@@ -65,22 +59,22 @@ def test_head_jeeves_headlines_win_and_stale_questions_drop():
                  state="needs_you", last_text="Goal: publish."),
     ]}
     headlines = {
-        "s-sora": {"kind": "shipped", "text": "Six improvements live", "link": "vesahyp.github.io/sora",
-                   "steps": ["Open the page on the phone", "Start a race and watch the **lap** counter"]},
+        "s-sora": {"kind": "shipped", "text": "Six improvements live", "link": "https://vesahyp.github.io/sora",
+                   "steps": ["Open the page on the phone", "Start a race and watch the lap counter"]},
         "s-ux": {"kind": "decision", "text": "Gallery or list?"},  # answered already: the session works again
-        "s-96": {"kind": "decision", "text": "Publish Räkkä on itch.io now?", "repo": "hoyry"},
+        "s-96": {"kind": "decision", "text": "Publish Räkkä on itch.io now?", "repo": "hoyry", "options": ["Yes", "Wait"]},
         "gone": {"kind": "shipped", "text": "Stats board live", "link": "https://podbay.tienoo.com/stats/",
                  "repo": "podbay", "at": "2026-10-03T12:00"},
         "old": {"kind": "shipped", "text": "Yesterday's work", "repo": "keitos", "at": "2026-10-02"},
     }
-    html = board.render(payload, NOW, headlines=headlines)
-    decisions = html[html.index("Decisions for you"):html.index("Ready for you to test")]
-    assert 'class="proj">hoyry<' in decisions and "Publish Räkkä on itch.io now?" in decisions
-    assert "Gallery or list?" not in html and "Building the layout." in html
-    ready = html[html.index("Ready for you to test"):html.index("In progress")]
-    assert 'href="https://vesahyp.github.io/sora"' in ready and ">https://vesahyp.github.io/sora</a>" in ready
-    assert "<li>Start a race and watch the lap counter</li>" in ready
-    assert "Stats board live" in ready and "Yesterday" not in html
+    found = _by_id(board.collect(payload, NOW, headlines))
+    assert found["decision"]["s-96"]["project"] == "hoyry" and found["decision"]["s-96"]["options"] == ["Yes", "Wait"]
+    assert found["progress"]["s-ux"]["text"] == "Building the layout."
+    sora = found["shipped"]["s-sora"]
+    assert sora["link"] == "https://vesahyp.github.io/sora" and sora["steps"][1] == "Start a race and watch the lap counter"
+    gone = found["shipped"]["shipped:gone"]
+    assert gone["target"] == "podbay (session ended)" and gone["text"] == "Stats board live"
+    assert "shipped:old" not in found["shipped"]
 
 
 def test_clean_line_takes_the_first_sentence_and_never_cuts_a_word():
@@ -107,94 +101,8 @@ def test_a_session_with_no_terminal_number_is_addressed_by_name():
     assert board._target(_session(tab="6", work_repo="sora")) == "#6 sora"
 
 
-def test_board_handles_no_sessions():
-    html = board.render({"sessions": []}, NOW)
-    assert "Nothing waits on you." in html and "No live sessions." in html
-    payload = {"sessions": [_session(title="<b>bold</b>", state="needs_you", last_text="<i>x</i> done")]}
-    html = board.render(payload, NOW)
-    assert "&lt;b&gt;bold&lt;/b&gt;" in html and "<b>bold</b>" not in html and "<i>x</i>" not in html
-
-
-def test_write_is_atomic_and_cmd_board_prints_the_path(tmp_path, monkeypatch, capsys):
-    from podbay import app as app_mod
-
-    out = tmp_path / "boards" / "board.html"
-    assert board.write("<title>x</title>", out) == out and out.read_text() == "<title>x</title>"
-    assert not list((tmp_path / "boards").glob(".board-*"))
-
-    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [])
-    app_mod.cmd_board(out)
-    assert capsys.readouterr().out.strip() == str(out)
-    assert "No live sessions." in out.read_text()
-
-
-def test_the_published_url_is_recorded_once_and_printed_after_that(tmp_path, monkeypatch, capsys):
-    """The link lives in a file, not only in Head Jeeves' context, so it
-    survives a compact: `--url` records it, every later call prints it."""
-    from podbay import app as app_mod
-
-    out = tmp_path / "board.html"
-    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [])
-    assert board.load_url() is None
-    app_mod.cmd_board(out, "https://claude.ai/artifact/abc123 ")
-    assert capsys.readouterr().out == f"{out}\npublished at https://claude.ai/artifact/abc123\n"
-    app_mod.cmd_board(out)
-    assert capsys.readouterr().out == f"{out}\npublished at https://claude.ai/artifact/abc123\n"
-    assert board.URL_PATH.read_text() == "https://claude.ai/artifact/abc123\n"
-
-
-def test_a_card_age_never_contradicts_its_state():
-    """sora read "working · idle 2h": the age said idle while the state said
-    working. Each state words its own age."""
-    sub = {"kind": "subagents_running", "detail": "1"}
-    assert board._age(_session(state="working", age_seconds=20, waiting_on=sub), NOW) == "active now · subagent running"
-    assert board._age(_session(state="working", age_seconds=300), NOW) == "active 5m ago"
-    assert board._age(_session(state="watching", age_seconds=600), NOW) == "active 10m ago"
-    assert board._age(_session(state="stalled", age_seconds=1800), NOW) == "silent 30m"
-    assert board._age(_session(state="needs_you", age_seconds=7200), NOW) == "idle 2h"
-    assert board._age(_session(state="needs_you", age_seconds=10), NOW) == "just now"
-    assert board._age(_session(state="shell_pane", age_seconds=10), NOW) == ""
-    for state in ("working", "watching", "stalled"):
-        assert "idle" not in board._age(_session(state=state, age_seconds=7200), NOW)
-
-
-def test_every_line_opens_the_composer_addressed_and_quoted():
-    payload = {"sessions": [
-        _session(session_id="s-sora", state="needs_you", last_text="Everything is committed."),
-        _session(session_id="s-done", name="e", tab="11", work_repo="keitos", repo="keitos", state="needs_you",
-                 age_seconds=600, last_text="Recipe search is faster."),
-        _session(session_id="s-prog", name="f", tab="12", work_repo="atlas", repo="atlas", state="working",
-                 last_text="Building the tile cache."),
-        _session(session_id="s-a1", name="g", tab="13", work_repo="ledger", repo="ledger", state="working", last_text="Export first."),
-        _session(session_id="s-a2", name="ledger-two", tab="", work_repo="ledger", repo="ledger", state="working", last_text="Import second."),
-    ]}
-    headlines = {
-        "s-sora": {"kind": "shipped", "text": "Six improvements live", "link": "vesahyp.github.io/sora"},
-        "gone": {"kind": "shipped", "text": "Stats board live", "repo": "podbay", "at": "2026-10-03T12:00"},
-    }
-    html = board.render(payload, NOW, headlines=headlines)
-    ready = html[html.index("Ready for you to test"):html.index("Finished today")]
-    assert 'data-target="#6 sora" data-quote="Six improvements live"' in ready
-    assert 'data-target="podbay (session ended)" data-quote="Stats board live"' in ready
-    done = html[html.index("Finished today"):html.index("In progress")]
-    assert 'data-target="#11 keitos" data-quote="Recipe search is faster."' in done
-    progress = html[html.index("In progress"):html.index("Machine room")]
-    assert 'data-target="#12 atlas" data-quote="Building the tile cache."' in progress
-    # two sessions in one project: each line is its own target, the tab-less one by name
-    assert 'data-target="#13 ledger" data-quote="Export first."' in progress
-    assert 'data-target="ledger-two ledger" data-quote="Import second."' in progress
-    assert progress.count('class="proj">ledger<') == 1
-    for section in (ready, done, progress):
-        assert section.count('<form class="say">') == section.count('class="tap"')
-        assert "Tap a line to comment on it." in section
-    room = html[html.index("Machine room"):]
-    assert 'data-target="#12 atlas" data-quote="' in room
-
-
-def test_the_header_names_the_mac_the_board_comes_from():
-    html = board.render({"sessions": [], "mac": "MacBook Pro"}, NOW)
-    assert '<p class="when">MacBook Pro · ' in html
-    assert '<p class="when">MacBook' not in board.render({"sessions": []}, NOW)
+def test_no_sessions_no_lines():
+    assert board.collect({"sessions": []}, NOW) == {"decision": [], "shipped": [], "progress": [], "finished": []}
 
 
 def test_mac_name_drops_the_owner(monkeypatch):

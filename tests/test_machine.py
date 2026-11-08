@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from podbay import app as app_mod
-from podbay import board, inventory, machine, voice
+from podbay import inventory, machine, voice
 from podbay import iterm as iterm_mod
 
 VM_STAT = """Mach Virtual Memory Statistics: (page size of 4096 bytes)
@@ -220,22 +220,6 @@ def test_voice_lines_are_single_lines():
         voice.inventory_stale(400, None),
     ):
         assert "\n" not in line
-
-
-# ---- the board ----------------------------------------------------------------
-
-
-def test_the_board_machine_room_charts_the_history():
-    now = time.time()
-    health = {
-        **{k: v for k, v in __import__("tests.conftest", fromlist=["FAKE_SAMPLE"]).FAKE_SAMPLE.items()}, "at": now,
-        "overloaded": "load average 30 on 8 cores",
-        "history": [{"at": now - 3600 * 3 + i * 600, "load": 2 + i, "free": 3000 - i * 100, "p": "normal"} for i in range(18)],
-    }
-    html = board.render({"sessions": [], "machine": health}, now=__import__("datetime").datetime.now())
-    assert html.count("<polyline") == 2 and "Overloaded: load average 30 on 8 cores" in html
-    assert "last 3 h" in html and "top cpu: node 40%" in html and "top memory: claude 900 MB" in html
-    assert "<polyline" not in board.render({"sessions": []}, now=__import__("datetime").datetime.now())
 
 
 # ---- the screen -----------------------------------------------------------------

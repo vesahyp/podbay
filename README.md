@@ -81,7 +81,7 @@ podbay open <dir> [--account LABEL] [--model ID] [--name NAME] [--wait SECONDS] 
 podbay close <sessionName|#N|title> [--force]
 podbay pause [<sessionName> [text...]]   # finish the step, commit, wait; no name lists the paused sessions
 podbay resume <sessionName> [text...]
-podbay board [--out PATH]
+podbay snapshot [--out PATH]            # state.json: what the board shows, on the Mac and in the phone app
 ```
 
 Settings live in `~/.config/podbay/config.json`, set from the command line
@@ -111,7 +111,7 @@ than ten minutes is refreshed first. An account whose login has expired or
 was logged out (its keychain item has no token left) shows as "logged out"
 and is never suggested; `podbay inventory` lists it under
 `logged_out_accounts` and marks each of its sessions `login_expired`, and
-the board's machine room says the same. Each logged-in account shows the time
+the board's machine section says the same. Each logged-in account shows the time
 left on its login. `podbay notify` pushes a warning 24 hours and 1 hour
 before a login ends (not at night unless under 2 hours are left), and one
 line the moment a session answers "Login expired". How the end is known:
@@ -136,13 +136,13 @@ one. A session that is working, watching a background task or stalled stays
 open unless `--force`; Head Jeeves is never closed. iTerm2 can keep a window
 with no tab after its last session closes: podbay closes every such window
 after a close or a failed open, and the screen closes them as it finds them.
-`podbay inventory` and the board list any that remain, and any idle shell
+`podbay inventory` lists any that remain, and any idle shell
 `podbay open` left, as `unlisted_terminals`.
 
 When the installed copy in `.release/` is behind `origin/main`, which is what
 a bare `git push` without `make ship` leaves, `podbay inventory` reports it
-under `release` (commits behind, both short hashes) and the board's machine
-room shows it as a red line. It is `null` when the installed copy is current.
+under `release` (commits behind, both short hashes). It is `null` when the
+installed copy is current.
 
 When the CPU stays overloaded (every sample of the last 5 minutes at a
 1-minute load of 3 times the cores or more, with a mean CPU use of 70
@@ -153,7 +153,7 @@ the load has stayed under 2 times the cores for 5 minutes, it sends
 information only. Head Jeeves pauses sessions with `podbay pause`, which
 types the message and records the pause in `~/.local/state/podbay/paused.json`,
 and resumes them with `podbay resume`. A paused session shows `"paused"` in
-`podbay inventory` and "paused" on the board, and when it goes idle podbay
+`podbay inventory`, and when it goes idle podbay
 raises no finished or stalled event for it.
 
 With a home repo set, every session starts there, and a tool call that
@@ -211,6 +211,10 @@ The screen shows. It changes a session in three ways only: the message you type,
 - `j` does the same for Head Jeeves, whichever row is highlighted. Its
   prompt shows a blue bow tie, the `m` prompt HAL's red eye, so you see
   which one you are typing into
+- `b` opens the board: what the phone app shows, from the same
+  `state.json` (decisions, ready to test, in progress, the thread with Head
+  Jeeves, the machine, the nightly jobs and the clavesa run timings).
+  `Escape` or `b` closes it
 - `o` asks for a repo (a name under the repos directory, or a path), then,
   with more than one account, which account: each row shows the strongest
   model that account has room for and its 5-hour and 7-day use, and the
@@ -234,7 +238,7 @@ its window's first tab (`7.2`). "terminal #N" means the session that
 The machine's health is on the screen (load, CPU, free memory, memory
 pressure, swap, free disk space on the data volume, the three heaviest processes by CPU and by memory, and a
 sparkline of the last hours), under `machine` in `podbay inventory --json`,
-and as three charts in the board's machine room. Free disk at or under 15 GB
+and in the board's machine section. Free disk at or under 15 GB
 (powerwatch's threshold) counts as overloaded; podbay sends no event for it,
 jeeves pushes. When the machine is starved,
 `podbay inventory` answers from the last good scan within 20 s and marks it
@@ -334,23 +338,20 @@ you in one line there; you can ask him what is going on, tell him to start
 a session somewhere with a task (`podbay open`), or to pass a message to a
 session (`podbay send`), and he does it and reports back.
 
-`podbay board` writes the status board to
-`~/.local/state/podbay/board.html`: one page that says, by project, what
-needs a decision from you, what is ready for you to test (with its URL and
-the steps), what finished today and what is in progress. The sessions
-themselves, with terminal numbers, states, ages, context use and each
-account's five-hour and weekly usage, sit in a collapsed machine room at
-the bottom. The lines come from Head Jeeves, who writes them to
+The board says, by project, what needs a decision from you, what is ready
+for you to test (with its URL and the steps), what finished today and what
+is in progress, then the machine, the nightly jobs and the clavesa run
+timings. Every minute the screen writes it all to
+`~/.local/state/podbay/mobile/state.json` (`podbay snapshot`), and two
+views read that one file: the board screen on the Mac (`b`) and the phone
+app (`mobile/`, docs/adr/0001 and 0002), so both always show the same. The
+lines come from Head Jeeves, who writes them to
 `~/.local/state/podbay/headlines.json` (format in his skill); a session
-without one shows the first sentence of its recap. He publishes the page as
-an artifact with the `comments` capability, so it costs him no context, and
-you read it on the phone. Tapping a question or a session opens a composer;
-what you type reaches him as a comment addressed `#6 sora: <text>`, he
-passes it on with `podbay send` and answers in the thread. Claude Code's
-comment wake can fail quietly, so every 5 minutes, while he is idle and a
-board is published, podbay also types a short comment check
-into his session. He reads the threads only when the watch status line
-lists a comment still awaiting a reply, so an idle check costs almost nothing.
+without one shows the first sentence of its recap. In the phone app,
+tapping a line opens a reply sheet; what you type reaches him in about 15
+seconds as `/head-jeeves phone <id> #6 sora, on "<line>": <text>`, he
+passes it on with `podbay send` and answers with `podbay reply`, which the
+app shows under your message.
 
 ### Usage limits
 
@@ -370,8 +371,9 @@ gets the session's name and the reason. The record is in
 podbay has no push transport of its own. Give it one with `podbay config
 notify-command <command>`: a script, with any fixed arguments, that takes
 the message as an argument. `podbay notify "<text>"` then runs it with the
-text appended, and after it the board's URL as the link to open when you
-tap the notification (`--url <url>` for another link, `--no-url` for none),
+text appended, and after it the phone app's board (`podbay config
+mobile-url`) as the link to open when you tap the notification; `--line
+<id>` opens that line's reply sheet (`--url <url>` for another link, `--no-url` for none),
 waits up to 30 seconds, and prints one line: `sent`, or on stderr why not
 (exit 1). A failing or missing command is logged in
 `podbay.log`, never a traceback. With no command set, nothing is sent and

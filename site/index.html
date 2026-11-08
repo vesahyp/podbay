@@ -139,11 +139,11 @@ podbay config head-jeeves-account &lt;label&gt;</code></pre>
 <pre><code><span class="c"># any script that sends its last argument to your phone</span>
 podbay config notify-command "&lt;script&gt;"</code></pre>
 </div>
-          <p>podbay has no push transport of its own. Give it a script, with any fixed arguments, that takes the message as an argument; podbay appends the text and then the board's link. Head Jeeves pushes two things only: a decision only you can make, and work ready for you to test.</p>
+          <p>podbay has no push transport of its own. Give it a script, with any fixed arguments, that takes the message as an argument; podbay appends the text and then the link that opens that line in the phone app. Head Jeeves pushes two things only: a decision only you can make, and work ready for you to test.</p>
         </li>
         <li data-track="section-setup-6">
           <h3>Type <code>sup</code></h3>
-          <p>Head Jeeves answers with the board link and one or two sentences on what needs you.</p>
+          <p>Head Jeeves answers in one or two sentences on what needs you. The board in the phone app and on the Mac (key <code>b</code>) shows the rest.</p>
         </li>
       </ol>
     </div>
@@ -155,7 +155,7 @@ podbay config notify-command "&lt;script&gt;"</code></pre>
       <h2>What you can say</h2>
       <p>Plain sentences. Name a session by what it is about, and Head Jeeves finds it.</p>
       <div class="chips">
-        <div><q>sup</q><p>The board link and one or two sentences on what needs you.</p></div>
+        <div><q>sup</q><p>One or two sentences on what needs you.</p></div>
         <div><q>start a session to fix the gallery scroll in ecarbrowser</q><p>A new session opens in that repo, on the account and model with the most room, with the task as its first prompt. You hear where it runs.</p></div>
         <div><q>how is the sora one going?</q><p>Head Jeeves reads that session's last turns and tells you in plain words.</p></div>
         <div><q>tell it to stop</q><p>Typed into that session as one prompt, and confirmed in one line.</p></div>
@@ -173,11 +173,11 @@ podbay config notify-command "&lt;script&gt;"</code></pre>
       <div class="two">
         <figure class="push">
           <img src="/img/push.png" width="1179" height="708" loading="lazy" alt="A push notification on a phone lock screen: Head Jeeves, the podbay stats page now opens with an hourly Today chart, ready for you to test, with the link.">
-          <figcaption>A push from Head Jeeves. The line names what to test and gives the link. Tapping it opens the board.</figcaption>
+          <figcaption>A push from Head Jeeves. The line names what to test and gives the link. Tapping it opens that line in the phone app.</figcaption>
         </figure>
         <figure class="phone">
-          <img src="/img/board.png" width="1179" height="2556" loading="lazy" alt="The status board on a phone: decisions for you, a project ready to test with its link and steps, and the projects in progress.">
-          <figcaption>The board: decisions for you, what is ready to test with its steps, what is in progress. Tap a line, type, and the answer goes to that session.</figcaption>
+          <img src="/img/board.png" width="1179" height="2556" loading="lazy" alt="The board in the podbay phone app: decisions for you with answer buttons, a project ready to test with its link and steps, and the projects in progress.">
+          <figcaption>The board in the phone app: decisions for you, what is ready to test with its steps, what is in progress. Tap a line, type, and the answer goes to that session.</figcaption>
         </figure>
       </div>
     </div>
@@ -206,7 +206,7 @@ podbay config notify-command "&lt;script&gt;"</code></pre>
           <div data-track="card-what-is-left"><h3><b>%</b>What is left</h3><p>Context use per session, and the five-hour and weekly quota per account, with a projection to the reset.</p></div>
           <div data-track="card-every-account"><h3><b>⇄</b>Every account</h3><p>Each <code>~/.claude-*</code> config dir is an account, with its own column, quota and sessions.</p></div>
           <div data-track="card-read-drive"><h3><b>▶</b>Read, drive a little</h3><p>The lower half shows the highlighted session's last turns. A few keys message, park or open a session (see below); the rest of the driving is Head Jeeves' job.</p></div>
-          <div data-track="card-cli"><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>accounts</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>notify</code> and <code>board</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
+          <div data-track="card-cli"><h3><b>$</b>A CLI underneath</h3><p><code>podbay inventory</code>, <code>accounts</code>, <code>excerpt</code>, <code>send</code>, <code>open</code>, <code>close</code>, <code>pause</code>, <code>resume</code>, <code>notify</code> and <code>reply</code>: what Head Jeeves runs, and what you can run from any shell.</p></div>
           <div data-track="card-machine-health"><h3><b>~</b>Machine health</h3><p>Load, CPU, free memory, memory pressure, swap and free disk space, with the heaviest processes and a chart of the last hours. When the Mac is starved, podbay answers from its last good scan and says so.</p></div>
           <div data-track="card-heated-prompts"><h3><b>!</b>Heated prompts</h3><p>A column marks a session where your last prompts read heated. A word list scores them on this Mac. No model runs and no tokens are used.</p></div>
           <div data-track="card-which-repos"><h3><b>#</b>Which repos</h3><p>Each session lists the repos it touched and stars the ones it edited. A mark shows when another live session works in the same repo.</p></div>
@@ -242,17 +242,17 @@ podbay config notify-command "&lt;script&gt;"</code></pre>
           <p>Head Jeeves is a Claude Code session that podbay keeps running. Turn on Remote Control for its account and it is the session the Claude app shows on your phone.</p>
           <ul>
             <li>When a session finishes, asks a question or stalls, podbay tells Head Jeeves, and Head Jeeves tells you in one line.</li>
-            <li>For a decision only you can make, and for work that is ready to test, it sends a push notification to your phone. Tap it to open the status board. You choose the command that sends the push (<code>podbay config notify-command</code>). Nothing else is pushed.</li>
+            <li>For a decision only you can make, and for work that is ready to test, it sends a push notification to your phone. Tap it to open that line in the phone app. You choose the command that sends the push (<code>podbay config notify-command</code>). Nothing else is pushed.</li>
             <li>Ask what is going on. Tell it to start a session in a repo with a task, or to pass a message to a session. It does that and reports back.</li>
-            <li>The status board is one page that Head Jeeves publishes for you: decisions for you, what is ready to test, what is in progress, by project. Tap a question, type, and the answer goes to that session. Head Jeeves checks the comments on the board every 5 minutes while it is idle, so an answer is not lost.</li>
+            <li>The board is the same in two places, the phone app and the podbay screen on the Mac (key <code>b</code>): decisions for you, what is ready to test, what is in progress, by project, then the machine and the nightly runs. Head Jeeves writes the lines. In the app, tap a question, type, and the answer reaches Head Jeeves in about 15 seconds and goes to that session.</li>
             <li>When the CPU stays overloaded and two or more sessions work, podbay tells Head Jeeves. It pauses sessions with <code>podbay pause</code>: each one finishes its step, commits and waits. It resumes them when the load drops.</li>
             <li>When your prompts in a session turn heated, it reads the session and tells you what the friction is. When a session stalls or goes wrong, it writes the handover prompt, starts a replacement session with it and closes the old one.</li>
           </ul>
           <p>The status line is where Claude Code reports context and quota, so <code>make install</code> points every account's status line at podbay's script. If you keep your own, copy one block into it instead. podbay writes only under <code>~/.local/state/podbay/</code>, and it types into an iTerm2 tab only what you or Head Jeeves send. MIT licensed.</p>
         </div>
         <figure class="phone">
-          <img src="/img/board.png" width="1179" height="2556" loading="lazy" alt="The status board on a phone: decisions for you, a project ready to test with its link and steps, and the projects in progress.">
-          <figcaption>The status board, as it looks on a phone.</figcaption>
+          <img src="/img/board.png" width="1179" height="2556" loading="lazy" alt="The board in the podbay phone app: decisions for you with answer buttons, a project ready to test with its link and steps, and the projects in progress.">
+          <figcaption>The board in the phone app.</figcaption>
         </figure>
       </div>
     </section>

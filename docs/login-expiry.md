@@ -55,7 +55,7 @@ could not be refreshed" from `claude -p`.
 ## What podbay does with it
 
 - `podbay accounts`, `podbay inventory` (`login_ends`, and a `logins:` line
-  in `--status`) and the board's machine room show the time left on each
+  in `--status`) and the board's machine section show the time left on each
   login. The board shows it in red under 24 hours.
 - The screen checks once a minute and pushes through `podbay notify`: 24
   hours before the end and 1 hour before. No push between 23:00 and 07:00

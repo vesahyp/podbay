@@ -1,67 +1,47 @@
-"""The board: one HTML page from the inventory, written by `podbay board` to
-~/.local/state/podbay/board.html, for Head Jeeves to publish as an artifact
-without spending his context on it.
+"""The board's lines: what needs the user, grouped by section, from the
+inventory and Head Jeeves' headlines. `podbay snapshot` puts them in
+state.json, and both views read that one file: the phone app and the
+board screen in the TUI (boardview.py, key b). So the Mac and the phone
+always show the same lines (docs/adr/0002-one-phone-app.md).
 
-It reads like a status page for the person who owns the work, grouped by
-project, never by session, and every line stands alone: no line refers to
-an earlier message, and a link is the full URL.
+The lines read like a status page for the person who owns the work,
+grouped by project, never by session, and every line stands alone: no line
+refers to an earlier message, and a link is the full URL.
 
-- Decisions for you: only the real questions a session asks.
-- Ready for you to test: one line per project that shipped today, its full
-  URL, and the steps to check it.
-- In progress: one line per project, with roughly when.
-- Machine room (collapsed): every session with its terminal number, state,
-  age and context use, and the accounts' usage windows. podbay's own fix
-  sessions live only here.
+- decision: only the real questions a session asks.
+- shipped: one line per project that shipped today, its full URL, and the
+  steps to check it.
+- finished: sessions done today that Head Jeeves has not written a line for.
+- progress: one line per project, with roughly when.
 
-The lines need judgment, so Head Jeeves may supply them in
+The lines need judgment, so Head Jeeves supplies them in
 ~/.local/state/podbay/headlines.json, keyed by session id (see
 HEADLINES_PATH and the head-jeeves skill for the format). A session with no
 headline falls back to the first sentence of its recap, cleaned of
 markdown and never cut mid-word.
-
-Every line opens the composer when tapped: a decision, a line to test, a
-finished line, a progress line and a machine room row. Sending posts a
-comment on the artifact addressed to that line's session and quoting the
-line, `#6 sora, on "<line>": <text>` (the session name stands in when the
-terminal number is unknown; a shipped line whose session has ended says
-`sora (session ended)`), and sends it to the Claude session that published the page, Head
-Jeeves, who passes it on with `podbay send`. That path is the artifact
-`comments` capability (sendToClaude), so the page must be published with
-`capabilities: {comments: {}}`; without it the composer says so instead of
-failing.
 """
 
 from __future__ import annotations
 
-import html
 import json
-import os
 import re
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import logins, machine, voice
-from .inventory import login_end_epochs
-from .model import DUE, EMPTY, HOME_BASE, NEEDS_YOU, PARKED, SHELL, STALLED, WATCHING, WORKING, humanize_age
+from .model import DUE, HOME_BASE, NEEDS_YOU, PARKED, STALLED, WATCHING, WORKING, humanize_age
 
 STATE_DIR = Path.home() / ".local" / "state" / "podbay"
-BOARD_PATH = STATE_DIR / "board.html"
 # {"<session id>": {"kind": "decision|shipped|progress", "text": "...",
 #   "link": "https://...", "steps": ["...", "..."], "repo": "sora",
-#   "at": "2026-10-03T19:40"}}; only kind and text are required. Any other
-# kind keeps that session in the machine room only. A shipped entry whose
-# session has ended stays on the board for the day in `at`, under `repo`.
+#   "at": "2026-10-03T19:40", "options": ["...", "..."]}}; only kind and
+# text are required. Any other kind keeps that session off the board. A
+# shipped entry whose session has ended stays on the board for the day in
+# `at`, under `repo`.
 HEADLINES_PATH = STATE_DIR / "headlines.json"
-# The artifact URL the board is published at, one line, recorded by
-# `podbay board --url <url>` so it survives a compact of Head Jeeves'
-# context, and printed by every `podbay board` after that.
-URL_PATH = STATE_DIR / "board-url"
 LINE_CHARS = 160
 KINDS = ("decision", "shipped", "progress")
-# The sections in page order: Head Jeeves' kinds, plus the finished sessions
-# he has not written a line for yet.
+# The sections in order: Head Jeeves' kinds, plus the finished sessions he
+# has not written a line for yet.
 _BUCKETS = (*KINDS, "finished")
 
 # A session waiting on one of these has asked the user something.
@@ -74,136 +54,6 @@ _ASK_KINDS = {
 # The sessions that work on podbay itself (Head Jeeves names his fault
 # sessions podbay-fix-<what>): plumbing, not the user's work.
 _FIX_PREFIX = "podbay-"
-_PILL = {
-    NEEDS_YOU: "finished", STALLED: "stalled", DUE: "due",
-    WORKING: "working", WATCHING: "watching", PARKED: "parked", EMPTY: "empty", SHELL: "shell",
-}
-
-_CSS = """
-:root {
-  --bg: #f4f4f1; --card: #ffffff; --fg: #16181c; --muted: #5f6570; --line: #e0e0da;
-  --ask: #a8510b; --ship: #22704a; --prog: #1f63a3;
-  --ok: #22704a; --bad: #b3261e;
-  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
-}
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #111316; --card: #1a1d22; --fg: #eceef1; --muted: #9aa1ac; --line: #2a2e35;
-  --ask: #f2a65e; --ship: #6fcf97; --prog: #79b4ec;
-  --ok: #6fcf97; --bad: #f28b82; color-scheme: dark } }
-:root[data-theme="dark"] {
-  --bg: #111316; --card: #1a1d22; --fg: #eceef1; --muted: #9aa1ac; --line: #2a2e35;
-  --ask: #f2a65e; --ship: #6fcf97; --prog: #79b4ec;
-  --ok: #6fcf97; --bad: #f28b82; color-scheme: dark }
-body { background: var(--bg); color: var(--fg); font: 16px/1.45 var(--sans); margin: 0; }
-main { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 26px; }
-header h1 { font-size: 24px; margin: 0; font-weight: 600; letter-spacing: -.01em; }
-header .when { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
-header .sum { margin: 10px 0 0; font-size: 17px; }
-section { display: grid; gap: 8px; }
-h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--c); display: flex; gap: 8px; align-items: baseline; }
-h2 .n { font: 500 12px var(--mono); color: var(--muted); letter-spacing: 0; }
-.ask { --c: var(--ask); }
-.ship { --c: var(--ship); }
-.prog { --c: var(--prog); }
-.done { --c: var(--muted); }
-ul.lines > li > div + div { margin-top: 8px; }
-ul.lines > li > div.tap { margin: -4px -6px; padding: 4px 6px; border-radius: 8px; }
-ul.lines > li > div.tap + div.tap { margin-top: 4px; }
-ul.lines { list-style: none; margin: 0; padding: 0; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 12px; overflow: hidden; }
-ul.lines > li { padding: 12px 14px; border-top: 1px solid var(--line); }
-ul.lines > li:first-child { border-top: 0; }
-.proj { font-weight: 600; margin-right: 6px; }
-.text { overflow-wrap: anywhere; }
-.when-tag { color: var(--muted); font-size: 14px; white-space: nowrap; }
-a.go { display: block; margin-top: 4px; color: var(--c); font-weight: 500; overflow-wrap: anywhere; }
-ol.steps { margin: 6px 0 0; padding-left: 1.3em; color: var(--muted); font-size: 15px; }
-ol.steps li { margin: 2px 0; }
-.tap { cursor: pointer; }
-.tap:focus-visible { outline: 2px solid var(--c, var(--muted)); outline-offset: -2px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; }
-.none { color: var(--muted); font-size: 15px; margin: 0; }
-form.say { display: none; gap: 8px; margin-top: 10px; }
-.open > form.say { display: flex; }
-form.say input { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
-form.say button { font: inherit; font-weight: 600; padding: 8px 14px; border: 0; border-radius: 8px; background: var(--c, var(--muted)); color: #fff; }
-.status { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
-.status:empty { display: none; }
-.status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
-details.room { border-top: 1px solid var(--line); padding-top: 14px; }
-details.room > summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
-details.room[open] > summary { margin-bottom: 12px; }
-.room ul.lines { font-size: 14px; }
-.room ul.lines > li { padding: 9px 12px; }
-.row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.tab { font: 500 13px var(--mono); color: var(--muted); min-width: 2.2em; }
-.row .title { flex: 1 1 10em; min-width: 0; }
-.meta { color: var(--muted); font-size: 13px; }
-.ctx { font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; }
-.ctx.hot { color: var(--ask); } .ctx.full { color: var(--bad); }
-.quotas .out { color: var(--bad); }
-.quotas { margin: 0 0 8px; display: grid; gap: 2px; font: 500 13px var(--mono); color: var(--muted); }
-.quotas b { font-weight: 500; color: var(--fg); }
-.mach { margin: 0 0 12px; display: grid; gap: 6px; font: 500 13px var(--mono); color: var(--muted); }
-.mach .now { color: var(--fg); } .mach .now.bad { color: var(--bad); }
-.mach figure { margin: 0; } .mach figcaption { display: flex; justify-content: space-between; gap: 8px; }
-.mach svg { width: 100%; height: 56px; display: block; }
-.mach .ln { fill: none; stroke: var(--prog); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
-.mach .lim { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-.mach .top { font-weight: 400; }
-"""
-
-_JS = """
-(() => {
-  let comments;  // undefined until use() answers; null when this view cannot send
-  const ready = (window.claude && window.claude.use) ? window.claude.use("comments") : Promise.resolve(null);
-  ready.then(c => { comments = c; }, () => { comments = null; });
-
-  const explain = (code) => ({
-    consent_required: "Allow comments from this page in the comment panel, then send again.",
-    claude_unavailable: "Head Jeeves is not listening right now.",
-    forbidden: "Messaging from this page is off for you here.",
-    rate_limited: "Too fast. Wait a moment.",
-    invalid: "Shorter, plain text only.",
-  })[code] || "Could not send.";
-
-  document.querySelectorAll(".tap[data-target]").forEach(item => {
-    const form = item.querySelector("form.say");
-    const input = form.querySelector("input");
-    const status = item.querySelector(".status");
-    const target = item.dataset.target;
-    const quote = item.dataset.quote;
-    const message = (text) => quote ? `${target}, on "${quote}": ${text}` : `${target}: ${text}`;
-    const toggle = () => {
-      const open = item.classList.toggle("open");
-      if (open) {
-        input.focus();
-        if (comments === null) status.textContent = "Messaging is not available in this view.";
-      }
-    };
-    item.addEventListener("click", (e) => { if (!e.target.closest("form, a")) toggle(); });
-    item.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === item) toggle(); });
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
-      if (!comments) { status.className = "status bad"; status.textContent = "Messaging is not available in this view."; return; }
-      status.className = "status"; status.textContent = "Sending…";
-      try {
-        const anchor = await comments.anchorFor(item);
-        await comments.sendToClaude({ anchor, text: message(text) });
-        status.className = "status ok"; status.textContent = "Sent to Head Jeeves.";
-        input.value = "";
-      } catch (err) {
-        status.className = "status bad"; status.textContent = explain(err && err.code);
-      }
-    });
-  });
-})();
-"""
-
-
-def _esc(text: str | None) -> str:
-    return html.escape(text or "", quote=True)
 
 
 # --- the words ---------------------------------------------------------------
@@ -269,13 +119,19 @@ def _project(session: dict, headline: dict | None) -> str:
 
 
 def _target(session: dict) -> str:
-    """How the composer addresses a session to Head Jeeves: the terminal
-    number when known, else the session's name; then its repo. Never `#?`."""
+    """How a reply addresses a session to Head Jeeves: the terminal number
+    when known, else the session's name; then its repo. Never `#?`."""
     repo = session.get("work_repo") or session.get("repo") or ""
     if session.get("tab"):
         return f"#{session['tab']} {repo}".strip()
     name = session.get("name") or ""
     return name if not repo or repo == name else f"{name} {repo}".strip()
+
+
+def _ended_target(repo: str) -> str:
+    """How a reply addresses a shipped line whose session has ended: the
+    repo, and that the session is gone, so Head Jeeves opens a new one."""
+    return f"{repo} (session ended)"
 
 
 def _ask(session: dict) -> str | None:
@@ -317,8 +173,8 @@ def _when(session: dict, now: datetime) -> str:
 
 
 def _classify(session: dict, headline: dict | None, now: datetime) -> str | None:
-    """Which section a live session's line goes in, or None for the machine
-    room only. A finished session is never a decision: only a question is."""
+    """Which section a live session's line goes in, or None for none. A
+    finished session is never a decision: only a question is."""
     state = session.get("state")
     if headline:
         kind = headline.get("kind")
@@ -338,235 +194,6 @@ def _classify(session: dict, headline: dict | None, now: datetime) -> str | None
     return None
 
 
-# --- the page ----------------------------------------------------------------
-
-
-def _composer(placeholder: str = "Your answer…") -> str:
-    return (
-        f'<form class="say"><input type="text" maxlength="2000" placeholder="{placeholder}" aria-label="Message">'
-        '<button type="submit">Send</button></form><p class="status"></p>'
-    )
-
-
-def _link(url: str | None) -> str:
-    """The full URL, shown and tappable, so the line works on its own."""
-    if not url:
-        return ""
-    href = url if re.match(r"https?://", url) else f"https://{url}"
-    return f'<a class="go" href="{_esc(href)}" target="_blank" rel="noopener">{_esc(href)}</a>'
-
-
-def _steps(steps: object) -> str:
-    if not isinstance(steps, list):
-        return ""
-    items = "".join(f"<li>{_esc(clean_line(str(s), 2 * LINE_CHARS))}</li>" for s in steps if str(s).strip())
-    return f'<ol class="steps">{items}</ol>' if items else ""
-
-
-def _ended_target(repo: str) -> str:
-    """How the composer addresses a shipped line whose session has ended:
-    the repo, and that the session is gone, so Head Jeeves opens a new one."""
-    return f"{repo} (session ended)"
-
-
-def _tap(target: str, quote: str | None) -> str:
-    """The attributes that make an element open the composer: who the
-    message is for, and the line it quotes so Head Jeeves knows what it is
-    about."""
-    line = clean_line(quote, LINE_CHARS) if quote else ""
-    quoted = f' data-quote="{_esc(line)}"' if line else ""
-    return f'class="tap" data-target="{_esc(target)}"{quoted} tabindex="0"'
-
-
-def _decision_item(item: dict) -> str:
-    return (
-        f'<li {_tap(item["target"], item["text"])}>'
-        f'<span class="proj">{_esc(item["project"])}</span><span class="text">{_esc(item["text"])}</span>'
-        f'{_link(item.get("link"))}{_composer()}</li>'
-    )
-
-
-def _project_item(project: str, items: list[dict]) -> str:
-    parts = []
-    for item in items:
-        tag = f' <span class="when-tag">{_esc(item["when"])}</span>' if item.get("when") else ""
-        line = f'<span class="text">{_esc(item["text"])}</span>{tag}{_link(item.get("link"))}{_steps(item.get("steps"))}'
-        parts.append(line + _composer("Comment on this line…"))
-    proj = f'<span class="proj">{_esc(project)}</span>'
-    if len(items) == 1:
-        # One line: the whole row is the tap target, the project inline.
-        return f'<li {_tap(items[0]["target"], items[0]["text"])}>{proj}{parts[0]}</li>'
-    divs = "".join(f'<div {_tap(item["target"], item["text"])}>{part}</div>' for item, part in zip(items, parts))
-    return f"<li>{proj}{divs}</li>"
-
-
-def _section(css: str, heading: str, body: str, count: int) -> str:
-    return f'<section class="{css}">\n<h2>{heading}<span class="n">{count}</span></h2>\n{body}\n</section>'
-
-
-def _grouped(items: list[dict]) -> list[tuple[str, list[dict]]]:
-    groups: dict[str, list[dict]] = {}
-    for item in items:
-        groups.setdefault(item["project"], []).append(item)
-    return list(groups.items())
-
-
-def _ctx(session: dict) -> str:
-    pct = session.get("context_pct")
-    if not isinstance(pct, (int, float)):
-        return ""
-    cls = "ctx full" if pct > 90 else "ctx hot" if pct > 70 else "ctx"
-    return f'<span class="{cls}">ctx {pct:.0f}%</span>'
-
-
-def _quotas(
-    limits: dict[str, dict] | None, now: datetime, logged_out: list[str] | None = None,
-    login_ends: dict[str, float] | None = None,
-) -> str:
-    """One line per account: `claude 5H 36% ↻2h15m  7D 17% ↻1d7h →~17%`,
-    the header's own wording (voice.limits_segments), then the time left on
-    its login. An account with no login says so instead: its figures
-    stopped when the login went."""
-    lines = []
-    for account in sorted(logged_out or ()):
-        lines.append(f'<div><b>{_esc(account)}</b> <span class="out">logged out · run /login</span></div>')
-    for account, figures in sorted((limits or {}).items()):
-        if account in (logged_out or ()):
-            continue
-        segments = voice.limits_segments(
-            figures.get("five_pct"), figures.get("five_resets_at"), figures.get("week_pct"), figures.get("week_resets_at"), now
-        )
-        ends = (login_ends or {}).get(account)
-        ends_html = ""
-        if ends is not None:
-            left = ends - now.timestamp()
-            css = "out" if left <= logins.WARN_EARLY else "ends"
-            ends_html = f' <span class="{css}">{_esc(voice.login_ends(left))}</span>'
-        if segments or ends_html:
-            lines.append(f"<div><b>{_esc(account)}</b> {_esc(''.join(text for text, _ in segments))}{ends_html}</div>")
-    return f'<div class="quotas">{"".join(lines)}</div>' if lines else ""
-
-
-def _chart(points: list[tuple[float, float]], t0: float, t1: float, top: float, limit: float | None = None) -> str:
-    """A line over time as inline SVG, 300 x 56 units, scaled to `top`;
-    `limit` draws the dashed line a reading should stay under (or, for free
-    memory, over)."""
-    if len(points) < 2 or t1 <= t0:
-        return '<svg viewBox="0 0 300 56" role="img" aria-label="not enough samples yet"></svg>'
-    top = top or 1.0
-
-    def xy(t: float, v: float) -> str:
-        return f"{(t - t0) / (t1 - t0) * 300:.1f},{54 - min(max(v, 0.0), top) / top * 52:.1f}"
-
-    line = " ".join(xy(t, v) for t, v in points)
-    lim = ""
-    if limit is not None and 0 <= limit <= top:
-        y = 54 - limit / top * 52
-        lim = f'<line class="lim" x1="0" x2="300" y1="{y:.1f}" y2="{y:.1f}"/>'
-    return f'<svg viewBox="0 0 300 56" preserveAspectRatio="none" role="img">{lim}<polyline class="ln" points="{line}"/></svg>'
-
-
-def _unlisted(terminals: list[dict] | None, free: list[dict] | None = None) -> str:
-    """Terminals open on the screen that no session row names: never hidden.
-    Empty windows are a problem. Idle shells are free, in the normal colour."""
-    rows = []
-    if terminals:
-        rows.append(f'<div class="now bad">{_esc(voice.unlisted_line(terminals))}</div>')
-    if free:
-        rows.append(f'<div class="now">{_esc(voice.free_line(free))}</div>')
-    return f'<div class="mach">{"".join(rows)}</div>' if rows else ""
-
-
-def _release(lag: dict | None) -> str:
-    """The installed podbay runs old code: a push that skipped `make ship`."""
-    return f'<div class="mach"><div class="now bad">{_esc(voice.release_line(lag))}</div></div>' if lag else ""
-
-
-def _machine(health: dict | None) -> str:
-    """The machine room's health block: the figures now, a load chart and a
-    free memory and free disk chart over the recorded hours, the heaviest processes."""
-    if not health:
-        return ""
-    cores = health.get("cores") or 1
-    history = health.get("history") or []
-    t1 = health.get("at") or (history[-1]["at"] if history else 0)
-    t0 = history[0]["at"] if history else t1
-    hours = max(0.0, (t1 - t0) / 3600)
-    span = f"last {hours:.0f} h" if hours >= 1.5 else f"last {max(1, round(hours * 60))} min"
-    load_pts = [(p["at"], p["load"]) for p in history if p.get("load") is not None]
-    free_pts = [(p["at"], p["free"]) for p in history if p.get("free") is not None]
-    disk_pts = [(p["at"], p["disk"]) for p in history if p.get("disk") is not None]
-    disk_top = max([machine.DISK_LOW_GIB * 2.0, *(v for _, v in disk_pts)])
-    load_top = max([cores * machine.LOAD_FACTOR, *(v for _, v in load_pts)])
-    free_top = max([1024.0, *(v for _, v in free_pts)])
-    bad = " bad" if health.get("overloaded") else ""
-    figures = voice.machine_line(health)
-    tops = "".join(
-        f'<div class="top">{_esc(line)}</div>'
-        for line in (voice.top_line(label, (health.get("top") or {}).get(key, []), key) for label, key in (("cpu", "cpu"), ("memory", "mem")))
-        if line
-    )
-    warn = f'<div class="now bad">Overloaded: {_esc(health["overloaded"])}</div>' if health.get("overloaded") else ""
-    load_now = (health.get("load") or {}).get("1m")
-    free_now = health.get("mem_free_mb")
-    disk_now = health.get("disk_free_gb")
-    disk_pct = health.get("disk_used_pct")
-    disk_label = "" if disk_now is None else f"{disk_now}" + ("" if disk_pct is None else f" · {disk_pct}% used")
-    return (
-        f'<div class="mach"><div class="now{bad}">{_esc(figures)}</div>{warn}'
-        f'<figure><figcaption><span>Load, 1 min · dashed: overloaded</span><span>{"" if load_now is None else f"{load_now:.1f}"}</span></figcaption>'
-        f'{_chart(load_pts, t0, t1, load_top, cores * machine.LOAD_FACTOR)}</figure>'
-        f'<figure><figcaption><span>Free memory, MB · dashed: low</span><span>{"" if free_now is None else free_now}</span></figcaption>'
-        f'{_chart(free_pts, t0, t1, free_top, machine.LOW_FREE_MB)}</figure>'
-        f'<figure><figcaption><span>Free disk, GB · dashed: low</span><span>{disk_label}</span></figcaption>'
-        f'{_chart(disk_pts, t0, t1, disk_top, machine.DISK_LOW_GIB)}</figure>'
-        f'<div class="top">{_esc(span)}</div>{tops}</div>'
-    )
-
-
-def _age(session: dict, now: datetime) -> str:
-    """The age in the state's own words: a working session is active, never
-    idle, and says so when the work is its subagents'."""
-    seconds = session.get("age_seconds")
-    state = session.get("state")
-    if seconds is None or state == SHELL:
-        return ""
-    label = humanize_age(seconds)
-    if state in (WORKING, WATCHING):
-        age = "active now" if label == "now" else f"active {label} ago"
-        if (session.get("waiting_on") or {}).get("kind") == "subagents_running":
-            age += " · subagent running"
-        return age
-    if state == STALLED:
-        return f"silent {label}" if label != "now" else "silent"
-    return "just now" if label == "now" else f"idle {label}"
-
-
-def _room_row(session: dict, now: datetime) -> str:
-    tab = f"#{session['tab']}" if session.get("tab") else "–"
-    repo = session.get("work_repo") or session.get("repo") or ""
-    state = session.get("state") or ""
-    pill = _PILL.get(state, state)
-    if state == PARKED and session.get("parked_until"):
-        pill = f"parked until {session['parked_until'][5:16].replace('T', ' ')}"
-    if state == EMPTY or not session.get("has_transcript"):
-        pill = "never used"
-    if session.get("paused"):
-        pill = f"paused · {pill}" if pill else "paused"
-    if session.get("login_expired"):
-        pill = "login expired"
-    meta = " · ".join(x for x in (repo, pill, _age(session, now)) if x)
-    return (
-        f'<li {_tap(_target(session), session.get("title") or session.get("name"))}><div class="row">'
-        f'<span class="tab">{_esc(tab)}</span><span class="title">{_esc(session.get("title") or session.get("name"))}</span>'
-        f'{_ctx(session)}</div><div class="meta">{_esc(meta)}</div>{_composer("Message for this session…")}</li>'
-    )
-
-
-def _plural(n: int, one: str, many: str) -> str:
-    return f"{n} {one if n == 1 else many}"
-
-
 def _options(headline: dict | None) -> list[str]:
     """A decision's answer buttons: Head Jeeves' optional `options` list,
     each one short line."""
@@ -579,8 +206,8 @@ def _options(headline: dict | None) -> list[str]:
 def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dict] | None = None) -> dict[str, list[dict]]:
     """The lines of the board by section (decision, shipped, finished,
     progress), each a dict with a stable `id`, `target`, `project`,
-    `text`, `link`, `steps`, `when` and `options`. The HTML board and
-    `podbay snapshot` both read this."""
+    `text`, `link`, `steps`, `when` and `options`. `podbay snapshot`
+    reads this."""
     now = now or datetime.now()
     headlines = {k: dict(v) for k, v in (headlines or {}).items()}
     sessions = [s for s in payload.get("sessions", []) if not s.get("head_jeeves")]
@@ -616,114 +243,3 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
                                      "link": headline.get("link"), "steps": headline.get("steps")})
     return found
-
-
-def render(
-    payload: dict,
-    now: datetime | None = None,
-    limits: dict[str, dict] | None = None,
-    headlines: dict[str, dict] | None = None,
-) -> str:
-    """The whole page from an inventory payload (see inventory_payload;
-    the sessions need `state`, `age_seconds` and `parked_until`), the
-    per-account limits (sources.newest_limits) and Head Jeeves' lines
-    (load_headlines)."""
-    now = now or datetime.now()
-    head = next((s for s in payload.get("sessions", []) if s.get("head_jeeves")), None)
-    sessions = [s for s in payload.get("sessions", []) if not s.get("head_jeeves")]
-    found = collect(payload, now, headlines)
-
-    decisions = found["decision"]
-    shipped, finished, progress = (_grouped(found[k]) for k in ("shipped", "finished", "progress"))
-    if decisions:
-        body = f'<ul class="lines">\n{chr(10).join(_decision_item(i) for i in decisions)}\n</ul>\n<p class="hint">Tap a question to answer it.</p>'
-    else:
-        body = '<p class="none">Nothing waits on you.</p>'
-    sections = [_section("ask", "Decisions for you", body, len(decisions))]
-    for css, heading, groups, empty in (
-        ("ship", "Ready for you to test", shipped, "Nothing new to test today."),
-        ("done", "Finished today", finished, ""),
-        ("prog", "In progress", progress, "Nothing running."),
-    ):
-        if not groups and not empty:
-            continue
-        body = (f'<ul class="lines">\n{chr(10).join(_project_item(p, i) for p, i in groups)}\n</ul>'
-                '\n<p class="hint">Tap a line to comment on it.</p>'
-                if groups else f'<p class="none">{empty}</p>')
-        sections.append(_section(css, heading, body, len(groups)))
-
-    rows = "\n".join(_room_row(s, now) for s in sessions)
-    head_ctx = f'<p class="hint">Head Jeeves {_ctx(head)}</p>' if head and _ctx(head) else ""
-    room = (
-        f'<details class="room"><summary>Machine room · {_plural(len(sessions), "session", "sessions")}</summary>\n'
-        f"{_release(payload.get('release'))}{_unlisted(payload.get('unlisted_terminals'), payload.get('free_terminals'))}{_machine(payload.get('machine'))}{_quotas(limits, now, payload.get('logged_out_accounts'), login_end_epochs(payload))}{head_ctx}\n"
-        + (f'<ul class="lines">\n{rows}\n</ul>\n<p class="hint">Tap a session to message it.</p>' if rows else '<p class="none">No live sessions.</p>')
-        + "</details>"
-    )
-
-    summary = " · ".join(x for x in (
-        _plural(len(decisions), "decision for you", "decisions for you") if decisions else "Nothing waits on you",
-        _plural(len(shipped), "project to test", "projects to test") if shipped else "",
-        f"{len(finished)} finished today" if finished else "",
-        f"{len(progress)} in progress" if progress else "",
-    ) if x)
-    # payload["mac"] names the Mac the board comes from (machine.mac_name).
-    stamp = " · ".join(x for x in (payload.get("mac") or "", f"{now:%A %-d %b, %H:%M}") if x)
-    return f"""<title>Status Board</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
-<style>{_CSS}</style>
-<main>
-<header><h1>Status</h1><p class="when">{_esc(stamp)}</p><p class="sum">{_esc(summary)}</p></header>
-{chr(10).join(sections)}
-{room}
-</main>
-<script>{_JS}</script>
-"""
-
-
-def write(html_text: str, path: Path | None = None) -> Path:
-    """Atomic, like every other file podbay writes."""
-    path = path or BOARD_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".board-", suffix=".html.tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(html_text)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    return path
-
-
-def save_url(url: str, path: Path | None = None) -> Path:
-    """Record the published board's URL; a bare https link, one line."""
-    path = path or URL_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".board-url-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(url.strip() + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    return path
-
-
-def load_url(path: Path | None = None) -> str | None:
-    """The recorded board URL, or None when none was recorded yet."""
-    try:
-        return (path or URL_PATH).read_text(encoding="utf-8").strip() or None
-    except OSError:
-        return None
-
-
-def dump_json(payload: dict) -> str:
-    return json.dumps(payload, default=str)

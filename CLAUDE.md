@@ -98,12 +98,18 @@ podbay/
   logins.py         the push before a Claude login ends and the one when a
                       session says "Login expired"; docs/login-expiry.md
                       has how the end is known
-  snapshot.py       `podbay snapshot`: the phone app's state as one JSON
+  board.py          the board's lines by section, from the inventory and
+                      Head Jeeves' headlines.json
+  snapshot.py       `podbay snapshot`: state.json, what both boards show
                       (board lines with ids, machine, accounts, nightly
-                      cells from cronrun's history, clavesa minutes, the
-                      lines the API may quote); log tails scrubbed of keys
+                      cells from cronrun's history, clavesa run timings by
+                      phase, the lines the API may quote); log tails
+                      scrubbed of keys. The screen writes it every minute
+  boardview.py      the board screen in the TUI (key b), drawn from
+                      state.json, so the Mac shows what the phone shows
 docs/               findings about Claude Code that the code depends on
-docs/adr/           architecture decisions; 0001 is podbay mobile (accepted)
+docs/adr/           architecture decisions; 0001 is podbay mobile, 0002 makes
+                      it the only phone app and removes the artifact board
 mobile/mock/        the podbay mobile vision mock: one static page, made-up
                       data, and its screenshots; the design, not the app
 mobile/api/         the mobile API Lambda (every /api/ route, passkeys,
@@ -118,8 +124,8 @@ mobile/app/         the phone app, static, no build: index, app.js, app.css,
   podbay/mobile.py  the Mac side: snapshot upload, the 15 s message poll,
                       podbay reply, podbay mobile ..., push registration
 tests/              pytest; conftest pins one account and a home base
-scripts/shots.py    the site's screenshots: the real TUI and board over
-                      made-up sessions, rendered by Playwright
+scripts/shots.py    the site's screenshots: the real TUI over made-up
+                      sessions and the app's board from the mock, by Playwright
 site/               podbay.tienoo.com, static: index, 404, stats/ board,
                       tracker.js (clavesa's, vendored unmodified), t.gif
 infra/              its Terraform: S3 + CloudFront + ACM + Route 53
@@ -181,7 +187,7 @@ tab is retried only while `machine.overloaded_now()`. `podbay inventory`
 answers within `inventory.BUDGET_SECONDS` from the last good scan, with
 `"stale": true`. `podbay open` refuses to start under critical memory
 pressure. Errors name the overload through `machine.overload_reason`. The
-screen, `inventory --json` (key `machine`) and the board's machine room
+screen, `inventory --json` (key `machine`) and the board's machine section
 show the figures and a chart from `machine.jsonl`, one sample a minute.
 
 ## Hard rules

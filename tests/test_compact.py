@@ -56,7 +56,7 @@ def test_the_compact_command_is_one_line_that_fits_a_tty_write():
     assert app_mod.HEAD_JEEVES_COMPACT.startswith("/compact ")
     assert "\n" not in app_mod.HEAD_JEEVES_COMPACT
     assert len(app_mod.HEAD_JEEVES_COMPACT.encode()) < 1000
-    for kept in ("board artifact URL", "decision", "not tested", "session", "quiet hours", "skill and memory"):
+    for kept in ("decision", "not tested", "session", "quiet hours", "skill and memory"):
         assert kept in app_mod.HEAD_JEEVES_COMPACT
 
 

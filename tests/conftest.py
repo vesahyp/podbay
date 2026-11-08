@@ -120,12 +120,15 @@ def _isolated_opened_file(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _isolated_board_url(monkeypatch, tmp_path):
-    """The board's published URL is recorded by the running Head Jeeves;
-    the suite must neither read nor overwrite this machine's."""
-    from podbay import board as board_mod
+def _isolated_state_json(monkeypatch, tmp_path):
+    """The screen writes state.json every minute for the board screen; the
+    suite must neither read nor overwrite this machine's."""
+    from podbay import app as app_mod
 
-    monkeypatch.setattr(board_mod, "URL_PATH", tmp_path / "board-url")
+    monkeypatch.setattr(app_mod, "SNAPSHOT_PATH", tmp_path / "mobile" / "state.json")
+    # The screen's minute snapshot reads the real machine (iTerm2, pmset,
+    # launchd); a mounted test screen gets an empty one.
+    monkeypatch.setattr(app_mod, "gather_snapshot", lambda now=None: {"generated_at": 0, "board": {"sections": {}}})
 
 
 @pytest.fixture(autouse=True)
