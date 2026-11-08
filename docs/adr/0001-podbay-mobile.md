@@ -328,3 +328,10 @@ Each slice ends with `make ship` and a check on the phone.
    08:00 the next morning.
 4. **The artifact board:** published beside the app for one month as a
    fallback, then removed. The other option was to remove it at once.
+
+## Update 2026-11-08
+
+[0002](0002-one-phone-app.md) supersedes two parts of this decision:
+`runs.html` no longer stays on jeeves.tienoo.com (the run timings move into
+the app and the site is removed), and the artifact board is removed at
+once, without the month of fallback.
