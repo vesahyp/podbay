@@ -2152,11 +2152,16 @@ def _write_prompt_file(prompt: str, directory: Path = PROMPTS_DIR) -> Path:
 
 def open_command(
     account: Account, launch_dir: str, name: str | None, prompt_file: Path | None, model: str | None = None,
+    add_dir: str | None = None,
 ) -> str:
     """The short line typed into the shell: the prompt is read from its
     file by the shell, never typed. `model` goes to claude as --model (an
-    alias such as fable, opus or sonnet, or a full model id)."""
+    alias such as fable, opus or sonnet, or a full model id). `add_dir` is
+    the target repo when the session starts in another directory: it goes
+    to claude as --add-dir, so reads there need no permission dialog."""
     args = [f"-n {shlex.quote(name)}"] if name else []
+    if add_dir and os.path.realpath(add_dir) != os.path.realpath(launch_dir):
+        args.append(f"--add-dir {shlex.quote(add_dir)}")
     if model:
         args.append(f"--model {shlex.quote(model)}")
     if prompt_file is not None:
@@ -2304,7 +2309,8 @@ def cmd_open(
         sys.exit(1)
     launch_dir, prompt = open_launch(directory, prompt)
     prompt_file = _write_prompt_file(prompt) if prompt else None
-    command = open_command(account, launch_dir, name, prompt_file, model)
+    target_dir = os.path.abspath(os.path.expanduser(directory))
+    command = open_command(account, launch_dir, name, prompt_file, model, add_dir=target_dir)
     sessions = sources.gather_sessions(StateStore(), iterm_mod.ItermLister())
     before = {s.session_id for s in sessions if not s.is_shell}
     busy = sources.busy_ttys()

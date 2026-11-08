@@ -228,6 +228,22 @@ def test_a_model_goes_to_claude_as_model(tmp_path):
     assert "--model" not in app_mod.open_command(account, str(tmp_path), "fixer", None)
 
 
+def test_the_target_repo_goes_to_claude_as_add_dir(tmp_path):
+    account = Account("claude", Path.home() / ".claude")
+    home, target = tmp_path / "home", tmp_path / "my repo"
+    home.mkdir()
+    target.mkdir()
+    command = app_mod.open_command(account, str(home), "fixer", None, add_dir=str(target))
+    shell = subprocess.Popen(
+        ["bash", "-c", f"claude() {{ printf '%s\\0' \"$@\"; }}; {command}"],
+        stdout=subprocess.PIPE, text=True,
+    )
+    out, _ = shell.communicate()
+    assert out.split("\0")[:-1] == ["-n", "fixer", "--add-dir", str(target)]
+    # started in the target itself: nothing to add
+    assert "--add-dir" not in app_mod.open_command(account, str(target), "fixer", None, add_dir=str(target))
+
+
 def test_open_records_the_model_and_the_session_carries_it(tmp_path, monkeypatch, capsys):
     from podbay import opened as opened_mod
 
