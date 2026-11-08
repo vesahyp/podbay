@@ -2,7 +2,10 @@
 // first and cached for a start without a connection; /api/ and the
 // tracker pixel are never cached. Push arrives here too (slice 6): a
 // notification opens the app at the line it is about.
-var CACHE = "podbay-shell-v2";
+// The hash below is written by scripts/stamp_sw.py (make mobile-deploy runs
+// it): a deploy that changes any shell file changes these bytes, so the
+// browser installs this worker and drops the old cache.
+var CACHE = "podbay-shell-5a8bc91be9c1";
 var SHELL = ["/", "/index.html", "/app.css", "/app.js", "/config.js", "/track-config.js", "/tracker.js", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", function (event) {

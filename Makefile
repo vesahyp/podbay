@@ -180,6 +180,7 @@ mobile-deploy: | infra/.terraform
 	  | python3 -c 'import json,sys; print(json.load(sys.stdin)["vapid_public"])'); \
 	printf 'window.PODBAY = {"region": "%s", "clientId": "%s", "vapidKey": "%s"};\n' "$$($(TF) output -raw mobile_pool_id | cut -d_ -f1)" \
 	  "$$($(TF) output -raw mobile_client_id)" "$$VAPID" > mobile/app/config.js && \
+	python3 scripts/stamp_sw.py && \
 	$(AWS) s3 sync mobile/app "s3://$$BUCKET" --delete --exclude ".*" --exclude "t.gif" --cache-control "public,no-cache" --only-show-errors && \
 	$(AWS) s3 cp mobile/app/t.gif "s3://$$BUCKET/t.gif" --cache-control "no-store" --content-type "image/gif" && \
 	$(AWS) cloudfront create-invalidation --distribution-id "$$DIST" --paths "/*" >/dev/null && \

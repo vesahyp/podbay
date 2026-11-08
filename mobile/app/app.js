@@ -935,6 +935,21 @@
     timers.push(setInterval(function () { if (!document.hidden && (app.route === "thread" || app.messages.some(function (m) { return m.state === "queued"; }))) loadMessages(); }, MESSAGES_EVERY));
     timers.push(setInterval(function () { if (app.state) freshness(); }, 5000));
   }
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(function () {});
+  if ("serviceWorker" in navigator) {
+    // A new worker takes over after a deploy: reload once so the page runs
+    // the new shell. Not on the first install (no controller before it).
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (!hadController) { hadController = true; return; }
+      if (reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register("/sw.js").then(function (reg) { reg.update().catch(function () {}); }).catch(function () {});
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) reg.update().catch(function () {}); }).catch(function () {});
+    });
+  }
   start();
 })();
