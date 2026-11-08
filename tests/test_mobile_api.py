@@ -42,6 +42,13 @@ def test_handler_refuses_without_claims_and_with_an_id_token():
     assert api.handler(event)["statusCode"] == 401
 
 
+def test_respond_writes_dynamodb_numbers():
+    from decimal import Decimal
+
+    body = api.respond(200, {"created": Decimal("1794126983"), "pct": Decimal("1.5"), "test": True})["body"]
+    assert body == '{"created": 1794126983, "pct": 1.5, "test": true}'
+
+
 def test_is_test_reads_the_group_claim():
     assert api.is_test({"cognito:groups": "[test]"})
     assert not api.is_test({})

@@ -39,6 +39,7 @@ import os
 import secrets
 import time
 import unicodedata
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -140,8 +141,8 @@ def respond(status: int, body: object) -> dict:
 
 
 def _jsonable(value):
-    if hasattr(value, "is_integer"):  # Decimal from DynamoDB
-        return int(value) if value == int(value) else float(value)
+    if isinstance(value, Decimal):  # every DynamoDB number
+        return int(value) if value == value.to_integral_value() else float(value)
     if isinstance(value, set):
         return sorted(value)
     raise TypeError(type(value))

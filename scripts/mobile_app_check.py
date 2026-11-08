@@ -146,6 +146,17 @@ async def main() -> int:
             await client.send("WebAuthn.addVirtualAuthenticator", {"options": {
                 "protocol": "ctap2", "transport": "internal", "hasResidentKey": True,
                 "hasUserVerification": True, "isUserVerified": True}})
+            # Start clean: a passkey record from an earlier run belongs to a
+            # virtual authenticator that is gone.
+            table = boto3.resource("dynamodb").Table(os.environ["MOBILE_TABLE"])
+            sub = json.loads(base64.urlsafe_b64decode(auth["access"].split(".")[1] + "==")).get("sub")
+
+            def forget_passkeys() -> None:
+                for item in table.query(KeyConditionExpression=Key("pk").eq("PASSKEY"))["Items"]:
+                    if item.get("sub") == sub:
+                        table.delete_item(Key={"pk": "PASSKEY", "sk": item["sk"]})
+
+            forget_passkeys()
             await page.goto(f"{URL}/#line/machine", wait_until="networkidle")
             await page.wait_for_selector(".sheet textarea")
             add = page.locator("button[data-add-passkey]")
@@ -155,9 +166,13 @@ async def main() -> int:
             text = f"podbay mobile test {int(time.time())}"
             await page.fill(".sheet textarea", text)
             await page.locator("button[data-send]").click()
-            await page.wait_for_selector(f"text={text}", timeout=15000)
+            try:
+                await page.wait_for_selector(f".me >> text={text}", timeout=15000)
+                check("send: the thread shows the message", True)
+            except Exception:  # noqa: BLE001 -- report and go on to the table checks
+                err = await page.locator("#sheet-err").text_content() if await page.locator("#sheet-err").count() else ""
+                check("send: the thread shows the message", False, {"hash": await page.evaluate("location.hash"), "sheet error": err})
             await shot(page, "mobile-app-7-sent.png", full=True)
-            table = boto3.resource("dynamodb").Table(os.environ["MOBILE_TABLE"])
             items = table.query(KeyConditionExpression=Key("pk").eq("MSG"), ScanIndexForward=False, Limit=20)["Items"]
             sent = next((i for i in items if i.get("text") == text), None)
             check("send: the message is in the table, marked test", bool(sent and sent.get("test") is True), sent)
@@ -171,10 +186,7 @@ async def main() -> int:
                 await page.wait_for_timeout(1000)
             check("send: the Mac takes it and does not type it", row.get("note") == "test user, not typed", row)
             # The virtual passkey goes with the browser; remove its record.
-            sub = json.loads(base64.urlsafe_b64decode(auth["access"].split(".")[1] + "==")).get("sub")
-            for item in table.query(KeyConditionExpression=Key("pk").eq("PASSKEY"))["Items"]:
-                if item.get("sub") == sub:
-                    table.delete_item(Key={"pk": "PASSKEY", "sk": item["sk"]})
+            forget_passkeys()
 
         check("no page errors other than the planted one", all("podbay mobile test error" in e for e in errors), errors)
         await browser.close()

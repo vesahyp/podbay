@@ -515,12 +515,16 @@
       window.scrollTo(0, keep);
       var sheet = "";
       if (app.sheet && s) sheet = app.sheet.kind === "log" ? logSheet(app.sheet.label, app.sheet.day) : replySheet(app.sheet.line, app.sheet.prefill, app.sheet.option);
+      // Redraw the sheet only when it or what it offers changed, and keep
+      // what was typed: a poll must never wipe a half-written message.
       var overlay = $("#overlay"), hadText = $("#text") ? $("#text").value : null;
-      if (overlay.getAttribute("data-sheet") !== JSON.stringify(app.sheet) || !app.sheet) {
+      var me = app.me || {};
+      var sheetKey = JSON.stringify([app.sheet, canSend(), me.passkeys, me.enrol_open]);
+      if (overlay.getAttribute("data-sheet") !== sheetKey || !app.sheet) {
+        var sameSheet = JSON.parse(overlay.getAttribute("data-sheet") || "[null]")[0];
         overlay.innerHTML = sheet;
-        overlay.setAttribute("data-sheet", JSON.stringify(app.sheet));
-      } else if (hadText != null && $("#text")) {
-        $("#text").value = hadText;
+        overlay.setAttribute("data-sheet", sheetKey);
+        if (hadText != null && $("#text") && JSON.stringify(sameSheet) === JSON.stringify(app.sheet)) $("#text").value = hadText;
       }
       applyWidths();
     } catch (e) {
