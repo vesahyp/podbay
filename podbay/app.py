@@ -1261,6 +1261,8 @@ class PodbayApp(App):
         try:
             for msg_id, outcome in mobile_mod.poll(self._mobile_store, lambda line: bool(self.call_from_thread(self._deliver_phone, line))):
                 log.info("phone message %s: %s", msg_id, outcome)
+            for sub_id, outcome in mobile_mod.register_pushes(self._mobile_store, mobile_mod.run_push_command):
+                log.info("phone push subscription %s: %s", sub_id, outcome)
         except Exception:  # noqa: BLE001 -- the next poll tries again
             log.warning("phone message poll failed", exc_info=True)
 
@@ -2752,6 +2754,7 @@ def main() -> None:
     notify_parser.add_argument("text", nargs="+", help="the message, one standalone sentence")
     notify_parser.add_argument("--url", default=None, metavar="URL", help="where tapping the notification lands (default: the board, as recorded by `podbay board --url`)")
     notify_parser.add_argument("--no-url", action="store_true", help="no link at all")
+    notify_parser.add_argument("--line", default=None, metavar="ID", help="open this line's reply sheet in the phone app (a session id; needs mobile-url)")
 
     config_parser = sub.add_parser("config", help="show or set a podbay setting (see podbay/config.py)")
     config_parser.add_argument("key", nargs="?", choices=sorted(config.KEYS), help="the setting; none lists them all")
@@ -2815,7 +2818,10 @@ def main() -> None:
     elif args.command == "resume":
         cmd_resume(args.target, " ".join(args.text))
     elif args.command == "notify":
-        sys.exit(cmd_notify(" ".join(args.text), "" if args.no_url else args.url))
+        url = "" if args.no_url else args.url
+        if args.line and url is None:
+            url = notify_mod.line_url(args.line)
+        sys.exit(cmd_notify(" ".join(args.text), url))
     elif args.command == "board":
         cmd_board(Path(args.out) if args.out else None, args.url)
     elif args.command == "snapshot":

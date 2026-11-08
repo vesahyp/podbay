@@ -360,7 +360,42 @@
       lineChart({ points: diskPts, t0: t0, t1: t1, max: maxDisk, limit: m.disk_low_gb, limitLabel: (m.disk_low_gb || 15) + " GB", color: "#6aa8f0", unit: "GB", label: "Disk free, 24 hours" }) + "</article>" +
       (agents ? '<h2>Background jobs</h2><article class="card">' + agents + "</article>" : "") +
       '<h2>Claude accounts</h2><article class="card">' + (accounts || '<p class="none">No accounts.</p>') + "</article>" +
-      '<div class="row gap">' + replyBtn("machine", "Ask Head Jeeves about the Mac") + "</div>";
+      '<div class="row gap">' + replyBtn("machine", "Ask Head Jeeves about the Mac") + "</div>" + pushCard();
+  }
+
+  // ---- notifications ------------------------------------------------------------
+
+  var push = { status: "", busy: false };
+  function pushState() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return "unsupported";
+    return Notification.permission;
+  }
+  function pushCard() {
+    var st = pushState(), body;
+    if (st === "unsupported") body = '<p class="line">Add podbay to the Home Screen first: tap Share, then Add to Home Screen, and open it from there. Notifications work only in the installed app.</p>';
+    else if (st === "denied") body = '<p class="line">Notifications are blocked for podbay. Allow them in Settings, Notifications, podbay.</p>';
+    else body = '<p class="line">' + (st === "granted" ? "On for this phone. Tap again after reinstalling the app." : "Pushes from the Mac open the line they are about, here.") + "</p>" +
+      '<div class="row"><button class="btn' + (st === "granted" ? "" : " primary") + '" type="button" data-push="1"' + (push.busy ? " disabled" : "") + ">" + (st === "granted" ? "Register this phone again" : "Turn on notifications") + "</button></div>";
+    return '<h2>Notifications</h2><article class="card">' + body + (push.status ? '<p class="fine">' + esc(push.status) + "</p>" : "") + "</article>";
+  }
+  function turnOnPush() {
+    if (!CFG.vapidKey) { push.status = "This deploy has no push key."; render(); return; }
+    push.busy = true; push.status = ""; render();
+    Notification.requestPermission().then(function (perm) {
+      if (perm !== "granted") throw new Error("Notifications were not allowed.");
+      return navigator.serviceWorker.ready;
+    }).then(function (reg) {
+      return reg.pushManager.getSubscription().then(function (old) {
+        return old || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBuf(CFG.vapidKey) });
+      });
+    }).then(function (sub) {
+      return api("POST", "push", { subscription: sub.toJSON() });
+    }).then(function () {
+      push.status = "Saved. The Mac registers this phone within a minute and sends a test push.";
+      track("push", { step: "on" });
+    }, function (e) {
+      push.status = e.message || "Could not turn notifications on.";
+    }).finally(function () { push.busy = false; render(); });
   }
 
   var CELL_WORD = { ok: "passed", fail: "failed", skip: "skipped", miss: "did not run", pending: "later today", none: "not scheduled", unknown: "no record" };
@@ -625,6 +660,7 @@
       return;
     }
     if (t.dataset.again) { sendAgain(t.dataset.again); return; }
+    if (t.dataset.push) { turnOnPush(); return; }
     if (t.dataset.signout) { signOut(); return; }
     if (t.dataset.restart) { signin = { stage: "email", email: "", session: "", err: "" }; render(); return; }
     if (t.id === "fresh") { loadState(); return; }
@@ -659,6 +695,13 @@
   });
 
   window.addEventListener("hashchange", fromHash);
+  // A tapped notification while the app is open: go to its line.
+  if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", function (ev) {
+    if (ev.data && ev.data.type === "open" && ev.data.hash) {
+      if (location.hash === ev.data.hash) fromHash(); else location.hash = ev.data.hash;
+      loadState();
+    }
+  });
   document.addEventListener("visibilitychange", function () { if (!document.hidden && loadAuth()) { loadState(); loadMe(); } });
 
   // ---- start ----------------------------------------------------------------------------

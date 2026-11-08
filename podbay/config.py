@@ -49,6 +49,12 @@ Keys:
               the Nightly tab. Empty leaves the run cells empty.
   mobile_runs_url  a runs.json from `clavesa pipeline timings --all`, for
               the pipeline minutes chart. Empty leaves the chart out.
+  mobile_url  the app's address. `podbay notify` then links to the app,
+              and `--line <id>` to one line in it.
+  mobile_push_command  the command that registers the app's Web Push
+              subscription with the push sender; it gets the subscription
+              as JSON on stdin. Empty: the app's subscription is kept in the
+              table and not registered.
 
   user_name   how HAL addresses you, in the splash, the shutdown and every
               remark. The screen asks for it at the first start and saves
@@ -83,6 +89,8 @@ KEYS = {
     "mobile-table": "mobile_table",
     "mobile-cron-dir": "mobile_cron_dir",
     "mobile-runs-url": "mobile_runs_url",
+    "mobile-url": "mobile_url",
+    "mobile-push-command": "mobile_push_command",
 }
 
 

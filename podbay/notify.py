@@ -8,11 +8,12 @@ argument, then the link as the last one when there is a link. Head Jeeves
 calls it when a session needs a decision from the user or has shipped
 something for them to test (rules in his skill).
 
-The link is where tapping the notification lands. By default it is the
-board's URL (board.load_url), because every line Head Jeeves pushes is a
-line on the board, and the board is where the user answers it: tapping the
-line opens its composer. `podbay notify --url <url>` sends another link,
-and `--no-url` none.
+The link is where tapping the notification lands. With the phone app set
+up (`podbay config mobile-url`), it is the app's board, and `podbay notify
+--line <id>` opens that line's reply sheet in the app (line ids are the
+session ids in `podbay snapshot`). Without the app it is the published
+board's URL (board.load_url): tapping a line there opens its composer.
+`podbay notify --url <url>` sends another link, and `--no-url` none.
 
 Empty command: off, nothing runs. A command that fails, hangs or is
 missing is logged and reported in one line; it never raises, because the
@@ -43,6 +44,14 @@ def argv(command: str, text: str, url: str | None = None) -> list[str]:
     return parts + [text] + ([url] if url else [])
 
 
+def line_url(line_id: str) -> str | None:
+    """The app link that opens one line's reply sheet; None without the app."""
+    from urllib.parse import quote
+
+    app = config.mobile_setting("mobile_url").rstrip("/")
+    return f"{app}/#line/{quote(line_id, safe='')}" if app else None
+
+
 def send(text: str, command: str | None = None, timeout: float = TIMEOUT, url: str | None = None) -> tuple[bool, str]:
     """Run the notify command with `text` and the link `url` (None: the
     recorded board URL, if any; "": no link). Returns (sent, reason): sent
@@ -54,7 +63,8 @@ def send(text: str, command: str | None = None, timeout: float = TIMEOUT, url: s
     if url is None:
         from . import board
 
-        url = board.load_url()
+        app = config.mobile_setting("mobile_url").rstrip("/")
+        url = f"{app}/#board" if app else board.load_url()
     try:
         parts = argv(command, text, url)
     except ValueError as exc:

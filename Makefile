@@ -174,11 +174,16 @@ MOBILE_ENV = AWS_PROFILE=$(PROFILE) MOBILE_URL=$$($(TF) output -raw mobile_url) 
   MOBILE_STATE_BUCKET=$$($(TF) output -raw mobile_state_bucket)
 
 # The phone app (mobile/app/) to its bucket. config.js is written here from
-# Terraform; everything revalidates, the pixel is never stored.
+# Terraform, plus the public half of the Web Push key from VAPID_PARAM, the
+# SSM parameter the push sender keeps its keys in ({"vapid_public": ...}).
+# Everything revalidates, the pixel is never stored.
+VAPID_PARAM ?= /jeeves/push
 mobile-deploy: | infra/.terraform
 	@BUCKET=$$($(TF) output -raw mobile_bucket); DIST=$$($(TF) output -raw mobile_distribution_id); \
-	printf 'window.PODBAY = {"region": "%s", "clientId": "%s"};\n' "$$($(TF) output -raw mobile_pool_id | cut -d_ -f1)" \
-	  "$$($(TF) output -raw mobile_client_id)" > mobile/app/config.js && \
+	VAPID=$$($(AWS) ssm get-parameter --name "$(VAPID_PARAM)" --with-decryption --query Parameter.Value --output text \
+	  | python3 -c 'import json,sys; print(json.load(sys.stdin)["vapid_public"])'); \
+	printf 'window.PODBAY = {"region": "%s", "clientId": "%s", "vapidKey": "%s"};\n' "$$($(TF) output -raw mobile_pool_id | cut -d_ -f1)" \
+	  "$$($(TF) output -raw mobile_client_id)" "$$VAPID" > mobile/app/config.js && \
 	$(AWS) s3 sync mobile/app "s3://$$BUCKET" --delete --exclude ".*" --exclude "t.gif" --cache-control "public,no-cache" --only-show-errors && \
 	$(AWS) s3 cp mobile/app/t.gif "s3://$$BUCKET/t.gif" --cache-control "no-store" --content-type "image/gif" && \
 	$(AWS) cloudfront create-invalidation --distribution-id "$$DIST" --paths "/*" >/dev/null && \

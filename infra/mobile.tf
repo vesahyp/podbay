@@ -488,6 +488,7 @@ locals {
     "GET /api/state", "GET /api/me", "GET /api/messages", "POST /api/messages",
     "POST /api/passkey/register/options", "POST /api/passkey/register/verify",
     "POST /api/passkey/auth/options", "POST /api/passkey/auth/verify",
+    "POST /api/push",
   ]
 }
 

@@ -14,6 +14,10 @@ call goes out from the Mac; nothing comes in.
   ever typed, never run.
 - `podbay reply <id> <text>`: Head Jeeves' answer, shown under the
   message in the app.
+- Push: when the app saves a Web Push subscription, the next poll hands
+  it as JSON on stdin to `podbay config mobile-push-command`, the command
+  that registers a device with whatever sends the pushes. `podbay notify
+  --line <id>` then sends a push whose tap opens that line in the app.
 - `podbay mobile passkey-allow | signout | audit`: open the 15 minute
   window in which the app may add a passkey; end every sign-in and every
   send grant; print the last 7 days of the audit log.
@@ -132,9 +136,10 @@ class Store:
         res = self.table.query(KeyConditionExpression=Key("pk").eq("MSG") & Key("sk").gte(id_at(since)))
         return res.get("Items", [])
 
-    def mark(self, sk: str, expected: str | None, fields: dict) -> bool:
-        """Set `fields` on a message, only while its state is `expected`
-        (None: only while it exists). False when the condition failed."""
+    def mark(self, sk: str, expected: str | None, fields: dict, pk: str = "MSG") -> bool:
+        """Set `fields` on a message (or another item under `pk`), only
+        while its state is `expected` (None: only while it exists). False
+        when the condition failed."""
         names = {f"#{k}": k for k in fields}
         values = {f":{k}": v for k, v in fields.items()}
         condition = "attribute_exists(pk)"
@@ -144,7 +149,7 @@ class Store:
             condition += " AND #state_now = :expected"
         try:
             self.table.update_item(
-                Key={"pk": "MSG", "sk": sk},
+                Key={"pk": pk, "sk": sk},
                 UpdateExpression="SET " + ", ".join(f"#{k} = :{k}" for k in fields),
                 ConditionExpression=condition,
                 ExpressionAttributeNames=names, ExpressionAttributeValues=values,
@@ -190,6 +195,51 @@ def poll(store: Store, deliver: Callable[[str], bool], now: float | None = None)
             store.mark(sk, "delivering", {"state": "queued"})
             done.append((sk, "retry"))
     return done
+
+
+def register_pushes(store: Store, run: Callable[[str], bool], now: float | None = None) -> list[tuple[str, str]]:
+    """Hand each new push subscription the app saved to `run`, which gets
+    the subscription as JSON (podbay config mobile-push-command, for
+    example the home repo's push-subscribe --stdin). A test user's
+    subscription is never registered."""
+    now = now or time.time()
+    done = []
+    for item in store.query("PUSHSUB", now - 30 * 86400):
+        if item.get("state") != "new":
+            continue
+        if item.get("test"):
+            store.mark(item["sk"], "new", {"state": "test"}, pk="PUSHSUB")
+            done.append((item["sk"], "test"))
+            continue
+        if run(json.dumps(item["subscription"])):
+            store.mark(item["sk"], "new", {"state": "registered", "registered_at": int(now)}, pk="PUSHSUB")
+            done.append((item["sk"], "registered"))
+        else:
+            store.mark(item["sk"], "new", {"state": "failed"}, pk="PUSHSUB")
+            done.append((item["sk"], "failed"))
+    return done
+
+
+def run_push_command(subscription_json: str) -> bool:
+    """Run `podbay config mobile-push-command` with the subscription on
+    stdin. False when none is set or it fails."""
+    import os
+    import shlex
+    import subprocess
+
+    command = config.mobile_setting("mobile_push_command")
+    if not command:
+        return False
+    try:
+        parts = shlex.split(command)
+        parts[0] = os.path.expanduser(parts[0])
+        res = subprocess.run(parts, input=subscription_json, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        log.warning("mobile push command failed to start", exc_info=True)
+        return False
+    if res.returncode != 0:
+        log.warning("mobile push command exited %s: %s", res.returncode, (res.stderr or res.stdout)[-300:])
+    return res.returncode == 0
 
 
 def reply(store: Store, msg_id: str, text: str) -> bool:

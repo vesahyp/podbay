@@ -13,6 +13,7 @@ access token. Every route lives under /api/ on the app's own CloudFront.
     POST /api/passkey/auth/options
     POST /api/passkey/auth/verify       a passkey check: a 30 day send
                                         grant for this sign-in
+    POST /api/push                      the phone's Web Push subscription
 
 The one action is to queue text. The text is never run here or on the
 Mac; podbay types it to Head Jeeves as one /head-jeeves phone event.
@@ -27,6 +28,8 @@ Table layout (one table, pk + sk, `ttl` removes old items):
     ENROL    window          open until `expires` (podbay mobile passkey-allow)
     GRANT    <origin_jti>    this sign-in may send until `expires`
     CHAL     <origin_jti>#<reg|auth>  the WebAuthn challenge, 5 minutes
+    PUSHSUB  <id>            a push subscription, state new until the Mac
+                             registered it
 """
 
 from __future__ import annotations
@@ -406,6 +409,22 @@ def auth_verify(event: dict, claims: dict, body: dict) -> dict:
     return respond(200, {"ok": True, "can_send_until": until})
 
 
+def save_push(event: dict, claims: dict, body: dict) -> dict:
+    """The phone's Web Push subscription. The podbay screen hands it to the
+    configured register command (mobile.py), so notify reaches the app."""
+    sub = body.get("subscription") or {}
+    endpoint = str(sub.get("endpoint") or "")
+    keys = sub.get("keys") or {}
+    if not endpoint.startswith("https://") or len(endpoint) > 1000 or not keys.get("p256dh") or not keys.get("auth"):
+        return respond(400, {"error": "not a push subscription"})
+    now = time.time()
+    table().put_item(Item={"pk": "PUSHSUB", "sk": new_id(now), "sub": claims.get("sub") or "", "test": is_test(claims),
+                           "subscription": {"endpoint": endpoint, "keys": {"p256dh": str(keys["p256dh"])[:200], "auth": str(keys["auth"])[:100]}},
+                           "state": "new", "ttl": int(now + 30 * 86400)})
+    audit(event, claims, "push subscription saved")
+    return respond(201, {"ok": True})
+
+
 def me(claims: dict) -> dict:
     now = time.time()
     return respond(200, {
@@ -454,4 +473,6 @@ def handler(event: dict, context=None) -> dict:
         return auth_options(event, claims)
     if route == "POST /api/passkey/auth/verify":
         return auth_verify(event, claims, body)
+    if route == "POST /api/push":
+        return save_push(event, claims, body)
     return respond(404, {"error": "no such route"})

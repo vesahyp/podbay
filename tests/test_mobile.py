@@ -78,6 +78,34 @@ def test_reply_and_passkey_window():
     assert store.puts[-1]["pk"] == "ENROL" and store.puts[-1]["expires"] == until
 
 
+class PushStore(FakeStore):
+    def query(self, pk: str, since: float) -> list[dict]:
+        return [dict(i) for i in self.items.values() if i["pk"] == pk]
+
+    def mark(self, sk: str, expected, fields: dict, pk: str = "MSG") -> bool:
+        return super().mark(sk, expected, fields)
+
+
+def test_register_pushes_hands_new_subscriptions_to_the_command_once():
+    sub = {"endpoint": "https://push.example/1", "keys": {"p256dh": "a", "auth": "b"}}
+    store = PushStore([{"pk": "PUSHSUB", "sk": "1", "state": "new", "subscription": sub},
+                       {"pk": "PUSHSUB", "sk": "2", "state": "new", "subscription": sub, "test": True},
+                       {"pk": "PUSHSUB", "sk": "3", "state": "registered", "subscription": sub}])
+    seen: list[str] = []
+    assert dict(mobile.register_pushes(store, lambda s: seen.append(s) or True, now=NOW)) == {"1": "registered", "2": "test"}
+    assert [json.loads(s) for s in seen] == [sub]
+    assert mobile.register_pushes(store, lambda s: True, now=NOW) == []
+
+
+def test_notify_line_url(monkeypatch, tmp_path):
+    from podbay import config, notify
+
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "config.json")
+    assert notify.line_url("abc") is None
+    config.set_value("mobile-url", "https://app.example.com/", tmp_path / "config.json")
+    assert notify.line_url("nightly:backup:2026-11-08") == "https://app.example.com/#line/nightly%3Abackup%3A2026-11-08"
+
+
 def test_uploader_puts_on_change_and_on_heartbeat():
     puts: list[bytes] = []
     clock = [NOW]

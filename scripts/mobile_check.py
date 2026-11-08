@@ -15,10 +15,12 @@ import gzip
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
 import boto3
+from boto3.dynamodb.conditions import Key
 
 URL = os.environ["MOBILE_URL"]
 
@@ -79,7 +81,24 @@ def main() -> int:
     status, sent = call("POST", "/api/messages", access, {"line": "machine", "text": "x", "key": "k" * 10, "run": "ls"})
     check("an unknown field is refused", status == 400, (status, sent))
     status, shell = call("GET", "/")
-    check("the app shell is served", status in (200, 403, 404), status)  # the shell arrives in slice 4
+    check("the app shell is served", status == 200, status)
+    status, saved = call("POST", "/api/push", access, {"subscription": {"endpoint": "ftp://x", "keys": {}}})
+    check("a bad push subscription is refused", status == 400, (status, saved))
+    fake = {"endpoint": f"https://push.invalid/check-{int(time.time())}", "keys": {"p256dh": "check", "auth": "check"}}
+    status, saved = call("POST", "/api/push", access, {"subscription": fake})
+    check("a push subscription is saved", status == 201, (status, saved))
+    if status == 201:
+        # The Mac's next poll sees it and, since this is the test user, never registers it.
+        table = boto3.resource("dynamodb").Table(os.environ["MOBILE_TABLE"])
+        state = ""
+        for _ in range(40):
+            items = table.query(KeyConditionExpression=Key("pk").eq("PUSHSUB"))["Items"]
+            mine = [i for i in items if i["subscription"]["endpoint"] == fake["endpoint"]]
+            state = mine[0]["state"] if mine else ""
+            if state != "new":
+                break
+            time.sleep(1)
+        check("the Mac never registers the test user's subscription", state == "test", state)
     return 1 if failures else 0
 
 
