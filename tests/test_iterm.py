@@ -533,3 +533,13 @@ def test_screen_prints_the_tab_text(monkeypatch, capsys):
     monkeypatch.setattr(app.iterm_mod, "read_session_text", lambda tty, max_lines=40: "Do you want to proceed?")
     app.cmd_screen("x", 40)
     assert "Do you want to proceed?" in capsys.readouterr().out
+
+
+def test_send_clears_the_input_line_before_the_text():
+    import podbay.iterm as iterm
+
+    script = "\n".join(iterm.SEND_SCRIPT_LINES)
+    clear = script.index(f"character id {iterm.CLEAR_LINE_CODE}")
+    assert iterm.CLEAR_LINE_CODE == 21
+    assert clear < script.index("repeat with i from 2")
+    assert clear < script.index('write text ""')

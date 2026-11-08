@@ -189,5 +189,8 @@ def _isolated_pause_files(monkeypatch, tmp_path):
     from podbay import overload as overload_mod
     from podbay import paused as paused_mod
 
+    from podbay import hal as hal_mod
+
+    monkeypatch.setattr(hal_mod, "ANNOUNCED_PATH", tmp_path / "hal-announced.json")
     monkeypatch.setattr(paused_mod, "PAUSED_PATH", tmp_path / "paused.json")
     monkeypatch.setattr(overload_mod, "STATE_PATH", tmp_path / "overload.json")

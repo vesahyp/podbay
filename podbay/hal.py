@@ -7,7 +7,11 @@ them as toasts. `podbay config voice off` silences him.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import tempfile
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -33,6 +37,40 @@ DIALOG_KINDS = ("ask_user_question", "prompt", "permission")
 # Voice setting values: on (toasts, the default) or off.
 VOICE_ON, VOICE_OFF = "on", "off"
 
+log = logging.getLogger(__name__)
+
+# The turns already announced, kept across restarts. `make ship` restarts
+# the screen, and the new process used to treat every unread finish as said
+# before it looked: a session whose turn ended during the restart never got
+# its finish event (podbay-fix-send-timeout, 2026-11-08, idle 30 minutes).
+ANNOUNCED_PATH = Path.home() / ".local" / "state" / "podbay" / "hal-announced.json"
+
+
+def load_announced(path: Path | None = None) -> dict[str, str] | None:
+    """session id -> the turn's time (ISO) already announced. None when no
+    file exists yet (the first run ever: everything counts as said)."""
+    path = path or ANNOUNCED_PATH
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("announced file %s unreadable: %s", path, exc)
+        return None
+    return {k: v for k, v in data.items() if isinstance(v, str)} if isinstance(data, dict) else None
+
+
+def save_announced(announced: dict[str, datetime], path: Path | None = None) -> None:
+    path = path or ANNOUNCED_PATH
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".hal-", suffix=".json.tmp")
+        with os.fdopen(fd, "w") as fh:
+            json.dump({k: v.isoformat() for k, v in announced.items()}, fh)
+        os.replace(tmp, path)
+    except OSError as exc:
+        log.warning("announced file %s not written: %s", path, exc)
+
 
 @dataclass
 class Memory:
@@ -55,6 +93,7 @@ class Memory:
     # as reported again (raide-build-3d-2, 2026-10-08).
     announced: dict[str, datetime] = field(default_factory=dict)
     last_quiet_at: datetime | None = None
+    restored: dict[str, str] | None = None  # load_announced() at the first refresh
     primed: bool = False  # the first refresh only sets the baseline
 
 
@@ -76,6 +115,9 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     # A session Head Jeeves paused finishes its step and then waits on
     # purpose: that is no finish and no stall to report.
     paused_ids = paused.ids()
+    if not memory.primed:
+        memory.restored = load_announced()
+    before_announced = dict(memory.announced)
     attention = False
     unconfirmed: dict[str, datetime] = {}
     for s in sessions:
@@ -93,7 +135,17 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         report = s.main_turn_ts if derived in (WORKING, STALLED) and s.turn_ended and s.subagents_running else None
         turn = s.main_turn_ts or s.last_turn_ts
         if not memory.primed or previous is None:
-            if turn is not None and (report is not None or (derived == NEEDS_YOU and s.unread)):
+            unsaid = (
+                not memory.primed and memory.restored is not None and previous is None and report is None
+                and derived == NEEDS_YOU and s.unread and turn is not None and s.session_id not in paused_ids
+                and (s.waiting_on or {}).get("kind") not in ("subagents_running", *DIALOG_KINDS)
+                and memory.restored.get(s.session_id) != turn.isoformat()
+            )
+            if unsaid:
+                # Finished while podbay was restarting: the last run never
+                # saw it, so it is not said yet. Held like any finish.
+                unconfirmed[s.session_id] = now
+            elif turn is not None and (report is not None or (derived == NEEDS_YOU and s.unread)):
                 memory.announced[s.session_id] = turn  # the baseline: said before podbay looked
             continue  # a session seen for the first time has no change to report
         line = None
@@ -149,6 +201,8 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     memory.statuses = current
     memory.unconfirmed = unconfirmed
     memory.announced = {k: v for k, v in memory.announced.items() if k in current}
+    if memory.announced != before_announced or memory.restored is None:
+        save_announced(memory.announced)
     memory.seen = {s.session_id: s for s in sessions if s.session_id in current}
 
     heated_now = {s.session_id for s in sessions if not s.is_shell and not is_head_jeeves(s) and mood.is_hot(s.recent_prompts)}

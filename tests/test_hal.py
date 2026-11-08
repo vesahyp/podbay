@@ -322,3 +322,34 @@ def test_a_finished_turn_is_not_reported_again_when_agents_appear():
     hal.remarks(memory, [done], {}, NOW)
     assert hal.remarks(memory, [done], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
     assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, LATER) == []
+
+
+def _restart(tmp_path, monkeypatch, announced):
+    """A new process: a fresh Memory, with the file the last one left."""
+    hal.save_announced(announced, tmp_path / "hal-announced.json")
+    monkeypatch.setattr(hal, "ANNOUNCED_PATH", tmp_path / "hal-announced.json")
+    return hal.Memory()
+
+
+def test_a_finish_during_a_restart_is_announced_by_the_new_process(tmp_path, monkeypatch):
+    done = _session("a")  # unread, finished a minute ago, not in the file
+    memory = _restart(tmp_path, monkeypatch, {})
+    assert hal.remarks(memory, [done], {}, NOW) == []
+    lines = hal.remarks(memory, [done], {}, LATER)
+    assert lines[0].startswith("A has finished")
+    assert hal.remarks(memory, [done], {}, LATER) == []
+
+
+def test_a_finish_the_last_process_announced_is_not_said_again(tmp_path, monkeypatch):
+    done = _session("a")
+    memory = _restart(tmp_path, monkeypatch, {"a": done.last_turn_ts})
+    assert hal.remarks(memory, [done], {}, NOW) == []
+    assert hal.remarks(memory, [done], {}, LATER) == []
+
+
+def test_the_first_run_ever_says_nothing_about_old_finishes():
+    memory = hal.Memory()
+    done = _session("a")
+    hal.remarks(memory, [done], {}, NOW)
+    assert hal.remarks(memory, [done], {}, LATER) == []
+    assert hal.load_announced() == {"a": done.last_turn_ts.isoformat()}

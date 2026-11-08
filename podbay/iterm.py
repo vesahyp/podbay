@@ -493,6 +493,7 @@ PASTE_START = "\x1b[200~"
 PASTE_END = "\x1b[201~"
 PASTE_CHUNK_BYTES = 512
 PASTE_CHUNK_DELAY = 0.05
+CLEAR_LINE_CODE = 21  # Ctrl-U: deletes the input line in Claude Code and in zsh
 
 # argv-based (never string-interpolated) so quotes/unicode in the message
 # survive; also never select/activate the target tab. Item 1 is the tty,
@@ -511,6 +512,11 @@ SEND_SCRIPT_LINES = [
     # paste_chunks). Enter goes separately from the text: one burst reads
     # as a paste in Claude Code and the newline becomes a line break
     # instead of a submit.
+    # Ctrl-U first: text left unsent in the input line would otherwise
+    # come before the message (2026-11-08: "/exit" after "podbay screen
+    # jeeves").
+    f"            tell s to write text (character id {CLEAR_LINE_CODE}) newline NO",
+    "            delay 0.1",
     "            repeat with i from 2 to (count of argv)",
     "              tell s to write text (item i of argv) newline NO",
     f"              delay {PASTE_CHUNK_DELAY}",
