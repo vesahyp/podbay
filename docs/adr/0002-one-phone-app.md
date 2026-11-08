@@ -134,3 +134,24 @@ No change to the API or the table: the app builds both views from
 `GET /api/messages`. The timeline is built in `mobile/app/thread.js`,
 a pure function with a test in Node, so the order is tested without a
 browser.
+
+## Update 2026-11-08: the Mac board screen and the Head Jeeves chat
+
+The board on the Mac is a screen of the `podbay` TUI, opened with key `b`
+(`podbay/boardview.py`). It draws the same `state.json` that the phone app
+reads, so the Mac and the phone show the same lines in the same order:
+decisions, ready to test, finished today, in progress, the machine, the
+nightly jobs, the run timings and the thread. It replaces `podbay board`
+as the only other view when the app is down.
+
+The thread section is the Head Jeeves chat as the phone shows it. It uses
+the model of the update above: strict time order, oldest first, each item
+at its own time (a sent message at `created`, the answer at `replied_at`,
+a `podbay say` line at `created`), and a reply to a board line as one
+compact entry. `chat_items` in `boardview.py` mirrors `mobile/app/thread.js`.
+
+Head Jeeves is the CTO (the rule of 2026-11-08). Sessions bring their
+questions to it, and it messages the owner only for a step that needs the
+owner's hands. So the chat holds the owner's own messages and those few
+requests, and the events that podbay sends to Head Jeeves are worded for
+Head Jeeves, not for the owner.

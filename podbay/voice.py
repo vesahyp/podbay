@@ -389,7 +389,7 @@ def message_sent(title: str) -> str:
 
 
 def hal_finished(title: str) -> str:
-    return f"{title} has finished, {USER_NAME}. It is waiting for you."
+    return f"{title} has finished. It is waiting for Head Jeeves."
 
 
 def hal_ended(title: str, last_text: str | None) -> str:
@@ -398,7 +398,7 @@ def hal_ended(title: str, last_text: str | None) -> str:
     if len(said) > 240:
         said = said[:239] + "…"
     tail = f" Its last words: {said}" if said else ""
-    return f"{title} has ended, {USER_NAME}.{tail}"
+    return f"{title} has ended.{tail}"
 
 
 def hal_question(title: str) -> str:
@@ -406,7 +406,7 @@ def hal_question(title: str) -> str:
 
 
 def hal_permission(title: str) -> str:
-    return f"{title} is waiting for your permission, {USER_NAME}."
+    return f"{title} is waiting for Head Jeeves to allow a permission."
 
 
 def hal_reported(title: str) -> str:

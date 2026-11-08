@@ -127,7 +127,7 @@ def test_session_events_are_listed_for_head_jeeves():
     hal.remarks(memory, [_session("a", last_turn="in_progress")], {}, NOW)
     hal.remarks(memory, [_session("a")], {}, NOW)
     hal.remarks(memory, [_session("a")], {}, LATER)
-    assert memory.events == [("a", "A has finished, Frank. It is waiting for you.")]
+    assert memory.events == [("a", "A has finished. It is waiting for Head Jeeves.")]
     hal.remarks(memory, [_session("a")], {}, LATER)
     assert memory.events == []
 
@@ -182,7 +182,7 @@ def test_a_session_whose_claude_exits_is_announced_with_its_last_words(monkeypat
     shell = _session("shell-7", shell=True)  # its terminal, back at the prompt
     lines = hal.remarks(memory, [shell], {}, NOW)
 
-    assert lines == ["SITE has ended, Frank. Its last words: Deployed the site. All green."]
+    assert lines == ["SITE has ended. Its last words: Deployed the site. All green."]
     assert memory.events == [("site", lines[0])]
     assert hal.remarks(memory, [shell], {}, NOW) == []  # said once
 
@@ -246,7 +246,7 @@ def test_a_permission_dialog_is_announced_although_no_turn_ended():
     hal.remarks(memory, [_session("a", last_turn="in_progress", status="busy")], {}, NOW)
     permission = _session("a", last_turn="in_progress", status="waiting", minutes_ago=3,
                           waiting_on={"kind": "permission", "detail": "Bash: grep"})
-    assert hal.remarks(memory, [permission], {}, NOW) == ["A is waiting for your permission, Frank."]
+    assert hal.remarks(memory, [permission], {}, NOW) == ["A is waiting for Head Jeeves to allow a permission."]
 
 
 def test_a_report_with_agents_running_and_then_their_permission_dialog_are_both_announced():
@@ -286,7 +286,7 @@ def test_each_report_is_announced_once_and_a_finish_still_waits_for_the_agents()
     # the agents done and the turn over: the finish, held as before
     hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
     assert hal.remarks(memory, [_session("r", minutes_ago=-2)], {}, NOW) == []
-    assert hal.remarks(memory, [_session("r", minutes_ago=-2)], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
+    assert hal.remarks(memory, [_session("r", minutes_ago=-2)], {}, LATER) == ["R has finished. It is waiting for Head Jeeves."]
 
 
 def test_a_report_seen_on_the_first_refresh_is_the_baseline():
@@ -320,7 +320,7 @@ def test_a_finished_turn_is_not_reported_again_when_agents_appear():
     hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
     done = _session("r", minutes_ago=0)
     hal.remarks(memory, [done], {}, NOW)
-    assert hal.remarks(memory, [done], {}, LATER) == ["R has finished, Frank. It is waiting for you."]
+    assert hal.remarks(memory, [done], {}, LATER) == ["R has finished. It is waiting for Head Jeeves."]
     assert hal.remarks(memory, [_delegating("r", 0, 0)], {}, LATER) == []
 
 
