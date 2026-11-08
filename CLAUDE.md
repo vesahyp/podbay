@@ -127,7 +127,9 @@ analytics/          clavesa workspace: CloudFront logs to data/analytics.json
   clavesa/podbay-mobile-traffic/  the phone app's logs (prefix mobile/,
                       source spec mobile_logs) to stats/analytics.json in
                       the private state bucket; run-analytics.sh runs it
-                      after podbay-traffic at 07:30
+                      after podbay-traffic at 07:30. make mobile-test adds
+                      podbay-check to its user agent and events.py files
+                      those beacons as a bot, so checks never count as use
   live/             the today-so-far Lambda: each log file as it lands, to
                       DynamoDB day rows and data/live.json; its header has
                       the design and why sets, not counters

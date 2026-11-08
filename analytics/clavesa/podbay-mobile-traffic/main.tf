@@ -26,10 +26,11 @@ module "events" {
   python = file("transforms/events.py")
 
   # The phone app's CloudFront logs: same bucket as the landing page, its
-  # own prefix (infra/mobile.tf logging_config). spec_name must differ from
-  # podbay-traffic's "logs": clavesa keeps one local source cache per
-  # spec_name in the workspace, whatever the prefix, so a shared name reads
-  # the landing page's logs here.
+  # own prefix (infra/mobile.tf logging_config). The bucket and prefix that
+  # count are the ones in .clavesa/sources/mobile_logs.json: clavesa takes
+  # them from the registry spec spec_name names and ignores the ones here
+  # (clavesa-dev TODO.md, "inline source_inputs ... ignored"). With
+  # podbay-traffic's "logs" this pipeline read the landing page's logs.
   source_inputs = { logs = { bucket = "podbay-cloudfront-logs", format = "tsv", prefix = "mobile/", spec_name = "mobile_logs" } }
 
 }

@@ -67,6 +67,9 @@ async def main() -> int:
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         device = dict(p.devices["iPhone 16"])
+        # The token podbay-mobile-traffic reads to keep check runs out of the
+        # app's stats (its events.py, _CHECK_TOKEN).
+        device["user_agent"] += " podbay-check"
         beacons: list[str] = []
         errors: list[str] = []
 

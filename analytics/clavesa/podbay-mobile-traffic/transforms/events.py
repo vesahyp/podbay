@@ -98,10 +98,24 @@ _NAMED_BOTS = (
 )
 
 
+# podbay's own checks (make mobile-test) are not use of the app. Since
+# 2026-11-08 they add this token to the user agent. Before that they sent
+# Playwright's iPhone 16 string as it was, a pair of iOS 18_7 and Safari
+# 27.2 that no real iPhone sends; that exact string is matched too, so the
+# day's earlier check runs leave the counts as well.
+_CHECK_TOKEN = "podbay-check"
+_CHECK_UAS_BEFORE_TOKEN = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1",
+)
+
+
 def _bot_name(ua):
     """The crawler's name, '' for a person. Doubles as the bot flag."""
     if not ua:
         return "no user agent"
+    if _CHECK_TOKEN in ua or ua in _CHECK_UAS_BEFORE_TOKEN:
+        return _CHECK_TOKEN
     low = ua.lower()
     for token, name in _NAMED_BOTS:
         if token in low:
