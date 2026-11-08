@@ -38,6 +38,18 @@ Keys:
               to the next model on the same account. Unset means fable (it
               spends quota too fast, 2026-10-31); "none" allows every model.
 
+  mobile      on | off: whether the screen uploads the state snapshot for
+              the phone app and delivers the app's messages to Head Jeeves
+              (mobile.py, docs/adr/0001-podbay-mobile.md). Default off.
+  mobile_profile  the AWS profile for that; empty uses the default chain.
+  mobile_bucket, mobile_table  the snapshot bucket and the message table;
+              defaults podbay-mobile-state and podbay-mobile, the names in
+              infra/mobile.tf.
+  mobile_cron_dir  where `cronrun` keeps <job>.json and <job>.jsonl, for
+              the Nightly tab. Empty leaves the run cells empty.
+  mobile_runs_url  a runs.json from `clavesa pipeline timings --all`, for
+              the pipeline minutes chart. Empty leaves the chart out.
+
   user_name   how HAL addresses you, in the splash, the shutdown and every
               remark. The screen asks for it at the first start and saves
               it here; set it again to change it, clear it ("") to be asked
@@ -65,7 +77,22 @@ KEYS = {
     "notify-command": "notify_command",
     "user-name": "user_name",
     "never-suggest-models": "never_suggest_models",
+    "mobile": "mobile",
+    "mobile-profile": "mobile_profile",
+    "mobile-bucket": "mobile_bucket",
+    "mobile-table": "mobile_table",
+    "mobile-cron-dir": "mobile_cron_dir",
+    "mobile-runs-url": "mobile_runs_url",
 }
+
+
+def mobile_on(path: Path | None = None) -> bool:
+    return str(read(path).get("mobile") or "off") == "on"
+
+
+def mobile_setting(field: str, default: str = "", path: Path | None = None) -> str:
+    """One of the mobile_* settings, or `default`."""
+    return str(read(path).get(field) or default)
 
 
 def read(path: Path | None = None) -> dict:

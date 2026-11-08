@@ -90,8 +90,12 @@ podbay/
   logins.py         the push before a Claude login ends and the one when a
                       session says "Login expired"; docs/login-expiry.md
                       has how the end is known
+  snapshot.py       `podbay snapshot`: the phone app's state as one JSON
+                      (board lines with ids, machine, accounts, nightly
+                      cells from cronrun's history, clavesa minutes, the
+                      lines the API may quote); log tails scrubbed of keys
 docs/               findings about Claude Code that the code depends on
-docs/adr/           architecture decisions; 0001 is podbay mobile (proposed)
+docs/adr/           architecture decisions; 0001 is podbay mobile (accepted)
 mobile/mock/        the podbay mobile vision mock: one static page, made-up
                       data, and its screenshots; the design, not the app
 tests/              pytest; conftest pins one account and a home base

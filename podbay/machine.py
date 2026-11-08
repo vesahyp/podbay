@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 STATE_DIR = Path.home() / ".local" / "state" / "podbay"
 HISTORY_PATH = STATE_DIR / "machine.jsonl"
-HISTORY_HOURS = 12
+HISTORY_HOURS = 24  # podbay mobile charts the last 24 hours
 SAMPLE_EVERY = 60  # seconds between two history lines
 COMMAND_TIMEOUT = 3.0
 TOP_N = 3

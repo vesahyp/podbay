@@ -567,19 +567,22 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
-def render(
-    payload: dict,
-    now: datetime | None = None,
-    limits: dict[str, dict] | None = None,
-    headlines: dict[str, dict] | None = None,
-) -> str:
-    """The whole page from an inventory payload (see inventory_payload;
-    the sessions need `state`, `age_seconds` and `parked_until`), the
-    per-account limits (sources.newest_limits) and Head Jeeves' lines
-    (load_headlines)."""
+def _options(headline: dict | None) -> list[str]:
+    """A decision's answer buttons: Head Jeeves' optional `options` list,
+    each one short line."""
+    raw = (headline or {}).get("options")
+    if not isinstance(raw, list):
+        return []
+    return [clean_line(str(o), 60) for o in raw if str(o).strip()][:4]
+
+
+def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dict] | None = None) -> dict[str, list[dict]]:
+    """The lines of the board by section (decision, shipped, finished,
+    progress), each a dict with a stable `id`, `target`, `project`,
+    `text`, `link`, `steps`, `when` and `options`. The HTML board and
+    `podbay snapshot` both read this."""
     now = now or datetime.now()
     headlines = {k: dict(v) for k, v in (headlines or {}).items()}
-    head = next((s for s in payload.get("sessions", []) if s.get("head_jeeves")), None)
     sessions = [s for s in payload.get("sessions", []) if not s.get("head_jeeves")]
 
     found: dict[str, list[dict]] = {kind: [] for kind in _BUCKETS}
@@ -588,7 +591,9 @@ def render(
         kind = _classify(s, headline, now)
         if kind is None:
             continue
-        item = {"session": s, "target": _target(s), "project": _project(s, headline), "link": None, "steps": None, "when": ""}
+        item = {"id": s.get("session_id") or s.get("short_id") or s.get("name") or "", "session": s,
+                "target": _target(s), "project": _project(s, headline), "link": None, "steps": None, "when": "",
+                "options": _options(headline) if kind == "decision" else []}
         if headline and headline.get("text"):
             item.update(text=clean_line(headline["text"], 2 * LINE_CHARS), link=headline.get("link"), steps=headline.get("steps"))
         else:
@@ -606,10 +611,27 @@ def render(
         if key in live or headline.get("kind") != "shipped" or not headline.get("repo"):
             continue
         if _same_day(headline.get("at"), now):
-            found["shipped"].append({"session": {}, "target": _ended_target(str(headline["repo"])),
-                                     "project": str(headline["repo"]), "when": "",
+            found["shipped"].append({"id": f"shipped:{key}", "session": {}, "target": _ended_target(str(headline["repo"])),
+                                     "project": str(headline["repo"]), "when": "", "options": [],
                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
                                      "link": headline.get("link"), "steps": headline.get("steps")})
+    return found
+
+
+def render(
+    payload: dict,
+    now: datetime | None = None,
+    limits: dict[str, dict] | None = None,
+    headlines: dict[str, dict] | None = None,
+) -> str:
+    """The whole page from an inventory payload (see inventory_payload;
+    the sessions need `state`, `age_seconds` and `parked_until`), the
+    per-account limits (sources.newest_limits) and Head Jeeves' lines
+    (load_headlines)."""
+    now = now or datetime.now()
+    head = next((s for s in payload.get("sessions", []) if s.get("head_jeeves")), None)
+    sessions = [s for s in payload.get("sessions", []) if not s.get("head_jeeves")]
+    found = collect(payload, now, headlines)
 
     decisions = found["decision"]
     shipped, finished, progress = (_grouped(found[k]) for k in ("shipped", "finished", "progress"))

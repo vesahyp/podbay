@@ -60,7 +60,7 @@ def test_the_incident_reads_as_overloaded():
 
 def test_history_is_throttled_and_cut_to_the_window(tmp_path):
     path = tmp_path / "h.jsonl"
-    old = {"at": time.time() - 20 * 3600, "load": 1, "cpu": 1, "free": 1, "swap": 0, "p": "normal"}
+    old = {"at": time.time() - (machine.HISTORY_HOURS + 2) * 3600, "load": 1, "cpu": 1, "free": 1, "swap": 0, "p": "normal"}
     path.write_text(json.dumps(old) + "\n")
     os.utime(path, (time.time() - 600, time.time() - 600))
     s = {"at": time.time(), "load": {"1m": 2.0}, "cpu_pct": 5.0, "mem_free_mb": 900, "swap_used_mb": 1, "pressure": "normal"}

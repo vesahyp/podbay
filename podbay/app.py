@@ -56,6 +56,7 @@ from . import sweep as sweep_mod
 from . import paused as paused_mod
 from . import quota
 from . import selfupdate
+from . import snapshot as snapshot_mod
 from . import sources
 from . import usage
 from . import voice
@@ -2305,6 +2306,53 @@ def cmd_board(out: Path | None, url: str | None = None) -> None:
         print(f"published at {published}")
 
 
+SNAPSHOT_PATH = Path.home() / ".local" / "state" / "podbay" / "mobile" / "state.json"
+
+
+def gather_snapshot(now: datetime | None = None) -> dict:
+    """The phone app's state (snapshot.py) from the live inventory, the
+    headlines, the quota windows and the machine. Several seconds of work:
+    the screen calls it on a worker thread."""
+    snapshots = sources.read_status_snapshots()
+    lister = iterm_mod.ItermLister()
+    sessions = sources.gather_sessions(StateStore(), lister, status_snapshots=snapshots)
+    accounts = discover()
+    payload = inventory_payload(sessions, set(), lister.empty_windows(), logged_out_labels(accounts), login_deadlines(accounts))
+    payload["mac"] = machine_mod.mac_name()
+    headlines, _problem = board.load_headlines()
+    health = machine_mod.snapshot()
+    health["overloaded"] = machine_mod.overload_reason(health)
+    cron_dir = config.mobile_setting("mobile_cron_dir")
+    return snapshot_mod.build(
+        payload=payload,
+        headlines=headlines,
+        quota_payload=quota.payload(_quota_entries(accounts, fetch=False), config.never_suggest_models()),
+        health=health,
+        power=snapshot_mod.read_power(),
+        docker_up=snapshot_mod.read_docker(),
+        agents=snapshot_mod.read_agents(),
+        crontab_text=snapshot_mod.read_crontab(),
+        cron_dir=Path(cron_dir).expanduser() if cron_dir else None,
+        runs_json=snapshot_mod.read_runs_json(config.mobile_setting("mobile_runs_url")),
+        repos=snapshot_mod.read_repos(sources.REPOS_DIR),
+        now=now,
+    )
+
+
+def cmd_snapshot(out: Path | None) -> None:
+    """Write the phone app's state as JSON and print the path and a summary."""
+    state = gather_snapshot()
+    path = out or SNAPSHOT_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(state, default=str))
+    os.replace(tmp, path)
+    sections = state["board"]["sections"]
+    print(path)
+    print(f"  {path.stat().st_size // 1024} KB · board " + ", ".join(f"{k} {len(v)}" for k, v in sections.items())
+          + f" · {len(state['nightly']['jobs'])} nightly jobs · {len(state['accounts'])} accounts · {len(state['lines'])} lines")
+
+
 def cmd_excerpt(target: str, turns: int, last: bool = False) -> None:
     match = _find_session(target)
     if match is None or match.is_shell:
@@ -2652,6 +2700,8 @@ def main() -> None:
     board_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {board.BOARD_PATH})")
     board_parser.add_argument("--url", default=None, metavar="URL", help="record the URL the board is published at; printed by every later `podbay board`")
 
+    snapshot_parser = sub.add_parser("snapshot", help="write the phone app's state as JSON (podbay/snapshot.py)")
+    snapshot_parser.add_argument("--out", default=None, metavar="PATH", help=f"where to write it (default {SNAPSHOT_PATH})")
     excerpt_parser = sub.add_parser("excerpt", help="print a session's last turns as plain text (what Head Jeeves reads)")
     excerpt_parser.add_argument("target", help=target_help)
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
@@ -2702,6 +2752,8 @@ def main() -> None:
         sys.exit(cmd_notify(" ".join(args.text), "" if args.no_url else args.url))
     elif args.command == "board":
         cmd_board(Path(args.out) if args.out else None, args.url)
+    elif args.command == "snapshot":
+        cmd_snapshot(Path(args.out) if args.out else None)
     elif args.command == "screen":
         cmd_screen(args.target, args.lines)
     elif args.command == "excerpt":
