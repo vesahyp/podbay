@@ -8,12 +8,12 @@ argument, then the link as the last one when there is a link. Head Jeeves
 calls it when a session needs a decision from the user or has shipped
 something for them to test (rules in his skill).
 
-The link is where tapping the notification lands. With the phone app set
-up (`podbay config mobile-url`), it is the app's board, and `podbay notify
---line <id>` opens that line's reply sheet in the app (line ids are the
-session ids in `podbay snapshot`). Without the app it is the published
-board's URL (board.load_url): tapping a line there opens its composer.
-`podbay notify --url <url>` sends another link, and `--no-url` none.
+The link is where tapping the notification lands: the phone app
+(`podbay config mobile-url`, docs/adr/0002-one-phone-app.md). By default
+it is the app's board, and `podbay notify --line <id>` opens that line's
+reply sheet in the app (line ids are the session ids in `podbay
+snapshot`). Without an app URL there is no link. `podbay notify --url
+<url>` sends another link, and `--no-url` none.
 
 Empty command: off, nothing runs. A command that fails, hangs or is
 missing is logged and reported in one line; it never raises, because the
@@ -54,17 +54,15 @@ def line_url(line_id: str) -> str | None:
 
 def send(text: str, command: str | None = None, timeout: float = TIMEOUT, url: str | None = None) -> tuple[bool, str]:
     """Run the notify command with `text` and the link `url` (None: the
-    recorded board URL, if any; "": no link). Returns (sent, reason): sent
+    app's board, if an app URL is set; "": no link). Returns (sent, reason): sent
     is True when the command exited 0; otherwise reason says in one line
     why not, and the same line is in the log. Never raises."""
     command = config.notify_command() if command is None else command
     if not command.strip():
         return False, "off"
     if url is None:
-        from . import board
-
         app = config.mobile_setting("mobile_url").rstrip("/")
-        url = f"{app}/#board" if app else board.load_url()
+        url = f"{app}/#board" if app else ""
     try:
         parts = argv(command, text, url)
     except ValueError as exc:

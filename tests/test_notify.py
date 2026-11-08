@@ -39,24 +39,22 @@ def test_the_text_is_one_argument_after_the_commands_own(tmp_path):
 
 
 def test_the_link_comes_after_the_text(tmp_path, monkeypatch):
-    from podbay import board
-
+    path = tmp_path / "config.json"
+    monkeypatch.setattr(config, "CONFIG_PATH", path)
     out = tmp_path / "argv.json"
     script = _script(tmp_path, f'{sys.executable} -c "import json,sys; json.dump(sys.argv[1:], open(\'{out}\', \'w\'))" "$@"')
-    url = "https://claude.ai/artifact/abc"
 
-    # The default link is the recorded board URL.
-    monkeypatch.setattr(board, "URL_PATH", tmp_path / "board-url")
-    board.save_url(url)
-    assert notify.send("Publish now, or wait?", f"{script} Head") == (True, "")
-    assert json.loads(out.read_text()) == ["Head", "Publish now, or wait?", url]
+    # The default link is the app's board.
+    config.write({"mobile_url": "https://app.example.test/"}, path)
+    assert notify.send("Ship now, or wait?", f"{script} Head") == (True, "")
+    assert json.loads(out.read_text()) == ["Head", "Ship now, or wait?", "https://app.example.test/#board"]
 
-    # --url replaces it, "" drops it, and without a recorded board there is none.
+    # --url replaces it, "" drops it, and without an app there is none.
     assert notify.send("x", str(script), url="https://example.test/go") == (True, "")
     assert json.loads(out.read_text()) == ["x", "https://example.test/go"]
     assert notify.send("x", str(script), url="") == (True, "")
     assert json.loads(out.read_text()) == ["x"]
-    (tmp_path / "board-url").unlink()
+    config.write({}, path)
     assert notify.send("x", str(script)) == (True, "")
     assert json.loads(out.read_text()) == ["x"]
 
