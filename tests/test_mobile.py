@@ -68,6 +68,44 @@ def test_poll_leaves_a_failed_send_queued_for_the_next_pass():
     assert mobile.poll(store, lambda line: True, now=NOW) == [(sk, "delivered")]
 
 
+def test_a_chat_message_reaches_head_jeeves_as_a_message_to_him():
+    """The Thread tab's chat (line head-jeeves): no quote, the target is
+    Head Jeeves himself, and his reply lands under it."""
+    store = FakeStore([_msg(1, line="head-jeeves", target="head-jeeves", quote="", text="What runs tonight?")])
+    typed: list[str] = []
+    [(sk, outcome)] = mobile.poll(store, lambda line: typed.append(line) or True, now=NOW)
+    assert outcome == "delivered" and typed == [f"/head-jeeves phone {sk} head-jeeves: What runs tonight?"]
+    assert mobile.reply(store, sk, "The usual sweep from 01:00.")
+    assert store.items[sk]["state"] == "answered"
+
+
+def test_a_fresh_test_message_is_left_for_the_checks_fake_head_jeeves():
+    fresh = _msg(1, test=True, created=int(NOW - 2))
+    store = FakeStore([fresh])
+    sk = fresh["sk"]
+    # The screen leaves it alone for TEST_GRACE seconds...
+    assert mobile.poll(store, lambda line: True, now=NOW) == []
+    # ...so the check's fake Head Jeeves takes it and gets the event line.
+    typed: list[str] = []
+    assert mobile.poll(store, lambda line: typed.append(line) or True, now=NOW, fake=True) == [(sk, "delivered")]
+    assert typed[0].startswith(f"/head-jeeves phone {sk} ")
+    # The fake mode never touches a real message.
+    store = FakeStore([_msg(2)])
+    assert mobile.poll(store, lambda line: True, now=NOW, fake=True) == []
+
+
+def test_say_writes_head_jeeves_line_to_the_thread():
+    store = FakeStore([_msg(1), _msg(2, test=True)])
+    sk = mobile.say(store, "keitos\nimport is live.", now=NOW)
+    item = store.puts[-1]
+    assert item["sk"] == sk and item["from"] == "head-jeeves" and item["state"] == "said"
+    assert item["text"] == "keitos import is live." and sk.startswith(mobile.id_at(NOW))
+    store.items[sk] = item
+    view = mobile.thread(store, now=NOW)
+    assert [m["sk"] for m in view] == sorted([sk, _msg(1)["sk"]], reverse=True)
+    assert all(not m.get("test") for m in view)
+
+
 def test_reply_and_passkey_window():
     store = FakeStore([_msg(1)])
     sk = next(iter(store.items))

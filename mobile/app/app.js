@@ -573,17 +573,41 @@
   }
 
   var STATE_WORD = { queued: "queued", delivering: "sending", delivered: "delivered", answered: "answered", expired: "not sent" };
-  function thread() {
+  // The chat with Head Jeeves: a text box not tied to any board line (line
+  // id "head-jeeves", the same passkey gate, limits and audit as every
+  // send), then every message, newest first, with his answer under it, and
+  // the lines he wrote to you himself (podbay say).
+  var CHAT_LINE = "head-jeeves";
+  function chatBox() {
+    var me = app.me || {}, act;
+    if (canSend()) act = '<button class="btn primary" type="button" data-chat-send="1">Send</button>';
+    else if (me.passkeys > 0) act = '<button class="btn primary" type="button" data-chat-send="1">Confirm with your passkey and send</button>';
+    else if (me.enrol_open) act = '<button class="btn primary" type="button" data-add-passkey="1">Add a passkey to send</button>';
+    else act = '<p class="fine">Sending needs a passkey, and one can be added only from the Mac: podbay mobile passkey-allow.</p>';
+    return '<div class="chat"><label class="f" for="chat">Message Head Jeeves</label>' +
+      '<textarea id="chat" maxlength="1000" placeholder="Anything you would type to Head Jeeves"></textarea>' +
+      '<div class="row">' + act + '</div><p class="err" id="chat-err" hidden></p>' +
+      '<p class="fine">Reaches Head Jeeves in about 15 s. If the Mac does not take it within 2 hours, it is not sent.</p></div>';
+  }
+  function threadList() {
     var list = app.messages;
-    if (!list.length) return '<h1>Thread</h1><p class="sub">Everything you send, and what Head Jeeves did with it.</p><p class="none">Nothing sent yet.</p>';
-    return '<h1>Thread</h1><p class="sub">Everything you send, and what Head Jeeves did with it.</p>' + list.map(function (m) {
+    if (!list.length) return '<p class="none">Nothing sent yet.</p>';
+    return list.map(function (m) {
+      if (m.from === "head-jeeves") {
+        return '<div class="msg"><div class="hj said"><div class="who"><span>Head Jeeves</span><span>' + esc(hhmm(m.created)) + "</span></div>" + esc(m.text) + "</div></div>";
+      }
       var when = m.state === "delivered" && m.delivered_at ? "delivered " + hhmm(m.delivered_at) : (STATE_WORD[m.state] || m.state) + " " + hhmm(m.created);
       var answer = m.reply ? '<div class="hj"><div class="who"><span>Head Jeeves</span><span>' + (m.replied_at ? hhmm(m.replied_at) : "") + "</span></div>" + esc(m.reply) + "</div>"
         : m.state === "expired" ? '<div class="hj bad"><div class="who"><span class="bad">Not sent: the Mac did not take it within 2 hours</span></div><div class="row"><button class="btn" type="button" data-again="' + esc(m.id) + '">Send again</button></div></div>'
         : m.state === "queued" ? '<div class="hj"><div class="who"><span>Waiting for the Mac</span></div></div>' : "";
-      return '<div class="msg"><div class="me"><div class="who"><span>to ' + esc(m.target) + "</span><span>" + esc(when) + "</span></div>" +
+      var to = m.line === CHAT_LINE ? "to Head Jeeves" : "to " + m.target;
+      return '<div class="msg"><div class="me"><div class="who"><span>' + esc(to) + "</span><span>" + esc(when) + "</span></div>" +
         (m.quote ? '<p class="about">on “' + esc(m.quote) + "”</p>" : "") + esc(m.text) + "</div>" + answer + "</div>";
     }).join("");
+  }
+  function thread() {
+    return '<h1>Thread</h1><p class="sub">Talk to Head Jeeves here. Everything you send, and what he did with it.</p>' +
+      chatBox() + '<div id="thread-list">' + threadList() + "</div>";
   }
 
   // ---- sheets -------------------------------------------------------------------
@@ -682,6 +706,14 @@
       }
       freshness();
       $("#tabs").innerHTML = tabs(app.route === "stats" ? "machine" : app.route);
+      // While the chat box is in use, a poll redraws only the list under
+      // it: the keyboard stays up and nothing typed is lost.
+      var chat = $("#chat");
+      if (app.route === "thread" && chat && (document.activeElement === chat || chat.value) && $("#thread-list") && !app.chatRedraw) {
+        $("#thread-list").innerHTML = threadList();
+        return;
+      }
+      app.chatRedraw = false;
       var s = app.state, html;
       if (!s) html = '<p class="sub boot">' + esc(app.error || "Loading…") + "</p>";
       else if (app.route === "machine") html = machine(s);
@@ -775,6 +807,33 @@
       else sheetError(e && e.message ? e.message : "Could not send.");
     });
   }
+  function chatError(text) {
+    var el = $("#chat-err");
+    if (el) { el.textContent = text; el.hidden = !text; }
+  }
+  function sendChat() {
+    var box = $("#chat"), text = ((box && box.value) || "").trim();
+    if (!text) { chatError("Write something first."); return; }
+    var btn = document.querySelector("[data-chat-send]");
+    if (btn) btn.disabled = true;
+    app.chatKey = app.chatKey || key();
+    var first = canSend() ? Promise.resolve() : checkPasskey();
+    first.then(function () {
+      return api("POST", "messages", { line: CHAT_LINE, text: text, key: app.chatKey });
+    }).then(function () {
+      track("send", { kind: "chat" });
+      app.chatKey = null;
+      box.value = "";
+      box.blur();
+      app.chatRedraw = true;
+      return loadMessages();
+    }).catch(function (e) {
+      if (btn) btn.disabled = false;
+      if (e && e.name === "NotAllowedError") chatError("The passkey check was cancelled.");
+      else if (e && e.status === 403 && e.body && e.body.error === "passkey") { loadMe().then(function () { app.chatRedraw = true; render(); }); chatError("Confirm with your passkey first."); }
+      else chatError(e && e.message ? e.message : "Could not send.");
+    });
+  }
   function sendAgain(id) {
     var m = app.messages.filter(function (x) { return x.id === id; })[0];
     if (!m) return;
@@ -809,6 +868,7 @@
     if (t.dataset.newSession) { app.sheet = { kind: "reply", line: "new-session:" }; loadMe().then(render); render(); return; }
     if (t.dataset.cell) { var p = t.dataset.cell.split("|"); app.sheet = { kind: "log", label: p[0], day: p[1] }; history.replaceState(null, "", "#nightly/" + p[0] + "/" + p[1]); track("log-open", {}); render(); return; }
     if (t.dataset.send) { send(); return; }
+    if (t.dataset.chatSend) { sendChat(); return; }
     if (t.dataset.addPasskey) {
       t.disabled = true;
       addPasskey().then(function () { render(); }, function (e) { t.disabled = false; sheetError(e && e.name === "NotAllowedError" ? "The passkey was not added." : (e.message || "Could not add the passkey.")); });

@@ -255,10 +255,16 @@ def _thread(t: Text, messages: list[dict] | None) -> None:
         return
     _heading(t, "Thread with Head Jeeves", len(messages))
     if not messages:
-        t.append("  Nothing sent from the phone yet.\n", style=DIM)
+        t.append("  Nothing in the phone thread yet.\n", style=DIM)
     for m in messages[:12]:
         when = datetime.fromtimestamp(m.get("created") or 0).strftime("%a %H:%M")
-        t.append(f"  {when}  to {m.get('target')}", style=DIM)
+        if m.get("from") == "head-jeeves":
+            t.append(f"  {when}  ", style=DIM)
+            t.append("Head Jeeves: ", style=f"bold {AMBER}")
+            t.append(f"{m.get('text')}\n", style=FG)
+            continue
+        to = "Head Jeeves" if m.get("line") == "head-jeeves" else m.get("target")
+        t.append(f"  {when}  to {to}", style=DIM)
         t.append(f"  {MSG_STATE.get(m.get('state'), m.get('state'))}\n", style=RED if m.get("state") == "expired" else DIM)
         t.append(f"    {m.get('text')}\n", style=FG)
         if m.get("reply"):

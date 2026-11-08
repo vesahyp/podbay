@@ -155,6 +155,7 @@ async def main() -> int:
 
         await page.locator("button[data-tab=thread]").click()
         await page.wait_for_selector("text=Everything you send")
+        check("thread: the chat box to Head Jeeves", await page.locator("textarea#chat").count() == 1)
         await shot(page, "mobile-app-6-thread.png", full=True)
 
         # The tracker: page views went out, and an uncaught error is reported.
@@ -217,6 +218,39 @@ async def main() -> int:
                     break
                 await page.wait_for_timeout(1000)
             check("send: the Mac takes it and does not type it", row.get("note") == "test user, not typed", row)
+
+            # The chat: a message to Head Jeeves from the Thread tab's own
+            # box. This script is the fake Head Jeeves tab: it takes the
+            # test message before the screen does (mobile.TEST_GRACE), gets
+            # the event line the screen would type, and answers it the way
+            # Head Jeeves does, with podbay reply.
+            from podbay import mobile as mobile_mod
+
+            store = mobile_mod.Store(table=table)
+            await page.goto(f"{URL}/#thread", wait_until="networkidle")
+            await page.wait_for_selector("#chat")
+            chat = f"podbay chat test {int(time.time())}"
+            await page.fill("#chat", chat)
+            await page.locator("button[data-chat-send]").click()
+            typed: list[str] = []
+            for _ in range(16):
+                mobile_mod.poll(store, lambda line: typed.append(line) or True, fake=True)
+                if typed:
+                    break
+                await page.wait_for_timeout(500)
+            sent = next((i for i in table.query(KeyConditionExpression=Key("pk").eq("MSG"), ScanIndexForward=False, Limit=20)["Items"]
+                         if i.get("text") == chat), None)
+            check("chat: the fake Head Jeeves tab gets it as a message to him",
+                  bool(sent) and typed == [f"/head-jeeves phone {sent['sk']} head-jeeves: {chat}"], typed)
+            answer = f"Got it, chat test {int(time.time())}."
+            if sent:
+                mobile_mod.reply(store, sent["sk"], answer)
+            try:
+                await page.wait_for_selector(f".hj >> text={answer}", timeout=35000)
+                check("chat: the reply shows in the thread", True)
+            except Exception:  # noqa: BLE001
+                check("chat: the reply shows in the thread", False, answer)
+            await shot(page, "mobile-app-9-chat.png", full=True)
             # The virtual passkey goes with the browser; remove its record.
             forget_passkeys()
 

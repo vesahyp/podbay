@@ -172,6 +172,9 @@ table.errs td:first-child { color: #ff9a8a; width: 46%; }
 .me { background: #2a0d0b; border: 1px solid #4a1712; border-radius: 14px 14px 4px 14px; padding: 10px 12px; margin-left: 40px; overflow-wrap: anywhere; }
 .hj { background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 10px 12px; margin-right: 40px; margin-top: 6px; overflow-wrap: anywhere; }
 .hj.bad { border-color: #5a1a14; }
+.hj.said { margin-top: 0; border-color: #3a2c12; }
+.chat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 0 0 18px; }
+.chat textarea { min-height: 72px; }
 .who { font: 11px var(--mono); color: var(--muted); margin-bottom: 3px; display: flex; justify-content: space-between; gap: 8px; }
 .who .bad { color: #ff7a6a; }
 .about { color: var(--muted); font-size: 13px; margin: 0 0 4px; }

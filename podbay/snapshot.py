@@ -400,6 +400,8 @@ def build(
     nightly, nightly_lines = nightly_part(crontab_text, cron_dir, now)
     lines.update(nightly_lines)
     lines["machine"] = {"target": "machine", "quote": "the Mac"}
+    # The Thread tab's chat: a message to Head Jeeves himself, about no line.
+    lines["head-jeeves"] = {"target": "head-jeeves", "quote": ""}
     repos = sorted(set(repos or []) | {str(s.get("work_repo") or s.get("repo")) for s in payload.get("sessions") or []
                                        if s.get("work_repo") or s.get("repo")})
     decisions = len(sections.get("decision", []))

@@ -122,7 +122,8 @@ infra/mobile.tf     app.podbay.tienoo.com: Cognito, SES, the app and state
 mobile/app/         the phone app, static, no build: index, app.js, app.css,
                       sw.js (shell cache, push, tap), the vendored tracker
   podbay/mobile.py  the Mac side: snapshot upload, the 15 s message poll,
-                      podbay reply, podbay mobile ..., push registration
+                      podbay reply, podbay say (Head Jeeves' own lines in
+                      the thread), podbay mobile ..., push registration
 tests/              pytest; conftest pins one account and a home base
 scripts/shots.py    the site's screenshots: the real TUI over made-up
                       sessions and the app's board from the mock, by Playwright

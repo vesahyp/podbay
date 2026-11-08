@@ -168,20 +168,49 @@ class Store:
         return res.get("Items", [])
 
 
-def poll(store: Store, deliver: Callable[[str], bool], now: float | None = None) -> list[tuple[str, str]]:
+THREAD_DAYS = 7
+
+
+def thread(store: Store, now: float | None = None) -> list[dict]:
+    """The phone thread of the last THREAD_DAYS days, newest first, as
+    plain values for the board screen (boardview.py): the user's messages
+    and Head Jeeves' own lines (`podbay say`). The test user's are left
+    out."""
+    now = now or time.time()
+    keep = ("sk", "from", "line", "target", "quote", "text", "state", "created", "reply", "replied_at", "delivered_at")
+    out = []
+    for item in store.recent(now - THREAD_DAYS * 86400):
+        if item.get("test"):
+            continue
+        out.append({k: (float(v) if hasattr(v, "as_tuple") else v) for k, v in item.items() if k in keep})
+    return sorted(out, key=lambda m: str(m.get("sk")), reverse=True)
+
+
+# A check run (scripts/mobile_app_check.py) plays a fake Head Jeeves for the
+# test user's messages: the screen leaves a test message alone this long, so
+# the check can claim it first with poll(..., fake=True).
+TEST_GRACE = 10
+
+
+def poll(store: Store, deliver: Callable[[str], bool], now: float | None = None, fake: bool = False) -> list[tuple[str, str]]:
     """One delivery pass. `deliver` types one line to Head Jeeves and says
-    whether it went. Returns (id, outcome) for every message it touched."""
+    whether it went. Returns (id, outcome) for every message it touched.
+    The screen marks a test user's message delivered without typing it;
+    with `fake`, only the test user's messages are taken, and `deliver` is
+    the check's fake Head Jeeves."""
     now = now or time.time()
     done = []
     for item in store.recent(now - LOOK_BACK):
-        if item.get("state") != "queued":
+        if item.get("state") != "queued" or (fake and not item.get("test")):
             continue
         sk = item["sk"]
         if int(item.get("expires") or 0) <= now:
             if store.mark(sk, "queued", {"state": "expired", "expired_at": int(now)}):
                 done.append((sk, "expired"))
             continue
-        if item.get("test"):
+        if item.get("test") and not fake:
+            if now - int(item.get("created") or 0) < TEST_GRACE:
+                continue
             if store.mark(sk, "queued", {"state": "delivered", "delivered_at": int(now), "note": "test user, not typed"}):
                 done.append((sk, "test"))
             continue
@@ -246,6 +275,20 @@ def reply(store: Store, msg_id: str, text: str) -> bool:
     """Head Jeeves' one-line answer to a message."""
     line = " ".join(text.split())[:1000]
     return store.mark(msg_id, None, {"reply": line, "replied_at": int(time.time()), "state": "answered"})
+
+
+def say(store: Store, text: str, now: float | None = None) -> str:
+    """A line Head Jeeves writes to the app's thread himself, not as an
+    answer to a message: what he tells the user about an event, a result
+    or a fault. Returns its id."""
+    import secrets
+
+    now = now or time.time()
+    sk = f"{id_at(now)}{secrets.token_hex(4)}"
+    store.put({"pk": "MSG", "sk": sk, "from": "head-jeeves", "line": "head-jeeves", "target": "you",
+               "text": " ".join(text.split())[:1000], "state": "said", "created": int(now),
+               "ttl": int(now + 90 * 86400)})
+    return sk
 
 
 def passkey_allow(store: Store, minutes: int = ENROL_MINUTES) -> int:

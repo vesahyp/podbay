@@ -2429,6 +2429,20 @@ def cmd_reply(msg_id: str, text: str) -> int:
     return 1
 
 
+def cmd_say(text: str) -> int:
+    """A line Head Jeeves writes to the phone app's thread himself."""
+    if not text.strip():
+        print("nothing to say", file=sys.stderr)
+        return 1
+    try:
+        msg_id = mobile_mod.say(mobile_mod.Store(), text)
+    except Exception as exc:  # noqa: BLE001 -- one line for the agent, never a traceback
+        print(f"not written: {exc}", file=sys.stderr)
+        return 1
+    print(f"said {msg_id}")
+    return 0
+
+
 def cmd_mobile(action: str) -> int:
     """podbay mobile passkey-allow | signout | audit (mobile.py)."""
     store = mobile_mod.Store()
@@ -2791,6 +2805,8 @@ def main() -> None:
     reply_parser = sub.add_parser("reply", help="answer a message from the phone app; the app shows it under the message")
     reply_parser.add_argument("id", help="the message id from the /head-jeeves phone event")
     reply_parser.add_argument("text", nargs="+", help="one line")
+    say_parser = sub.add_parser("say", help="Head Jeeves writes one line to the phone app's thread himself, not as an answer")
+    say_parser.add_argument("text", nargs="+", help="one line")
     mobile_parser = sub.add_parser("mobile", help="the phone app: passkey-allow opens a 15 minute passkey window, signout ends every sign-in, audit prints 7 days")
     mobile_parser.add_argument("action", choices=["passkey-allow", "signout", "audit"])
     snapshot_parser = sub.add_parser("snapshot", help="write the phone app's state as JSON (podbay/snapshot.py)")
@@ -2850,6 +2866,8 @@ def main() -> None:
         cmd_snapshot(Path(args.out) if args.out else None)
     elif args.command == "reply":
         sys.exit(cmd_reply(args.id, " ".join(args.text)))
+    elif args.command == "say":
+        sys.exit(cmd_say(" ".join(args.text)))
     elif args.command == "mobile":
         sys.exit(cmd_mobile(args.action))
     elif args.command == "screen":

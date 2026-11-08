@@ -52,3 +52,15 @@ def test_respond_writes_dynamodb_numbers():
 def test_is_test_reads_the_group_claim():
     assert api.is_test({"cognito:groups": "[test]"})
     assert not api.is_test({})
+
+
+def test_the_chat_line_resolves_and_head_jeeves_lines_show_to_the_owner_only():
+    state = {**STATE, "lines": {**STATE["lines"], "head-jeeves": {"target": "head-jeeves", "quote": ""}}}
+    assert api.resolve_line(state, "head-jeeves") == {"target": "head-jeeves", "quote": ""}
+    said = {"sk": "1", "from": "head-jeeves", "text": "keitos import is live", "sub": ""}
+    mine = {"sk": "2", "sub": "owner", "text": "hi"}
+    other = {"sk": "3", "sub": "someone", "text": "x"}
+    owner, tester = {"sub": "owner"}, {"sub": "tester", "cognito:groups": "[test]"}
+    assert [api.visible(i, owner) for i in (said, mine, other)] == [True, True, False]
+    assert [api.visible(i, tester) for i in (said, mine, other)] == [False, False, False]
+    assert api._message_view(said)["from"] == "head-jeeves"

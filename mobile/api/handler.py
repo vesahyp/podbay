@@ -6,7 +6,8 @@ access token. Every route lives under /api/ on the app's own CloudFront.
     GET  /api/stats                     the app's traffic and errors per day
     GET  /api/me                        who, whether this sign-in can send,
                                         passkeys, whether enrolment is open
-    GET  /api/messages                  the caller's last 50 messages
+    GET  /api/messages                  the caller's last 50 messages and
+                                        Head Jeeves' own lines to them
     POST /api/messages                  {line, text, key}: queue text for
                                         Head Jeeves
     POST /api/passkey/register/options  only while the Mac opened a window
@@ -21,7 +22,9 @@ Mac; podbay types it to Head Jeeves as one /head-jeeves phone event.
 
 Table layout (one table, pk + sk, `ttl` removes old items):
     MSG      <id>            a message: line, target, quote, text, state,
-                             created, expires, sub, test, reply
+                             created, expires, sub, test, reply; or a line
+                             Head Jeeves wrote himself: from head-jeeves,
+                             text, state said, created (podbay say)
     AUDIT    <id>            every write request, accepted or refused
     RATE     H#<hour> / D#<day>  counters for the rate limit
     IDEM     <key>           the message id an idempotency key made
@@ -241,13 +244,20 @@ def within_rate(now: float) -> bool:
 
 
 def _message_view(item: dict) -> dict:
-    keys = ("line", "target", "quote", "text", "state", "created", "expires", "delivered_at", "reply", "replied_at", "test")
+    keys = ("line", "target", "quote", "text", "state", "created", "expires", "delivered_at", "reply", "replied_at", "test", "from")
     return {"id": item["sk"], **{k: item.get(k) for k in keys if k in item}}
+
+
+def visible(item: dict, claims: dict) -> bool:
+    """The caller's own messages, and the lines Head Jeeves wrote to the
+    thread himself (`podbay say`, from: head-jeeves). The test user does
+    not see his lines, so a check never reads them."""
+    return item.get("sub") == claims.get("sub") or (item.get("from") == "head-jeeves" and not is_test(claims))
 
 
 def list_messages(claims: dict) -> dict:
     items = table().query(KeyConditionExpression=Key("pk").eq("MSG"), ScanIndexForward=False, Limit=200)["Items"]
-    mine = [_message_view(i) for i in items if i.get("sub") == claims.get("sub")][:50]
+    mine = [_message_view(i) for i in items if visible(i, claims)][:50]
     return respond(200, {"messages": mine})
 
 

@@ -351,7 +351,12 @@ without one shows the first sentence of its recap. In the phone app,
 tapping a line opens a reply sheet; what you type reaches him in about 15
 seconds as `/head-jeeves phone <id> #6 sora, on "<line>": <text>`, he
 passes it on with `podbay send` and answers with `podbay reply`, which the
-app shows under your message.
+app shows under your message. The app's Thread tab has a chat box of its
+own, tied to no line: what you type there reaches him as `/head-jeeves
+phone <id> head-jeeves: <text>`, the same as typing into his session, with
+the same passkey gate, limits and audit. Everything he would tell you in
+his own session he writes to that thread with `podbay say "<line>"`, so the
+app is the only place you need to read him.
 
 ### Usage limits
 

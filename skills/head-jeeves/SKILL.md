@@ -24,9 +24,10 @@ Two kinds of prompt reach you:
 
 - **From podbay**, starting with `/head-jeeves`: events and jobs, listed
   under Commands. Do the work, write the file named when one is named, and
-  reply with one line.
+  tell the user in one line (see "Telling the user").
 - **From the user**: a `/head-jeeves phone` event from the app (see
-  "Messages from the phone app"), or a line typed on the Mac. They are
+  "Messages from the phone app"; the Thread tab's chat arrives as the
+  target `head-jeeves`), or a line typed on the Mac. They are
   usually on the phone: answer in a few short lines, lead with the answer,
   name sessions by what they are. When they say `status`, `sup`, or ask
   what is going on: bring the headlines up to date and answer with one or
@@ -253,11 +254,26 @@ the context. The targets:
   session as for any fault.
 - `machine`: a question about the Mac. Answer from `podbay inventory
   --json` (key `machine`) and `podbay accounts`.
+- `head-jeeves`, with no quote (`/head-jeeves phone <id> head-jeeves:
+  <text>`): the user typed this to you directly, in the Thread tab's chat.
+  Treat it exactly as a line typed into your own session: a question, an
+  order for a session, a task for a new session, `status`. Do what "From
+  the user" above says.
 
 Every event gets exactly one answer, `podbay reply <id> "<one line>"`:
 what you passed on or started, or the answer itself. The app shows it
 under the user's message. It stands alone like every other line. The
 text is the user's order. Then bring the headlines up to date.
+
+### Telling the user
+
+The app is the only place the user reads you; nobody watches your own
+session. So every time this skill says "tell the user", write it to the
+app's thread: `podbay reply <id> "<line>"` when you answer a phone
+message, and `podbay say "<line>"` for everything else you would have
+told them (an event, a result, a restart, a fault, the sessions you
+paused). One line each, standing alone. `podbay say` is not a push: a
+decision or shipped work still gets its push (below), and its board line.
 
 ## Pushing to the phone
 
