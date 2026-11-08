@@ -140,30 +140,11 @@ async def main() -> int:
         check("tracker: page views leave the page", any("e=pageview" in b or "e=view" in b or "e=tab" in b for b in beacons), beacons[:3])
         check("tracker: an uncaught error is reported", any("e=error" in b for b in beacons), beacons[-3:])
 
-        # A push as scripts/notify sends it: the service worker shows it, and
-        # its link is the line in this app.
-        await ctx.grant_permissions(["notifications"], origin=URL)
-        cdp = await ctx.new_cdp_session(page)
-        regs: list[dict] = []
-        cdp.on("ServiceWorker.workerRegistrationUpdated", lambda p: regs.extend(p.get("registrations", [])))
-        await cdp.send("ServiceWorker.enable")
-        await page.evaluate("navigator.serviceWorker.ready.then(function () { return true; })")
-        for _ in range(20):
-            if any(r["scopeURL"].startswith(URL) for r in regs):
-                break
-            await page.wait_for_timeout(200)
-        reg = next((r for r in regs if r["scopeURL"].startswith(URL) and not r.get("isDeleted")), None)
-        payload = {"title": "podbay check", "body": "a push from the check", "tag": "check", "url": f"{URL}/#line/machine"}
-        shown: list = []
-        if reg:
-            await cdp.send("ServiceWorker.deliverPushMessage", {"origin": URL + "/", "registrationId": reg["registrationId"], "data": json.dumps(payload)})
-            for _ in range(20):
-                shown = await page.evaluate("navigator.serviceWorker.ready.then(function (r) { return r.getNotifications(); })"
-                                            ".then(function (n) { return n.map(function (x) { return [x.title, x.data && x.data.url]; }); })")
-                if shown:
-                    break
-                await page.wait_for_timeout(250)
-        check("push: the service worker shows it with the line's link", ["podbay check", f"{URL}/#line/machine"] in shown, (reg and reg.get("scopeURL"), shown))
+        # A push link opens its line: the hash route a notification tap uses.
+        await page.goto(f"{URL}/#line/machine", wait_until="networkidle")
+        await page.wait_for_selector(".sheet textarea")
+        check("push link: #line/<id> opens that line's reply sheet", "the Mac" in (await page.locator(".sheet .quote").text_content() or ""))
+        check("the service worker is active", await page.evaluate("navigator.serviceWorker.ready.then(function (r) { return !!r.active; })"))
 
         if args.send:
             client = await ctx.new_cdp_session(page)

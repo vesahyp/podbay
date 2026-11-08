@@ -47,6 +47,8 @@ def call(method: str, path: str, token: str | None = None, body: dict | None = N
             raw = resp.read()
             if resp.headers.get("Content-Encoding") == "gzip":
                 raw = gzip.decompress(raw)
+            if "json" not in (resp.headers.get("Content-Type") or ""):
+                return resp.status, raw.decode(errors="replace")
             return resp.status, json.loads(raw)
     except urllib.error.HTTPError as err:
         raw = err.read()
