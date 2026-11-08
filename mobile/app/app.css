@@ -150,6 +150,12 @@ pre.log { background: #0a0908; border: 1px solid var(--line); border-radius: 10p
 .signin .sub { text-align: center; }
 .signin form { display: grid; gap: 12px; margin-top: 18px; }
 
+/* Stats: the errors panel is rows to act on, so it is a table */
+table.errs { width: 100%; border-collapse: collapse; font: 11px/1.4 var(--mono); }
+table.errs th { text-align: left; color: var(--muted); font-weight: 500; padding: 0 4px 6px; }
+table.errs td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+table.errs td:first-child { color: #ff9a8a; width: 46%; }
+
 /* Thread */
 .msg { margin-bottom: 14px; }
 .me { background: #2a0d0b; border: 1px solid #4a1712; border-radius: 14px 14px 4px 14px; padding: 10px 12px; margin-left: 40px; overflow-wrap: anywhere; }

@@ -6,6 +6,12 @@
 #      It reads the CloudFront logs of podbay.tienoo.com, flags bots,
 #      rolls up per day and writes data/analytics.json to the site bucket.
 #   2. invalidate /data/analytics.json on the distribution.
+#   3. clavesa: run the `podbay-mobile-traffic` pipeline. It reads the
+#      phone app's logs (prefix mobile/ in the same log bucket) and writes
+#      stats/analytics.json to the private state bucket, which the app's
+#      Stats screen reads through GET /api/stats. `make mobile-errors`
+#      prints its errors. It runs even when step 1 fails, and either
+#      failure makes the run FAILED.
 #
 # The rollup outlives the raw logs: those expire after 90 days, and the
 # Delta tables plus the published JSON keep every day the pipeline has
@@ -46,17 +52,23 @@ rc=0
     echo "$(date '+%F %T %z')  SKIPPED (docker down)" > "$STATUS"
     exit 0
   fi
+  failed=""
   if clavesa pipeline run podbay-traffic; then
     if aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/data/analytics.json' >/dev/null 2>&1; then
       echo "invalidated /data/analytics.json on $DIST"
     else
       echo "warn: invalidation failed (the JSON still refreshes within its 5-min TTL)"
     fi
+  else
+    failed="podbay-traffic"
+  fi
+  clavesa pipeline run podbay-mobile-traffic || failed="${failed:+$failed, }podbay-mobile-traffic"
+  if [ -z "$failed" ]; then
     echo "=== done OK ==="
     echo "$(date '+%F %T %z')  OK" > "$STATUS"
   else
-    echo "=== FAILED (see errors above) ==="
-    echo "$(date '+%F %T %z')  FAILED" > "$STATUS"
+    echo "=== FAILED: $failed (see errors above) ==="
+    echo "$(date '+%F %T %z')  FAILED ($failed)" > "$STATUS"
     rc=1
   fi
 } >> "$LOG" 2>&1

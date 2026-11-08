@@ -38,6 +38,11 @@ make analytics  the traffic rollup now; cron runs it nightly at 07:30
 make mobile-build  the podbay mobile API Lambda with its Linux arm64
                   wheels, for Terraform (make plan runs it)
 make mobile-check  the mobile API through CloudFront as the test user
+make mobile-deploy the app (mobile/app/) to its bucket; writes config.js
+make mobile-test   the live app on an emulated iPhone 16 as the test user,
+                  plus the service worker in Node; SEND=1 also sends one
+                  test message through to the Mac. Shots into .shots/
+make mobile-errors the app's errors of the last 7 days, from the rollup
 make live-build zip the today-so-far Lambda for Terraform (make plan runs it)
 make live-check one visit, then the minutes until the board's today chart counts it
 make live-logs  the Lambda's last log lines
@@ -108,6 +113,10 @@ infra/mobile.tf     app.podbay.tienoo.com: Cognito, SES, the app and state
                       buckets, CloudFront with /api/* to the HTTP API, the
                       table. The owner's address is the SSM parameter
                       /podbay/mobile/owner-email, never in this repo
+mobile/app/         the phone app, static, no build: index, app.js, app.css,
+                      sw.js (shell cache, push, tap), the vendored tracker
+  podbay/mobile.py  the Mac side: snapshot upload, the 15 s message poll,
+                      podbay reply, podbay mobile ..., push registration
 tests/              pytest; conftest pins one account and a home base
 scripts/shots.py    the site's screenshots: the real TUI and board over
                       made-up sessions, rendered by Playwright
@@ -115,6 +124,10 @@ site/               podbay.tienoo.com, static: index, 404, stats/ board,
                       tracker.js (clavesa's, vendored unmodified), t.gif
 infra/              its Terraform: S3 + CloudFront + ACM + Route 53
 analytics/          clavesa workspace: CloudFront logs to data/analytics.json
+  clavesa/podbay-mobile-traffic/  the phone app's logs (prefix mobile/,
+                      source spec mobile_logs) to stats/analytics.json in
+                      the private state bucket; run-analytics.sh runs it
+                      after podbay-traffic at 07:30
   live/             the today-so-far Lambda: each log file as it lands, to
                       DynamoDB day rows and data/live.json; its header has
                       the design and why sets, not counters

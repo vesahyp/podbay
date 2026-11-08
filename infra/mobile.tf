@@ -414,7 +414,7 @@ resource "aws_iam_role_policy" "mobile_api" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "arn:aws:logs:*:*:*" },
-      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.mobile_state.arn}/state/*" },
+      { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${aws_s3_bucket.mobile_state.arn}/state/*", "${aws_s3_bucket.mobile_state.arn}/stats/*"] },
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.mobile_state.arn },
       {
         Effect   = "Allow"
@@ -485,7 +485,7 @@ resource "aws_apigatewayv2_integration" "mobile" {
 
 locals {
   mobile_routes = [
-    "GET /api/state", "GET /api/me", "GET /api/messages", "POST /api/messages",
+    "GET /api/state", "GET /api/stats", "GET /api/me", "GET /api/messages", "POST /api/messages",
     "POST /api/passkey/register/options", "POST /api/passkey/register/verify",
     "POST /api/passkey/auth/options", "POST /api/passkey/auth/verify",
     "POST /api/push",

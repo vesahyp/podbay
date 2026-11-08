@@ -198,6 +198,11 @@ mobile-test: | infra/.terraform
 	@$(if $(SEND),$(PODBAY) podbay mobile passkey-allow >/dev/null &&) \
 	  $(MOBILE_ENV) $(PODBAY) --with playwright python scripts/mobile_app_check.py $(if $(SEND),--send)
 
+# The phone app's errors of the last 7 days from the nightly rollup
+# (analytics/clavesa/podbay-mobile-traffic), per message and page.
+mobile-errors:
+	@AWS_PROFILE=$(PROFILE) $(PODBAY) python scripts/mobile_errors.py
+
 # The API through CloudFront as the test user: refusals and reads.
 mobile-check: | infra/.terraform
 	@$(MOBILE_ENV) $(PODBAY) --with boto3 python scripts/mobile_check.py

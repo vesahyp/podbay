@@ -360,7 +360,76 @@
       lineChart({ points: diskPts, t0: t0, t1: t1, max: maxDisk, limit: m.disk_low_gb, limitLabel: (m.disk_low_gb || 15) + " GB", color: "#6aa8f0", unit: "GB", label: "Disk free, 24 hours" }) + "</article>" +
       (agents ? '<h2>Background jobs</h2><article class="card">' + agents + "</article>" : "") +
       '<h2>Claude accounts</h2><article class="card">' + (accounts || '<p class="none">No accounts.</p>') + "</article>" +
-      '<div class="row gap">' + replyBtn("machine", "Ask Head Jeeves about the Mac") + "</div>" + pushCard();
+      '<div class="row gap">' + replyBtn("machine", "Ask Head Jeeves about the Mac") + "</div>" + pushCard() +
+      '<h2>This app</h2><div class="row"><button class="btn wide" type="button" data-stats="1">How the app is used, and its errors</button></div>';
+  }
+
+  // ---- stats (the nightly podbay-mobile-traffic rollup) ----------------------------
+
+  function dayBars(days, key, color, label) {
+    var w = 340, h = 110, pl = 30, pb = 16, top = 6, iw = w - pl, ih = h - pb - top;
+    if (!days.length) return '<p class="none">No days yet.</p>';
+    var vals = days.map(function (d) { return d[key] || 0; });
+    var max = niceMax(Math.max.apply(null, vals.concat([1]))), step = iw / days.length, bw = Math.max(2, step - 3), s = "";
+    [0, max / 2, max].forEach(function (v) {
+      var y = top + ih - (v / max) * ih;
+      s += '<line x1="' + pl + '" x2="' + w + '" y1="' + y + '" y2="' + y + '" stroke="#221c18"/><text x="' + (pl - 4) + '" y="' + (y + 3) + '" text-anchor="end">' + (v % 1 ? v.toFixed(1) : v) + "</text>";
+    });
+    days.forEach(function (d, i) {
+      var v = vals[i], bh = (v / max) * ih;
+      if (v) s += '<rect x="' + (pl + i * step + 1) + '" y="' + (top + ih - bh) + '" width="' + bw + '" height="' + bh + '" rx="1.5" fill="' + color + '"/>';
+    });
+    var idx = days.length === 1 ? [0] : [0, Math.floor((days.length - 1) / 2), days.length - 1];
+    idx.forEach(function (i, k) {
+      s += '<text x="' + (pl + i * step + step / 2) + '" y="' + (h - 2) + '" text-anchor="' + (idx.length === 1 ? "middle" : k === 0 ? "start" : k === idx.length - 1 ? "end" : "middle") + '">' + esc(dayName(days[i].date)) + "</text>";
+    });
+    return '<svg viewBox="0 0 ' + w + " " + h + '" role="img" aria-label="' + esc(label) + '">' + s + "</svg>";
+  }
+  function lastDays(rows, n) {
+    var by = {}, out = [];
+    rows.forEach(function (r) { by[r.date] = r; });
+    for (var i = n - 1; i >= 0; i--) {
+      var d = new Date(Date.now() - i * 86400000), iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      out.push(by[iso] || { date: iso });
+    }
+    return out;
+  }
+  function stats() {
+    if (!app.stats) return '<h1>This app</h1><p class="sub boot">Loading…</p>';
+    var rows = app.stats.days || [], days = lastDays(rows, 30);
+    var tabs = {}, errs = {};
+    days.forEach(function (d) {
+      Object.keys(d.tabs || {}).forEach(function (k) { tabs[k] = (tabs[k] || 0) + d.tabs[k]; });
+    });
+    lastDays(rows, 7).forEach(function (d) {
+      (d.errorList || []).forEach(function (e) {
+        var k = e.type + "|" + e.path + "|" + e.msg;
+        if (!errs[k]) errs[k] = { msg: e.msg, type: e.type, path: e.path, n: 0, last: d.date };
+        errs[k].n += e.n; errs[k].last = d.date;
+      });
+    });
+    var tabMax = Math.max.apply(null, Object.keys(tabs).map(function (k) { return tabs[k]; }).concat([1]));
+    var tabRows = Object.keys(tabs).sort(function (a, b) { return tabs[b] - tabs[a]; }).map(function (k) {
+      return '<div class="qrow"><span class="k">' + esc(k) + '</span><div class="bar"><b data-w="' + Math.round(tabs[k] / tabMax * 100) + '"></b></div><span class="r">' + tabs[k] + "</span></div>";
+    }).join("");
+    var errRows = Object.keys(errs).sort(function (a, b) { return errs[b].n - errs[a].n; }).map(function (k) {
+      var e = errs[k];
+      return "<tr><td>" + esc(e.msg || "(no message)") + "</td><td>" + esc(e.type) + "</td><td>" + esc(e.path) + "</td><td>" + e.n + "</td><td>" + esc(dayName(e.last)) + "</td></tr>";
+    }).join("");
+    var updated = rows.length ? "Updated nightly; the last day counted is " + longDay(rows[rows.length - 1].date) + "." : "Updated nightly. No days counted yet.";
+    return "<h1>This app</h1><p class=\"sub\">How podbay mobile is used and where it breaks, from its own tracker. " + esc(updated) + "</p>" +
+      '<article class="card chartcard"><h3>Sessions per day</h3><p class="q">Last 30 days</p>' + dayBars(days, "sessions", "#ffb000", "sessions per day") + "</article>" +
+      '<article class="card chartcard"><h3>Messages sent per day</h3><p class="q">Sends from the reply sheet, last 30 days</p>' + dayBars(days, "sends", "#6fcf86", "messages per day") + "</article>" +
+      '<article class="card chartcard"><h3>Which screens get opened</h3><p class="q">Tab opens, last 30 days</p>' + (tabRows || '<p class="none">No tab opens yet.</p>') + "</article>" +
+      '<article class="card chartcard"><h3>Errors per day</h3><p class="q">Uncaught errors, failed promises and screens that broke, last 30 days</p>' + dayBars(days, "errors", "#e0201f", "errors per day") + "</article>" +
+      '<h2>Errors, last 7 days <span class="n">' + Object.keys(errs).length + "</span></h2>" +
+      (errRows ? '<article class="card"><table class="errs"><tr><th>Message</th><th>Kind</th><th>Page</th><th>Count</th><th>Last</th></tr>' + errRows + "</table></article>" : '<p class="none">No errors in the last 7 days.</p>') +
+      '<div class="row gap"><button class="btn wide" type="button" data-tab="machine">Back to the Machine tab</button></div>';
+  }
+  function loadStats() {
+    return api("GET", "stats").then(function (s) { app.stats = s; if (app.route === "stats") render(); }, function (e) {
+      app.stats = { days: [] }; app.error = "Could not load the stats: " + e.message; render();
+    });
   }
 
   // ---- notifications ------------------------------------------------------------
@@ -536,12 +605,13 @@
         return;
       }
       freshness();
-      $("#tabs").innerHTML = tabs(app.route);
+      $("#tabs").innerHTML = tabs(app.route === "stats" ? "machine" : app.route);
       var s = app.state, html;
       if (!s) html = '<p class="sub boot">' + esc(app.error || "Loading…") + "</p>";
       else if (app.route === "machine") html = machine(s);
       else if (app.route === "nightly") html = nightly(s, app.sheet && app.sheet.kind === "log" ? [app.sheet.label, app.sheet.day] : null);
       else if (app.route === "thread") html = thread();
+      else if (app.route === "stats") html = stats();
       else html = board(s);
       if (app.error && s) html = '<p class="err">' + esc(app.error) + "</p>" + html;
       html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
@@ -587,9 +657,10 @@
       app.route = "nightly";
       app.sheet = { kind: "log", label: parts[1], day: parts[2] };
     } else {
-      app.route = ["board", "machine", "nightly", "thread"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
+      app.route = ["board", "machine", "nightly", "thread", "stats"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
     }
     if (app.route === "thread") loadMessages();
+    if (app.route === "stats") loadStats();
     render();
   }
   function closeSheet() {
@@ -661,6 +732,7 @@
     }
     if (t.dataset.again) { sendAgain(t.dataset.again); return; }
     if (t.dataset.push) { turnOnPush(); return; }
+    if (t.dataset.stats) { app.sheet = null; go("stats"); loadStats(); return; }
     if (t.dataset.signout) { signOut(); return; }
     if (t.dataset.restart) { signin = { stage: "email", email: "", session: "", err: "" }; render(); return; }
     if (t.id === "fresh") { loadState(); return; }

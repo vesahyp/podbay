@@ -3,6 +3,7 @@ behind an HTTP API whose JWT authorizer has already checked the Cognito
 access token. Every route lives under /api/ on the app's own CloudFront.
 
     GET  /api/state                     the Mac's last snapshot (gzip)
+    GET  /api/stats                     the app's traffic and errors per day
     GET  /api/me                        who, whether this sign-in can send,
                                         passkeys, whether enrolment is open
     GET  /api/messages                  the caller's last 50 messages
@@ -164,6 +165,20 @@ def load_state(max_age: float = 20) -> dict | None:
         return None
     _state_cache.update(at=time.time(), state=json.loads(gzip.decompress(raw)), raw=raw)
     return _state_cache["state"]
+
+
+STATS_KEY = os.environ.get("STATS_KEY", "stats/analytics.json")
+
+
+def get_stats() -> dict:
+    """The app's own traffic and errors, one row per day, as the nightly
+    podbay-mobile-traffic pipeline publishes it."""
+    try:
+        raw = s3().get_object(Bucket=STATE_BUCKET, Key=STATS_KEY)["Body"].read()
+    except s3().exceptions.NoSuchKey:
+        return respond(200, {"days": []})
+    return {"statusCode": 200, "headers": {"content-type": "application/json", "cache-control": "no-store"},
+            "body": '{"days": ' + raw.decode() + "}"}
 
 
 def get_state() -> dict:
@@ -459,6 +474,8 @@ def handler(event: dict, context=None) -> dict:
             return respond(400, {"error": "not an object"})
     if route == "GET /api/state":
         return get_state()
+    if route == "GET /api/stats":
+        return get_stats()
     if route == "GET /api/me":
         return me(claims)
     if route == "GET /api/messages":

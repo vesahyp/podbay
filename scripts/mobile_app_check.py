@@ -116,6 +116,16 @@ async def main() -> int:
             await page.screenshot(path=str(OUT / "mobile-app-4-log.png"))
             await page.locator(".sheet button[data-close]").first.click()
 
+        # Stats: reached from the Machine tab, charts from the nightly rollup
+        # and the errors panel.
+        await page.locator("button[data-tab=machine]").click()
+        await page.locator("button[data-stats]").click()
+        await page.wait_for_selector("text=Sessions per day")
+        check("stats: three day charts", await page.locator(".chartcard svg").count() == 3, await page.locator(".chartcard svg").count())
+        check("stats: the errors panel", await page.locator("text=Errors, last 7 days").count() == 1)
+        check("stats: the Machine tab stays marked", await page.locator("button.tab.on[data-tab=machine]").count() == 1)
+        await shot(page, "mobile-app-8-stats.png", full=True)
+
         await page.locator("button[data-tab=board]").click()
         reply = page.locator("button[data-reply]").first
         if not await reply.count():
