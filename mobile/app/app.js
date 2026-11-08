@@ -239,36 +239,115 @@
     return '<details class="table"><summary>As a table</summary><table><tr>' + head.map(function (h) { return "<th>" + esc(h) + "</th>"; }).join("") + "</tr>" +
       rows.map(function (r) { return "<tr>" + r.map(function (c) { return "<td>" + esc(c) + "</td>"; }).join("") + "</tr>"; }).join("") + "</table></details>";
   }
-  var PALETTE = ["#e0201f", "#6aa8f0", "#ffb000", "#6fcf86", "#b88cf0", "#8a8f98"];
-  function stacked(runs) {
-    var w = 340, h = 160, pl = 30, pb = 16, top = 24, iw = w - pl, ih = h - pb - top;
-    var days = runs.days, series = runs.series;
-    var totals = days.map(function (_, i) { return series.reduce(function (s, x) { return s + (x.minutes[i] || 0); }, 0); });
-    var max = Math.max(10, Math.ceil(Math.max.apply(null, totals) / 10) * 10), step = iw / days.length, bw = step - 10, s = "";
-    [0, max / 2, max].forEach(function (v) {
-      var y = top + ih - (v / max) * ih;
-      s += '<line x1="' + pl + '" x2="' + w + '" y1="' + y + '" y2="' + y + '" stroke="#221c18"/><text x="' + (pl - 4) + '" y="' + (y + 3) + '" text-anchor="end">' + Math.round(v) + "</text>";
+  // ---- clavesa run timings (the snapshot's runs part) ------------------------
+  // One colour per phase, fixed: colour belongs to the phase, never to the
+  // rank. "nodes" is the whole node time of a run without phase data.
+  var PHASE_COLOR = { startup: "#3987e5", metastore: "#d95926", spark: "#199e70", reads: "#c98500", transform: "#d55181",
+    writes: "#008300", stats: "#9085e9", nodes: "#4f5560", bookkeeping: "#6b7078" };
+  var PHASE_LABEL = { nodes: "nodes (no phase data)" };
+  function sum(a) { return (a || []).reduce(function (s, x) { return s + (x || 0); }, 0); }
+  function minSec(min) {
+    var s = Math.round(min * 60), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? h + " h " + String(m).padStart(2, "0") + " min" : m + " min " + String(s % 60).padStart(2, "0") + " s";
+  }
+  function ddmm(iso) { return iso.slice(8, 10) + "." + iso.slice(5, 7); }
+  function runStep(max) {
+    var steps = [1, 2, 5, 10, 15, 20, 30, 60, 120, 240, 480, 960], step = steps[steps.length - 1];
+    for (var i = 0; i < steps.length; i++) if (max / steps[i] <= 4.2) { step = steps[i]; break; }
+    return { step: step, top: Math.max(step, Math.ceil(max / step) * step) };
+  }
+  // items: [{label, short, v: minutes per phase, failed, empty}]; chart: its
+  // index on the screen, for the tap; sel: the selected item index or -1.
+  function runChart(items, phases, chart, sel, aria) {
+    var w = 340, h = 170, pl = 30, pb = 16, top = 12, iw = w - pl, ih = h - pb - top, n = items.length;
+    var sc = runStep(Math.max.apply(null, items.map(function (it) { return sum(it.v); }).concat([0.5])));
+    var slot = iw / n, bw = Math.min(16, Math.max(2, slot - 2)), s = "";
+    function y(v) { return top + ih - (v / sc.top) * ih; }
+    for (var t = 0; t <= sc.top + 1e-9; t += sc.step) {
+      s += '<line x1="' + pl + '" x2="' + w + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="#221c18"/><text x="' + (pl - 4) + '" y="' + (y(t) + 3) + '" text-anchor="end">' + t + "</text>";
+    }
+    s += '<text x="' + (pl - 4) + '" y="4" text-anchor="end">min</text>';
+    items.forEach(function (it, i) {
+      var x = pl + i * slot + (slot - bw) / 2, acc = 0;
+      if (i === sel) s += '<rect x="' + (pl + i * slot) + '" y="' + top + '" width="' + slot + '" height="' + ih + '" fill="#ffffff" opacity=".08"/>';
+      if (!it.empty) {
+        phases.forEach(function (p, k) {
+          var v = it.v[k] || 0;
+          if (v <= 0) return;
+          var hh = (v / sc.top) * ih;
+          s += '<rect x="' + x.toFixed(1) + '" y="' + y(acc + v).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.75, hh > 3 ? hh - 1 : hh).toFixed(1) + '" fill="' + PHASE_COLOR[p] + '"/>';
+          acc += v;
+        });
+        if (it.failed) {
+          var cx = x + bw / 2, ty = y(acc) - 3;
+          s += '<path d="M' + (cx - 4) + " " + (ty - 7) + " L" + (cx + 4) + " " + (ty - 7) + " L" + cx + " " + ty + ' Z" fill="#e0201f"/>';
+        }
+      }
+      if ((n - 1 - i) % 7 === 0) s += '<text x="' + Math.min(w - 14, Math.max(pl + 14, pl + i * slot + slot / 2)) + '" y="' + (h - 2) + '" text-anchor="middle">' + esc(it.short) + "</text>";
     });
-    days.forEach(function (d, i) {
-      var acc = 0;
-      series.forEach(function (x, k) {
-        var v = x.minutes[i] || 0;
-        if (!v) return;
-        var y = top + ih - ((acc + v) / max) * ih;
-        s += '<rect x="' + (pl + i * step + 5) + '" y="' + y + '" width="' + bw + '" height="' + Math.max(1, (v / max) * ih - 1) + '" fill="' + PALETTE[k % PALETTE.length] + '" opacity=".85"/>';
-        acc += v;
+    // The tap targets: one full-height column per item.
+    items.forEach(function (it, i) {
+      s += '<rect class="hit" data-bar="' + chart + "|" + i + '" x="' + (pl + i * slot) + '" y="0" width="' + slot + '" height="' + h + '" fill="transparent"><title>' + esc(it.label) + "</title></rect>";
+    });
+    return '<svg viewBox="0 0 ' + w + " " + h + '" role="img" aria-label="' + esc(aria) + '">' + s + "</svg>";
+  }
+  function swatch(p) { return '<svg class="sw" viewBox="0 0 10 10"><rect width="10" height="10" rx="2" fill="' + PHASE_COLOR[p] + '"/></svg>'; }
+  function phaseLegend(phases, items) {
+    var nodes = phases.indexOf("nodes"), any = items.some(function (it) { return !it.empty && it.v[nodes] > 0; });
+    return '<div class="plegend">' + phases.filter(function (p) { return p !== "nodes" || any; }).map(function (p) {
+      return "<span>" + swatch(p) + esc(PHASE_LABEL[p] || p) + "</span>";
+    }).join("") + "</div>";
+  }
+  function runDetail(it, phases) {
+    if (!it) return "";
+    if (it.empty) return '<div class="rdetail"><b>' + esc(it.label) + '</b><p class="none">No runs.</p></div>';
+    var tot = sum(it.v);
+    return '<div class="rdetail"><div class="mini"><b>' + esc(it.label) + "</b>" + (it.failed ? '<span class="chip red">' + esc(it.failedText) + "</span>" : "") + "</div>" +
+      '<div class="prow total"><span>Total</span><span>' + esc(tot.toFixed(1) + " min · " + minSec(tot)) + "</span></div>" +
+      phases.map(function (p, k) {
+        var v = it.v[k] || 0;
+        if (v <= 0) return "";
+        return '<div class="prow"><span>' + swatch(p) + esc(p) + "</span><span>" + esc(v.toFixed(1) + " min · " + Math.round((100 * v) / tot) + "%") + "</span></div>";
+      }).join("") + "</div>";
+  }
+  function runTable(items, phases) {
+    return tableTwin(["run", "status", "total"].concat(phases), items.slice().reverse().map(function (it) {
+      return [it.label, it.empty ? "" : it.failed ? it.failedText : "ok", it.empty ? "" : sum(it.v).toFixed(1)].concat(phases.map(function (_, k) { return it.empty ? "" : (it.v[k] || 0).toFixed(1); }));
+    }));
+  }
+  function runCharts(r) {
+    if (!r || !r.nights || !r.nights.length) return [];
+    var charts = [{
+      title: "All pipelines, per night", aria: "Pipeline minutes per night, stacked by phase, last 30 nights",
+      items: r.nights.map(function (x) {
+        return { label: longDay(x.d) + (x.n ? ", " + x.n + (x.n === 1 ? " run" : " runs") : ""), short: ddmm(x.d), v: x.v, empty: !x.n,
+          failed: x.f, failedText: x.f + " failed" };
+      }),
+    }];
+    (r.pipelines || []).forEach(function (p) {
+      charts.push({
+        title: p.name, aria: "Minutes per run for " + p.name + ", stacked by phase",
+        sum: "latest " + minSec(p.latest_ms / 60000) + (p.median_of ? ", median of the previous " + p.median_of + (p.median_of === 1 ? " run " : " runs ") + minSec(p.median_ms / 60000) : ""),
+        items: p.runs.map(function (x) {
+          return { label: longDay(x.at.slice(0, 10)) + " " + x.at.slice(11, 16), short: ddmm(x.at), v: x.v, failed: x.f, failedText: "failed" };
+        }),
       });
-      s += '<text x="' + (pl + i * step + step / 2) + '" y="' + (h - 2) + '" text-anchor="middle">' + esc(dayName(d).split(" ")[0]) + "</text>";
     });
-    s += '<text x="' + (pl - 4) + '" y="10" text-anchor="end">min</text>';
-    var lx = pl;
-    series.forEach(function (x, k) {
-      var name = x.name.length > 12 ? x.name.slice(0, 11) + "…" : x.name;
-      if (lx + 14 + name.length * 6.4 > w) return;
-      s += '<rect x="' + lx + '" y="2" width="9" height="9" rx="2" fill="' + PALETTE[k % PALETTE.length] + '"/><text x="' + (lx + 12) + '" y="10">' + esc(name) + "</text>";
-      lx += 14 + name.length * 6.4 + 8;
-    });
-    return '<svg viewBox="0 0 ' + w + " " + h + '" role="img" aria-label="pipeline minutes per night">' + s + "</svg>";
+    return charts;
+  }
+  function runsBlock(s) {
+    var r = s.runs, charts = runCharts(r);
+    if (!charts.length) return '<h2>Pipeline time</h2><p class="none">No clavesa run timings on the Mac yet. The 10:45 runs-export writes them.</p>';
+    var last = r.nights[r.nights.length - 1], g = r.generated_at || "";
+    var sub = (g ? "Exported " + ddmm(g.slice(0, 10)) + " " + g.slice(11, 16) + " · " : "") + r.count + " runs in 90 days · last night " +
+      Math.round(sum(last.v)) + " min across " + last.p + (last.p === 1 ? " pipeline" : " pipelines") + ". Tap a bar for its phases.";
+    var sel = app.runSel || { c: -1, i: -1 };
+    return '<h2>Pipeline time</h2><p class="sub">' + esc(sub) + "</p>" + charts.map(function (c, k) {
+      var on = sel.c === k ? sel.i : -1;
+      return '<article class="card chartcard" id="runs-' + k + '"><h3>' + esc(c.title) + "</h3>" +
+        '<p class="q">' + esc(c.sum || "clavesa minutes, stacked by phase; a red mark is a night with a failed run") + "</p>" +
+        phaseLegend(r.phases, c.items) + runChart(c.items, r.phases, k, on, c.aria) + (on >= 0 ? runDetail(c.items[on], r.phases) : "") + runTable(c.items, r.phases) + "</article>";
+    }).join("");
   }
 
   // ---- screens -----------------------------------------------------------------
@@ -487,13 +566,10 @@
       });
     });
     g += "</div>";
-    var runs = s.runs && s.runs.series && s.runs.series.length ? '<article class="card chartcard"><h3>Where the pipeline time goes</h3><p class="q">clavesa run minutes per night, by workspace</p>' + stacked(s.runs) +
-      tableTwin(["night"].concat(s.runs.series.map(function (x) { return x.name; })), s.runs.days.map(function (d, i) { return [d].concat(s.runs.series.map(function (x) { return String(x.minutes[i]); })); })) + "</article>" : "";
-    var page = s.runs && s.runs.page ? '<div class="row gap"><a class="btn wide" href="' + esc(safeUrl(s.runs.page)) + '" target="_blank" rel="noopener">Open the full runs chart</a></div>' : "";
     return "<h1>Nightly runs</h1><p class=\"sub\">" + esc(summary) + "</p>" +
       '<article class="card chartcard"><h3>Every job, the last 7 nights</h3><p class="q">One cell per scheduled run, today on the right</p>' + g +
       '<div class="legend"><span class="ok">passed</span><span class="fail">failed</span><span class="skip">skipped</span><span class="miss">did not run</span><span class="unknown">no record</span><span>not scheduled</span></div></article>' +
-      runs + page;
+      runsBlock(s);
   }
 
   var STATE_WORD = { queued: "queued", delivering: "sending", delivered: "delivered", answered: "answered", expired: "not sent" };
@@ -709,6 +785,14 @@
   // ---- events -------------------------------------------------------------------------
 
   document.addEventListener("click", function (ev) {
+    var bar = ev.target.closest && ev.target.closest("[data-bar]");
+    if (bar) {
+      var b = bar.getAttribute("data-bar").split("|").map(Number), cur = app.runSel;
+      app.runSel = cur && cur.c === b[0] && cur.i === b[1] ? null : { c: b[0], i: b[1] };
+      track("runs-bar", { chart: b[0] === 0 ? "nights" : "pipeline" });
+      render();
+      return;
+    }
     var t = ev.target.closest("button");
     if (!t) return;
     if (t.dataset.tab) { app.sheet = null; go(t.dataset.tab); if (t.dataset.tab === "thread") loadMessages(); return; }

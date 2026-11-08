@@ -111,6 +111,19 @@ async def main() -> int:
         cells = await page.locator(".ng .cell").count()
         check("nightly: 7 cells a job", jobs > 0 and cells == jobs * 7, (jobs, cells))
         await shot(page, "mobile-app-3-nightly.png", full=True)
+        # The clavesa run timings: the all-pipelines chart plus one per
+        # pipeline, stacked by phase, and a tap shows a bar's phases.
+        run_charts = await page.locator("article[id^=runs-]").count()
+        check("nightly: the run timings charts", run_charts >= 2, run_charts)
+        check("nightly: phase bars drawn", await page.locator("#runs-0 svg rect[fill^='#']").count() > 0)
+        if run_charts:
+            await page.locator("#runs-0 rect.hit").last.dispatch_event("click")
+            await page.wait_for_selector("#runs-0 .rdetail")
+            rows = await page.locator("#runs-0 .rdetail .prow").count()
+            check("nightly: a tapped night shows its phases", rows >= 2, rows)
+            await page.locator("#runs-0").scroll_into_view_if_needed()
+            await page.screenshot(path=str(OUT / "mobile-app-3b-runs.png"))
+            await shot(page, "mobile-app-3c-runs-full.png", full=True)
         ran = page.locator(".ng .cell.ok, .ng .cell.fail").first
         if await ran.count():
             await ran.click()

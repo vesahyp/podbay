@@ -47,8 +47,9 @@ Keys:
               infra/mobile.tf.
   mobile_cron_dir  where `cronrun` keeps <job>.json and <job>.jsonl, for
               the Nightly tab. Empty leaves the run cells empty.
-  mobile_runs_url  a runs.json from `clavesa pipeline timings --all`, for
-              the pipeline minutes chart. Empty leaves the chart out.
+  mobile_runs_file  the runs.json file `clavesa pipeline timings --all`
+              wrote (the home repo's runs-export), for the run timings
+              charts on the Nightly tab. Empty leaves them out.
   mobile_url  the app's address. `podbay notify` then links to the app,
               and `--line <id>` to one line in it.
   mobile_push_command  the command that registers the app's Web Push
@@ -88,7 +89,7 @@ KEYS = {
     "mobile-bucket": "mobile_bucket",
     "mobile-table": "mobile_table",
     "mobile-cron-dir": "mobile_cron_dir",
-    "mobile-runs-url": "mobile_runs_url",
+    "mobile-runs-file": "mobile_runs_file",
     "mobile-url": "mobile_url",
     "mobile-push-command": "mobile_push_command",
 }

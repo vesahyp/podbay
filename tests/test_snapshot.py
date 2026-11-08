@@ -83,17 +83,49 @@ def test_downsample_keeps_one_point_per_step():
     assert out[-1]["load"] == 59.0
 
 
-def test_runs_part_groups_by_night_and_workspace():
-    runs = {"runs": [
-        {"workspace": "a", "started_at": "2026-11-08T04:00:00+02:00", "total_ms": 600000},
-        {"workspace": "a", "started_at": "2026-11-07T04:00:00+02:00", "total_ms": 120000},
-        {"workspace": "b", "started_at": "2026-11-08T05:00:00+02:00", "total_ms": 60000},
-        {"workspace": "c", "started_at": "2026-10-01T05:00:00+02:00", "total_ms": 60000},
+def test_run_phases_split_like_the_old_runs_page():
+    timed = {"total_ms": 600000, "phases": {"startup": 30000, "image": 30000, "metastore": 60000, "inputs": 60000, "nodes": 300000},
+             "nodes": [{"timing": {"phases": {"spark_session": 60000, "catalog": 0, "inputs": 30000, "transform": 30000,
+                                              "write": 60000, "stats": 60000}}}]}
+    # startup 1, metastore 1, spark 1, reads 1 + 0.5, transform 0.5, writes 1, stats 1, rest bookkeeping
+    assert snapshot.run_phases(timed) == [1.0, 1.0, 1.0, 1.5, 0.5, 1.0, 1.0, 0.0, 3.0]
+    old = {"total_ms": 120000, "phases": {"nodes": 90000}, "nodes": [{"node": "x"}]}
+    assert snapshot.run_phases(old) == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.5, 0.5]
+
+
+def test_runs_part_nights_and_pipelines():
+    def run(ws, pipe, at, minutes, status="SUCCEEDED"):
+        return {"workspace": ws, "pipeline": pipe, "started_at": at, "total_ms": minutes * 60000, "status": status, "phases": {}}
+    runs = {"generated_at": "2026-11-08T10:45:00+02:00", "runs": [
+        run("a", "traffic", "2026-11-08T04:00:00+02:00", 10),
+        run("a", "traffic", "2026-11-07T04:00:00+02:00", 2),
+        run("a", "traffic", "2026-11-06T04:00:00+02:00", 4),
+        run("b", "insights", "2026-11-08T05:00:00+02:00", 3, status="FAILED"),
+        run("c", "old", "2026-09-01T05:00:00+02:00", 1),
     ]}
-    out = snapshot.runs_part(runs, NOW)
-    assert [s["name"] for s in out["series"]] == ["a", "b"]
-    assert out["series"][0]["minutes"][-2:] == [2.0, 10.0]
-    assert snapshot.runs_part(None, NOW) is None
+    out = snapshot.runs_part(runs)
+    assert len(out["nights"]) == 30 and out["nights"][-1]["d"] == "2026-11-08"
+    last = out["nights"][-1]
+    assert (last["n"], last["f"], last["p"]) == (2, 1, 2)
+    assert last["v"][snapshot.RUN_PHASES.index("bookkeeping")] == 13.0
+    assert out["nights"][0]["n"] == 0 and out["nights"][0]["v"] == []
+    assert [p["name"] for p in out["pipelines"]] == ["a · traffic", "b · insights", "c · old"]
+    traffic = out["pipelines"][0]
+    assert traffic["latest_ms"] == 600000 and traffic["median_ms"] == 180000 and traffic["median_of"] == 2
+    assert traffic["runs"][-1]["at"] == "2026-11-08 04:00"
+    assert out["pipelines"][1]["runs"][0]["f"] == 1 and out["pipelines"][1]["median_ms"] is None
+    assert out["count"] == 5
+    assert snapshot.runs_part(None) is None
+
+
+def test_read_runs_json_rereads_only_a_changed_file(tmp_path):
+    f = tmp_path / "runs.json"
+    assert snapshot.read_runs_json(str(f)) is None
+    f.write_text('{"runs": []}')
+    assert snapshot.read_runs_json(str(f)) == {"runs": []}
+    f.write_text('{"runs": [1, 2]}')
+    assert snapshot.read_runs_json(str(f)) == {"runs": [1, 2]}
+    assert snapshot.read_runs_json("") is None
 
 
 def test_parse_power():

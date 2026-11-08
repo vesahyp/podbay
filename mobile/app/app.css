@@ -104,6 +104,17 @@ details.table td, details.table th { text-align: left; padding: 2px 4px; border-
 .legend .miss::before { border: 2px solid var(--red); width: 6px; height: 6px; background: none; }
 .legend .unknown::before { background: repeating-linear-gradient(135deg, #1a1816 0 3px, #2a2520 3px 6px); }
 
+/* clavesa run timings: phase legend, tap columns, the tapped bar's phases */
+svg.sw { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; overflow: hidden; }
+.plegend { display: flex; gap: 4px 12px; flex-wrap: wrap; font: 11px var(--mono); color: var(--muted); margin: 0 0 8px; }
+.hit { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.rdetail { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; font-size: 13px; }
+.prow { display: flex; justify-content: space-between; gap: 10px; font: 12px var(--mono); color: var(--muted); padding: 2px 0; }
+.prow.total { color: var(--fg); }
+.prow span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chartcard details.table { overflow-x: auto; }
+.chartcard details.table td, .chartcard details.table th { white-space: nowrap; }
+
 /* Bars */
 .bar { height: 10px; background: #1d1a17; border-radius: 5px; overflow: hidden; }
 .bar b { display: block; height: 100%; border-radius: 5px; background: var(--green); width: 0; }

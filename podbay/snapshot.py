@@ -11,8 +11,9 @@ and uploads it when it changed (mobile.py); the API hands it to the app.
     nightly   every cron job wrapped by a `cronrun <label>` line in the
               crontab: one cell per night for the last 7 nights, with the
               run's exit code, length and log tail
-    runs      clavesa pipeline minutes per night and workspace, when a
-              runs.json URL is configured
+    runs      clavesa pipeline run timings by phase: every pipeline per
+              night for 30 nights, and the last 30 runs of each pipeline,
+              from the runs.json file in `podbay config mobile-runs-file`
     lines     every id the app can reply to, with the target and quote the
               API puts in front of the text; the API never takes these from
               the phone
@@ -30,8 +31,6 @@ import os
 import plistlib
 import re
 import subprocess
-import time
-import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -293,35 +292,89 @@ def nightly_part(crontab_text: str, cron_dir: Path | None, now: datetime) -> tup
 # --- clavesa runs ------------------------------------------------------------
 
 
-def runs_page(runs_url: str | None) -> str | None:
-    """The chart page beside a published runs.json: .../data/runs.json is
-    read by .../runs.html."""
-    if runs_url and runs_url.endswith("/data/runs.json"):
-        return runs_url[: -len("data/runs.json")] + "runs.html"
-    return None
+# The phases of one run, in the order the app stacks them. "nodes" is the
+# whole node time of a run made before clavesa v2.22.0, which has no
+# per-node phases; "bookkeeping" is what the phases do not cover.
+RUN_PHASES = ["startup", "metastore", "spark", "reads", "transform", "writes", "stats", "nodes", "bookkeeping"]
+RUN_NIGHTS = 30  # the all-pipelines chart
+RUN_KEEP = 30  # runs per pipeline chart
+RUN_MEDIAN_OF = 7  # the runs before the latest that its median is taken from
 
 
-def runs_part(runs_json: dict | None, now: datetime, page: str | None = None) -> dict | None:
-    """Pipeline minutes per night and workspace for the last NIGHTS days,
-    from the runs.json `make runs-publish` exports. Workspaces outside the
-    five largest go into "other"."""
+def _num(x) -> float:
+    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else 0.0
+
+
+def run_phases(run: dict) -> list[float]:
+    """Minutes per RUN_PHASES for one run of `clavesa pipeline timings`.
+    Startup is the run's own setup steps; spark, reads, transform, writes
+    and stats add up the nodes' own phases; bookkeeping is the rest of the
+    total, never below zero."""
+    p = run.get("phases") or {}
+    nodes = [n for n in run.get("nodes") or [] if isinstance(n, dict)]
+    timed = [n["timing"]["phases"] for n in nodes if isinstance(n.get("timing"), dict) and isinstance(n["timing"].get("phases"), dict)]
+
+    def nodes_sum(key: str) -> float:
+        return sum(_num(ph.get(key)) for ph in timed)
+
+    v = dict.fromkeys(RUN_PHASES, 0.0)
+    v["startup"] = sum(_num(p.get(k)) for k in ("startup", "prepare", "lock", "image", "container", "boot"))
+    v["metastore"] = _num(p.get("metastore"))
+    if timed:
+        v["spark"] = nodes_sum("spark_session") + nodes_sum("catalog")
+        v["reads"] = _num(p.get("inputs")) + nodes_sum("inputs")
+        v["transform"] = nodes_sum("transform")
+        v["writes"] = nodes_sum("write")
+        v["stats"] = nodes_sum("stats")
+    else:
+        v["nodes"] = _num(p.get("nodes"))
+    v["bookkeeping"] = max(0.0, _num(run.get("total_ms")) - sum(v.values()))
+    return [round(v[k] / 60000, 2) for k in RUN_PHASES]
+
+
+def runs_part(runs_json: dict | None) -> dict | None:
+    """The clavesa run timings for the app's Nightly tab, from the
+    runs.json the home repo's `runs-export` writes: every pipeline per
+    night for RUN_NIGHTS nights ending at the latest run, and one chart per
+    pipeline with its last RUN_KEEP runs, the latest run time and the
+    median of the RUN_MEDIAN_OF runs before it. Minutes per phase in
+    RUN_PHASES order."""
     if not runs_json:
         return None
-    days = [(now - timedelta(days=NIGHTS - 1 - i)).date().isoformat() for i in range(NIGHTS)]
-    totals: dict[str, dict[str, float]] = {}
-    for r in runs_json.get("runs") or []:
-        day = str(r.get("started_at") or "")[:10]
-        if day not in days or not r.get("total_ms"):
-            continue
-        ws = str(r.get("workspace") or "?")
-        totals.setdefault(ws, {}).setdefault(day, 0.0)
-        totals[ws][day] += r["total_ms"] / 60000
-    order = sorted(totals, key=lambda w: -sum(totals[w].values()))
-    keep, rest = order[:5], order[5:]
-    series = [{"name": w, "minutes": [round(totals[w].get(d, 0.0), 1) for d in days]} for w in keep]
-    if rest:
-        series.append({"name": "other", "minutes": [round(sum(totals[w].get(d, 0.0) for w in rest), 1) for d in days]})
-    return {"days": days, "series": series, "generated_at": runs_json.get("generated_at"), "page": page}
+    runs = sorted((r for r in runs_json.get("runs") or [] if isinstance(r, dict) and r.get("started_at")),
+                  key=lambda r: str(r["started_at"]))
+    if not runs:
+        return None
+    per_day: dict[str, dict] = {}
+    groups: dict[str, list[dict]] = {}
+    for r in runs:
+        day = str(r["started_at"])[:10]
+        v = run_phases(r)
+        failed = r.get("status") != "SUCCEEDED"
+        a = per_day.setdefault(day, {"v": [0.0] * len(RUN_PHASES), "n": 0, "f": 0, "pipes": set()})
+        a["v"] = [x + y for x, y in zip(a["v"], v)]
+        a["n"] += 1
+        a["f"] += int(failed)
+        a["pipes"].add(f"{r.get('workspace')}/{r.get('pipeline')}")
+        groups.setdefault(f"{r.get('workspace') or '?'} · {r.get('pipeline') or '?'}", []).append(
+            {"at": str(r["started_at"])[:16].replace("T", " "), "f": int(failed), "ms": int(_num(r.get("total_ms"))), "v": v})
+    last = date.fromisoformat(str(runs[-1]["started_at"])[:10])
+    nights = []
+    for i in range(RUN_NIGHTS - 1, -1, -1):
+        d = (last - timedelta(days=i)).isoformat()
+        a = per_day.get(d)
+        nights.append({"d": d, "n": a["n"], "f": a["f"], "p": len(a["pipes"]), "v": [round(x, 2) for x in a["v"]]} if a
+                      else {"d": d, "n": 0, "f": 0, "p": 0, "v": []})
+    pipelines = []
+    for name, rs in groups.items():
+        prev = [x["ms"] for x in rs[-RUN_MEDIAN_OF - 1:-1]]
+        prev.sort()
+        median = (prev[len(prev) // 2] if len(prev) % 2 else (prev[len(prev) // 2 - 1] + prev[len(prev) // 2]) / 2) if prev else None
+        pipelines.append({"name": name, "latest_ms": rs[-1]["ms"], "median_ms": median, "median_of": len(prev),
+                          "runs": [{k: x[k] for k in ("at", "f", "v")} for x in rs[-RUN_KEEP:]]})
+    pipelines.sort(key=lambda g: -g["latest_ms"])
+    return {"generated_at": runs_json.get("generated_at"), "phases": RUN_PHASES, "count": len(runs),
+            "nights": nights, "pipelines": pipelines}
 
 
 # --- the whole object --------------------------------------------------------
@@ -340,7 +393,6 @@ def build(
     cron_dir: Path | None,
     runs_json: dict | None,
     repos: list[str] | None = None,
-    runs_url: str | None = None,
     now: datetime | None = None,
 ) -> dict:
     now = now or datetime.now()
@@ -364,7 +416,7 @@ def build(
         "machine": machine_part(health, power, docker_up, agents, now.timestamp()),
         "accounts": accounts_part(quota_payload),
         "nightly": nightly,
-        "runs": runs_part(runs_json, now, runs_page(runs_url)),
+        "runs": runs_part(runs_json),
         "lines": lines,
         "repos": repos,
     }
@@ -454,19 +506,25 @@ def read_crontab() -> str:
     return _run(["crontab", "-l"])
 
 
-_runs_cache: dict = {"at": 0.0, "data": None}
+_runs_cache: dict = {"key": None, "data": None}
 
 
-def read_runs_json(url: str | None, max_age: float = 3600) -> dict | None:
-    """runs.json from `url`, fetched at most once an hour."""
-    if not url:
+def read_runs_json(path: str | None) -> dict | None:
+    """runs.json from the file at `path` (podbay config mobile-runs-file),
+    read again only when its size or modification time changes. A missing
+    or broken file gives None."""
+    if not path:
         return None
-    if time.time() - _runs_cache["at"] < max_age:
-        return _runs_cache["data"]
+    p = Path(path).expanduser()
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310 -- a configured https URL
-            _runs_cache["data"] = json.loads(resp.read())
-    except (OSError, ValueError):
-        pass
-    _runs_cache["at"] = time.time()
+        st = p.stat()
+    except OSError:
+        return None
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if _runs_cache["key"] != key:
+        try:
+            _runs_cache["data"] = json.loads(p.read_text())
+        except (OSError, ValueError):
+            _runs_cache["data"] = None
+        _runs_cache["key"] = key
     return _runs_cache["data"]
