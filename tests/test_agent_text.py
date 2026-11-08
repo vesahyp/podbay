@@ -6,6 +6,7 @@ from datetime import datetime
 
 from podbay import app as app_mod
 from podbay import opened as opened_mod
+from podbay import voice
 
 from tests.test_app import _selection_session
 from tests.test_open import ZSH_PROMPT, _patch_open, _shell
@@ -46,7 +47,7 @@ def test_open_records_the_whole_first_prompt_it_handed_claude(tmp_path, monkeypa
     app_mod.cmd_open(str(tmp_path), None, "fixer", "Fix it STILL?!", wait=5)
 
     (entry,) = opened_mod.read()
-    assert entry["prompt"] == "Fix it STILL?!"
+    assert entry["prompt"] == f"Fix it STILL?!\n\n{voice.open_rules()}"
     assert entry["session_id"] == "new"
 
 

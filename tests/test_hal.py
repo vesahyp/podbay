@@ -238,7 +238,7 @@ def test_a_permission_dialog_is_announced_although_no_turn_ended():
     hal.remarks(memory, [_session("a", last_turn="in_progress", status="busy")], {}, NOW)
     dialog = _session("a", last_turn="in_progress", status="waiting", waiting_on=PROMPT)
     lines = hal.remarks(memory, [dialog], {}, NOW)
-    assert lines == ["A has a question for you, Frank."]
+    assert lines == ["A has a question for Head Jeeves."]
     assert memory.events == [("a", lines[0])]
     assert hal.remarks(memory, [dialog], {}, NOW + timedelta(hours=1)) == []  # said once
     # the same dialog, once it has sat long enough to be read as a permission
@@ -269,7 +269,7 @@ def test_a_report_with_agents_running_and_then_their_permission_dialog_are_both_
                       main_turn_ts=NOW, waiting_on=PROMPT)
     assert dialog.derive_status(t2) == "needs_you"
     lines = hal.remarks(memory, [dialog], {}, t2)
-    assert lines == ["R has a question for you, Frank."]
+    assert lines == ["R has a question for Head Jeeves."]
     assert hal.remarks(memory, [dialog], {}, t2 + timedelta(hours=8)) == []
 
 

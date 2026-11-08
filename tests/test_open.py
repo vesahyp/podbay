@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from podbay import app as app_mod
-from podbay import iterm
+from podbay import iterm, voice
 from podbay.accounts import Account
 
 from tests.test_app import _selection_session
@@ -78,13 +78,19 @@ def test_a_session_for_another_repo_starts_in_the_home_base(tmp_path, monkeypatc
 
     launch_dir, prompt = app_mod.open_launch(str(tmp_path / "site"), "Build it.")
     assert launch_dir == str(tmp_path / "jeeves")
-    assert prompt == f"The work is in {tmp_path / 'site'}.\n\nBuild it."
+    assert prompt == f"The work is in {tmp_path / 'site'}.\n\nBuild it.\n\n{voice.open_rules()}"
 
-    assert app_mod.open_launch(str(tmp_path / "jeeves"), "Hi.") == (str(tmp_path / "jeeves"), "Hi.")
+    assert app_mod.open_launch(str(tmp_path / "jeeves"), "Hi.") == (str(tmp_path / "jeeves"), f"Hi.\n\n{voice.open_rules()}")
+
+
+def test_every_first_prompt_says_questions_go_to_head_jeeves(tmp_path):
+    _, prompt = app_mod.open_launch(str(tmp_path), "")
+    assert prompt == voice.open_rules()
+    assert "Head Jeeves" in prompt and "decide yourself" in prompt.lower()
 
 
 def test_without_a_home_base_checkout_it_starts_in_the_directory(tmp_path):
-    assert app_mod.open_launch(str(tmp_path), "") == (str(tmp_path), "")
+    assert app_mod.open_launch(str(tmp_path), "x") == (str(tmp_path), f"x\n\n{voice.open_rules()}")
 
 
 def _shell(name: str, tty: str):

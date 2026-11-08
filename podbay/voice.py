@@ -301,6 +301,16 @@ def open_target(directory: str) -> str:
     return f"The work is in {directory}."
 
 
+def open_rules() -> str:
+    """Ends the first prompt of every session `podbay open` starts: where its
+    questions go (Vesa's rule of 2026-11-08, see the head-jeeves skill)."""
+    return (
+        "Questions go to Head Jeeves, not to the user. Decide yourself wherever you can. "
+        "When you cannot, ask in your final message or with your question tool; "
+        "Head Jeeves answers and the work goes on."
+    )
+
+
 def model_note(model: str | None) -> str:
     return f" on {model}" if model else ""
 
@@ -392,7 +402,7 @@ def hal_ended(title: str, last_text: str | None) -> str:
 
 
 def hal_question(title: str) -> str:
-    return f"{title} has a question for you, {USER_NAME}."
+    return f"{title} has a question for Head Jeeves."
 
 
 def hal_permission(title: str) -> str:

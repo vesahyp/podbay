@@ -2191,13 +2191,17 @@ def open_directory(value: str) -> str | None:
 def open_launch(directory: str, prompt: str) -> tuple[str, str]:
     """Every session starts in the home base (`podbay config home-repo`)
     when there is one; the repo it is for goes into its first prompt.
+    Every first prompt ends with the rule on where questions go.
     Returns (launch directory, prompt)."""
     target = os.path.abspath(os.path.expanduser(directory))
     home = sources.REPOS_DIR / HOME_BASE if HOME_BASE else None
-    if home is None or not home.is_dir() or Path(target) == home:
-        return target, prompt
-    lead = voice.open_target(target)
-    return str(home), f"{lead}\n\n{prompt}" if prompt else lead
+    launch = target
+    parts = [prompt] if prompt else []
+    if home is not None and home.is_dir() and Path(target) != home:
+        launch = str(home)
+        parts.insert(0, voice.open_target(target))
+    parts.append(voice.open_rules())
+    return launch, "\n\n".join(parts)
 
 
 def _ancestor_pids(pid: int, limit: int = 30) -> list[int]:
