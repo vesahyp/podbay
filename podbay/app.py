@@ -55,6 +55,7 @@ from . import overload as overload_mod
 from . import sweep as sweep_mod
 from . import paused as paused_mod
 from . import quota
+from . import mobile as mobile_mod
 from . import selfupdate
 from . import snapshot as snapshot_mod
 from . import sources
@@ -1055,6 +1056,10 @@ class PodbayApp(App):
         self.set_interval(CODE_CHECK_SECONDS, self._check_code_version)
         self.set_interval(LOGIN_CHECK_SECONDS, self._check_logins)
         self.set_interval(autoresume.CHECK_SECONDS, self._check_limit_stops)
+        if config.mobile_on():
+            self._mobile_uploader = mobile_mod.Uploader()
+            self.set_interval(mobile_mod.SNAPSHOT_EVERY, self._mobile_snapshot)
+            self.call_later(self._mobile_snapshot)
         if self._ask_name:
             self.screen.styles.opacity = 0.0
             self.push_screen(PromptScreen(voice.name_question(), glyph=glyphs.MESSAGE), self._name_given)
@@ -1227,6 +1232,18 @@ class PodbayApp(App):
         if self._quitting or self._restart_waiting_since is not None:
             return
         self._logins_worker(list(self._live_sessions.values()))
+
+    @work(thread=True, exclusive=True, group="mobile-snapshot")
+    def _mobile_snapshot(self) -> None:
+        """Build the phone app's state and upload it when it changed or the
+        heartbeat is due (mobile.py). A failure is logged and the next
+        minute tries again: the app shows the age, so a stop is visible."""
+        try:
+            state = gather_snapshot()
+            if self._mobile_uploader.tick(state):
+                log.debug("mobile snapshot uploaded")
+        except Exception:  # noqa: BLE001 -- the phone's view must never take the TUI down
+            log.warning("mobile snapshot failed", exc_info=True)
 
     @work(thread=True, exclusive=True, group="logins")
     def _logins_worker(self, sessions: list[Session]) -> None:
@@ -2334,6 +2351,7 @@ def gather_snapshot(now: datetime | None = None) -> dict:
         crontab_text=snapshot_mod.read_crontab(),
         cron_dir=Path(cron_dir).expanduser() if cron_dir else None,
         runs_json=snapshot_mod.read_runs_json(config.mobile_setting("mobile_runs_url")),
+        runs_url=config.mobile_setting("mobile_runs_url"),
         repos=snapshot_mod.read_repos(sources.REPOS_DIR),
         now=now,
     )

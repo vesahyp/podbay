@@ -9,3 +9,5 @@ infra/.terraform/
 infra/tfplan
 infra/.build/
 .shots/
+# written by make mobile-deploy from Terraform
+mobile/app/config.js

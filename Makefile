@@ -173,6 +173,25 @@ MOBILE_ENV = AWS_PROFILE=$(PROFILE) MOBILE_URL=$$($(TF) output -raw mobile_url) 
   MOBILE_TEST_PASSWORD=$$($(TF) output -raw mobile_test_password) MOBILE_TABLE=$$($(TF) output -raw mobile_table) \
   MOBILE_STATE_BUCKET=$$($(TF) output -raw mobile_state_bucket)
 
+# The phone app (mobile/app/) to its bucket. config.js is written here from
+# Terraform; everything revalidates, the pixel is never stored.
+mobile-deploy: | infra/.terraform
+	@BUCKET=$$($(TF) output -raw mobile_bucket); DIST=$$($(TF) output -raw mobile_distribution_id); \
+	printf 'window.PODBAY = {"region": "%s", "clientId": "%s"};\n' "$$($(TF) output -raw mobile_pool_id | cut -d_ -f1)" \
+	  "$$($(TF) output -raw mobile_client_id)" > mobile/app/config.js && \
+	$(AWS) s3 sync mobile/app "s3://$$BUCKET" --delete --exclude ".*" --exclude "t.gif" --cache-control "public,no-cache" --only-show-errors && \
+	$(AWS) s3 cp mobile/app/t.gif "s3://$$BUCKET/t.gif" --cache-control "no-store" --content-type "image/gif" && \
+	$(AWS) cloudfront create-invalidation --distribution-id "$$DIST" --paths "/*" >/dev/null && \
+	echo "✓ deployed → $$($(TF) output -raw mobile_url)"
+
+# The live app on an emulated iPhone 16 as the test user; screenshots into
+# .shots/. SEND=1 also adds a virtual passkey (inside a window this opens)
+# and sends one test message, which the Mac never types.
+mobile-test: | infra/.terraform
+	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
+	@$(if $(SEND),$(PODBAY) podbay mobile passkey-allow >/dev/null &&) \
+	  $(MOBILE_ENV) $(PODBAY) --with playwright python scripts/mobile_test.py $(if $(SEND),--send)
+
 # The API through CloudFront as the test user: refusals and reads.
 mobile-check: | infra/.terraform
 	@$(MOBILE_ENV) $(PODBAY) --with boto3 python scripts/mobile_check.py

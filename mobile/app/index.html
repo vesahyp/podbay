@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#050505">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="podbay">
+<title>podbay</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/app.css">
+<!--
+  podbay mobile (docs/adr/0001-podbay-mobile.md). No build step: config.js
+  is written by `make mobile-deploy` from Terraform; track-config.js sets
+  the tracker up before tracker.js loads; app.js is the whole app.
+-->
+<script src="/config.js"></script>
+<script src="/track-config.js"></script>
+<script src="/tracker.js" defer></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top" id="top" hidden>
+  <div class="brand"><span class="eye" aria-hidden="true"></span>PODBAY</div>
+  <button class="fresh" id="fresh" type="button" aria-label="Reload">…</button>
+</header>
+<main id="main"><p class="sub boot">Starting…</p></main>
+<nav class="tabs" id="tabs" hidden></nav>
+<div id="overlay"></div>
+</body>
+</html>

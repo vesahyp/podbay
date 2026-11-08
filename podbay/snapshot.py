@@ -293,7 +293,15 @@ def nightly_part(crontab_text: str, cron_dir: Path | None, now: datetime) -> tup
 # --- clavesa runs ------------------------------------------------------------
 
 
-def runs_part(runs_json: dict | None, now: datetime) -> dict | None:
+def runs_page(runs_url: str | None) -> str | None:
+    """The chart page beside a published runs.json: .../data/runs.json is
+    read by .../runs.html."""
+    if runs_url and runs_url.endswith("/data/runs.json"):
+        return runs_url[: -len("data/runs.json")] + "runs.html"
+    return None
+
+
+def runs_part(runs_json: dict | None, now: datetime, page: str | None = None) -> dict | None:
     """Pipeline minutes per night and workspace for the last NIGHTS days,
     from the runs.json `make runs-publish` exports. Workspaces outside the
     five largest go into "other"."""
@@ -313,7 +321,7 @@ def runs_part(runs_json: dict | None, now: datetime) -> dict | None:
     series = [{"name": w, "minutes": [round(totals[w].get(d, 0.0), 1) for d in days]} for w in keep]
     if rest:
         series.append({"name": "other", "minutes": [round(sum(totals[w].get(d, 0.0) for w in rest), 1) for d in days]})
-    return {"days": days, "series": series, "generated_at": runs_json.get("generated_at")}
+    return {"days": days, "series": series, "generated_at": runs_json.get("generated_at"), "page": page}
 
 
 # --- the whole object --------------------------------------------------------
@@ -332,6 +340,7 @@ def build(
     cron_dir: Path | None,
     runs_json: dict | None,
     repos: list[str] | None = None,
+    runs_url: str | None = None,
     now: datetime | None = None,
 ) -> dict:
     now = now or datetime.now()
@@ -355,7 +364,7 @@ def build(
         "machine": machine_part(health, power, docker_up, agents, now.timestamp()),
         "accounts": accounts_part(quota_payload),
         "nightly": nightly,
-        "runs": runs_part(runs_json, now),
+        "runs": runs_part(runs_json, now, runs_page(runs_url)),
         "lines": lines,
         "repos": repos,
     }
