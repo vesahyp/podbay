@@ -9,7 +9,8 @@ chat messages, Head Jeeves' own lines and replies to board lines.
 --app points at another copy of the app (an old commit, for a before
 shot). Checks: the chat is in time order, each line reply shows in the
 chat once and its answer only in the line's sheet, the sheet is in time
-order.
+order, and the session that waits on a question is orange on the board
+and the Machine tab.
 """
 
 from __future__ import annotations
@@ -29,6 +30,11 @@ FIX = REPO / "tests" / "fixtures" / "mobile"
 OUT = REPO / ".shots"
 ORIGIN = "https://app.podbay.test"
 TIME_KEYS = ("created", "delivered_at", "replied_at")
+# podbay/model.py WAITING_ORANGE, the colour of a session that asks.
+sys.path.insert(0, str(REPO))
+from podbay.model import WAITING_ORANGE as WAITING_HEX  # noqa: E402
+
+WAITING_RGB = "rgb({}, {}, {})".format(*(int(WAITING_HEX[i:i + 2], 16) for i in (1, 3, 5)))
 
 
 def shifted() -> tuple[dict, dict]:
@@ -132,6 +138,14 @@ async def main() -> int:
         await full("board")
         if not args.no_check:
             check("board: a line shows its replies", await page.locator("button.thr").count() >= 2)
+            # The session that waits on a question (tests/fixtures/mobile):
+            # orange, in the one --waiting token.
+            token = await page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--waiting').trim()")
+            waiting = page.locator(".card.waiting")
+            check("board: the session that asks is marked", await waiting.count() == 1)
+            if await waiting.count():
+                colour = await waiting.first.evaluate("e => getComputedStyle(e).borderLeftColor")
+                check("board: drawn in the waiting orange", colour == WAITING_RGB and token.lower() == WAITING_HEX, (colour, token))
         reply = page.locator("button.thr").first
         if await reply.count():
             await reply.click()
@@ -143,6 +157,13 @@ async def main() -> int:
         await page.locator("button[data-tab=machine]").click()
         await page.wait_for_timeout(300)
         await full("machine")
+        if not args.no_check:
+            rows = page.locator(".srow.waiting")
+            check("machine: the asking session's row is orange", await rows.count() == 1)
+            if await rows.count():
+                colour = await rows.first.locator(".k").evaluate("e => getComputedStyle(e).color")
+                check("machine: in the waiting orange", colour == WAITING_RGB, colour)
+                check("machine: asking sessions first", "waiting" in (await page.locator(".srow").first.get_attribute("class") or ""))
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
 

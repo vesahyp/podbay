@@ -28,7 +28,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .model import DUE, HOME_BASE, NEEDS_YOU, PARKED, STALLED, WATCHING, WORKING, humanize_age
+from .model import DUE, HOME_BASE, NEEDS_YOU, PARKED, STALLED, WATCHING, WORKING, asks_user, humanize_age
 
 STATE_DIR = Path.home() / ".local" / "state" / "podbay"
 # {"<session id>": {"kind": "decision|shipped|progress", "text": "...",
@@ -206,7 +206,8 @@ def _options(headline: dict | None) -> list[str]:
 def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dict] | None = None) -> dict[str, list[dict]]:
     """The lines of the board by section (decision, shipped, finished,
     progress), each a dict with a stable `id`, `target`, `project`,
-    `text`, `link`, `steps`, `when` and `options`. `podbay snapshot`
+    `text`, `link`, `steps`, `when`, `options` and `asks` (its session
+    asks the user something: model.asks_user). `podbay snapshot`
     reads this."""
     now = now or datetime.now()
     headlines = {k: dict(v) for k, v in (headlines or {}).items()}
@@ -220,7 +221,8 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
             continue
         item = {"id": s.get("session_id") or s.get("short_id") or s.get("name") or "", "session": s,
                 "target": _target(s), "project": _project(s, headline), "link": None, "steps": None, "when": "",
-                "options": _options(headline) if kind == "decision" else []}
+                "options": _options(headline) if kind == "decision" else [],
+                "asks": asks_user(s.get("waiting_on"))}
         if headline and headline.get("text"):
             item.update(text=clean_line(headline["text"], 2 * LINE_CHARS), link=headline.get("link"), steps=headline.get("steps"))
         else:
@@ -239,7 +241,7 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
             continue
         if _same_day(headline.get("at"), now):
             found["shipped"].append({"id": f"shipped:{key}", "session": {}, "target": _ended_target(str(headline["repo"])),
-                                     "project": str(headline["repo"]), "when": "", "options": [],
+                                     "project": str(headline["repo"]), "when": "", "options": [], "asks": False,
                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
                                      "link": headline.get("link"), "steps": headline.get("steps")})
     return found

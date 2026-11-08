@@ -5,6 +5,9 @@
   --fg: #ece3cb; --muted: #9a917c; --dim: #5d564a;
   --red: #e0201f; --amber: #ffb000; --green: #6fcf86; --blue: #6aa8f0;
   --ok: #1f5a33; --skip: #8a6410;
+  /* A session that asks you a question or waits on a permission dialog.
+     The same value as podbay/model.py WAITING_ORANGE (tests check it). */
+  --waiting: #d35c00;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   --sans: "IBM Plex Sans", -apple-system, system-ui, sans-serif;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -211,3 +214,16 @@ body.chatting { padding-bottom: calc(150px + var(--safe-bottom)); }
 .thr { display: inline-block; margin-top: 8px; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; min-height: 30px; font: 11px var(--mono); color: var(--muted); }
 .thr.ok { color: var(--green); border-color: #1e4a2a; }
 .thr.bad { color: #ff7a6a; border-color: #5a1a14; }
+
+/* A session that asks you something: orange on the board and the Machine
+   tab's session rows (--waiting, podbay/model.py WAITING_ORANGE). */
+.card.waiting { border-color: var(--waiting); border-left: 4px solid var(--waiting); }
+.card.waiting .repo, .card.waiting .repo .t { color: var(--waiting); }
+.chip.waiting { color: var(--waiting); border-color: var(--waiting); }
+.srow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); min-height: 44px; width: 100%;
+  background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; }
+.srow:first-of-type { border-top: 0; }
+.srow .k { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .k small { display: block; color: var(--dim); font-size: 11px; }
+.srow.waiting .k, .srow.waiting .k small { color: var(--waiting); }
+.srow.waiting { box-shadow: inset 4px 0 0 var(--waiting); padding-left: 10px; }

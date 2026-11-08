@@ -35,6 +35,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from . import board, machine
+from .model import SHELL, asks_user
 
 VERSION = 1
 NIGHTS = 7
@@ -88,10 +89,31 @@ def board_part(payload: dict, now: datetime, headlines: dict[str, dict]) -> tupl
                 "id": line_id, "project": item["project"], "target": item["target"], "text": item["text"],
                 "link": item.get("link"), "steps": [str(s) for s in item.get("steps") or [] if str(s).strip()],
                 "when": item.get("when") or "", "options": item.get("options") or [],
+                "asks": bool(item.get("asks")),
             })
             lines[line_id] = {"target": item["target"], "quote": _quote(item["text"])}
         sections[kind] = out
     return sections, lines
+
+
+def sessions_part(payload: dict, sections: dict) -> list[dict]:
+    """Every live session but Head Jeeves and plain shells, for the app's
+    Machine tab: name, target, state, whether it asks the user something,
+    and its board line when it has one. Asking sessions first."""
+    on_board = {str(i["id"]) for items in sections.values() for i in items}
+    out = []
+    for s in payload.get("sessions") or []:
+        if s.get("head_jeeves") or s.get("state") == SHELL:
+            continue
+        sid = str(s.get("session_id") or "")
+        out.append({
+            "name": str(s.get("title") or s.get("name") or ""),
+            "target": board._target(s),
+            "state": str(s.get("state") or ""),
+            "asks": asks_user(s.get("waiting_on")),
+            "line": sid if sid in on_board else None,
+        })
+    return sorted(out, key=lambda r: (not r["asks"], r["target"]))
 
 
 # --- machine -----------------------------------------------------------------
@@ -416,6 +438,7 @@ def build(
         "mac": payload.get("mac") or "",
         "board": {"sections": sections, "summary": summary},
         "machine": machine_part(health, power, docker_up, agents, now.timestamp()),
+        "sessions": sessions_part(payload, sections),
         "accounts": accounts_part(quota_payload),
         "nightly": nightly,
         "runs": runs_part(runs_json),

@@ -65,7 +65,9 @@ podbay/
   accounts.py       one Account per ~/.claude and ~/.claude-<label> dir
   sources.py        every read of Claude Code's files: registry,
                       transcripts, snapshots; the iTerm2 join
-  model.py          Session and the status derivation; repo groups
+  model.py          Session and the status derivation; repo groups;
+                      asks_user and WAITING_ORANGE, the one colour of a
+                      session that asks a question or waits on a dialog
   iterm.py          AppleScript: list tabs, focus, send text, open and close windows
   state.py          park/seen state; parse_when for park expressions
   opened.py         the sessions `podbay open` started and who ran it, and

@@ -54,12 +54,20 @@ def test_render_without_messages_leaves_the_thread_out_and_without_state_says_so
     assert "No state yet" in boardview.render(None).plain
 
 
-def test_the_thread_shows_the_message_and_the_reply():
-    msgs = [{"sk": "2", "target": "head-jeeves", "text": "What runs tonight?", "state": "answered",
-             "created": NOW - 60, "reply": "The usual sweep from 01:00."}]
+def test_the_thread_is_the_chat_in_time_order():
+    """docs/adr/0002 Update 2026-11-08: oldest first, each item at its own
+    time, an answer at replied_at, a line reply once and without its answer."""
+    msgs = [
+        {"sk": "3", "line": "s1", "target": "#6 sora", "text": "Start line", "state": "answered",
+         "created": NOW - 300, "reply": "Told sora: start line.", "replied_at": NOW - 200},
+        {"sk": "2", "from": "head-jeeves", "text": "Disk cleaned.", "state": "said", "created": NOW - 500},
+        {"sk": "1", "line": "head-jeeves", "target": "head-jeeves", "text": "What runs tonight?", "state": "answered",
+         "created": NOW - 600, "reply": "The usual sweep from 01:00.", "replied_at": NOW - 100},
+    ]
     text = boardview.render(STATE, msgs, now=NOW).plain
-    assert "to head-jeeves  answered" in text and "What runs tonight?" in text
-    assert "Head Jeeves: The usual sweep from 01:00." in text
+    order = [text.index(x) for x in ("What runs tonight?", "Disk cleaned.", "on #6 sora: Start line", "The usual sweep from 01:00.")]
+    assert order == sorted(order)
+    assert "Told sora: start line." not in text
 
 
 def test_spark_scales_and_leaves_zero_empty():

@@ -17,7 +17,8 @@
      "options": [
       "Rewrite it",
       "Patch it"
-     ]
+     ],
+     "asks": true
     }
    ],
    "shipped": [
@@ -32,7 +33,8 @@
       "The code mail arrives in under 30 s"
      ],
      "when": "",
-     "options": []
+     "options": [],
+     "asks": false
     }
    ],
    "finished": [],
@@ -45,7 +47,8 @@
      "link": null,
      "steps": [],
      "when": "12:00",
-     "options": []
+     "options": [],
+     "asks": false
     }
    ]
   }
@@ -115,5 +118,28 @@
   "meadow",
   "render",
   "tienoo"
+ ],
+ "sessions": [
+  {
+   "name": "CSV reader dates",
+   "target": "#3 ledger",
+   "state": "needs_you",
+   "asks": true,
+   "line": "fixture-decision"
+  },
+  {
+   "name": "Tile cache rebuild",
+   "target": "#4 render",
+   "state": "parked",
+   "asks": false,
+   "line": "fixture-progress"
+  },
+  {
+   "name": "Map tiles on mobile",
+   "target": "#7 tienoo",
+   "state": "working",
+   "asks": false,
+   "line": null
+  }
  ]
 }

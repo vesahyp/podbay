@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 
 from rich.text import Text
 
+from .model import WAITING_ORANGE
+
 AMBER = "#ffb000"
 RED = "#e0201f"
 GREEN = "#6fcf86"
@@ -85,11 +87,18 @@ def _heading(t: Text, title: str, count: int | None = None, style: str = DIM) ->
 
 
 def _line_head(t: Text, item: dict) -> None:
-    t.append(f"  {item.get('project') or ''}", style=f"bold {AMBER}")
+    """The project and target; a line whose session asks the user something
+    is orange (model.WAITING_ORANGE), with a ? before it."""
+    asks = bool(item.get("asks"))
+    t.append(f"{'?' if asks else ' '} {item.get('project') or ''}", style=f"bold {WAITING_ORANGE if asks else AMBER}")
     target = str(item.get("target") or "")
     if target and target != item.get("project"):
-        t.append(f"  {target}", style=DIM)
+        t.append(f"  {target}", style=WAITING_ORANGE if asks else DIM)
     t.append("\n")
+
+
+def _text_style(item: dict) -> str:
+    return WAITING_ORANGE if item.get("asks") else FG
 
 
 def _board(t: Text, sections: dict) -> None:
@@ -99,7 +108,7 @@ def _board(t: Text, sections: dict) -> None:
         t.append("  Nothing waits on you.\n", style=DIM)
     for d in decisions:
         _line_head(t, d)
-        t.append(f"  {d.get('text')}\n", style=FG)
+        t.append(f"  {d.get('text')}\n", style=_text_style(d))
         if d.get("options"):
             t.append("  " + "  ".join(f"[{o}]" for o in d["options"]) + "\n", style=AMBER)
         if d.get("link"):
@@ -110,7 +119,7 @@ def _board(t: Text, sections: dict) -> None:
         t.append("  Nothing new to test today.\n", style=DIM)
     for d in shipped:
         _line_head(t, d)
-        t.append(f"  {d.get('text')}\n", style=FG)
+        t.append(f"  {d.get('text')}\n", style=_text_style(d))
         if d.get("link"):
             t.append(f"  {d['link']}\n", style=AMBER)
         for i, step in enumerate(d.get("steps") or [], 1):
@@ -120,14 +129,14 @@ def _board(t: Text, sections: dict) -> None:
         _heading(t, "Finished today", len(finished))
         for d in finished:
             _line_head(t, d)
-            t.append(f"  {d.get('text')}\n", style=FG)
+            t.append(f"  {d.get('text')}\n", style=_text_style(d))
     progress = sections.get("progress") or []
     _heading(t, "In progress", len(progress))
     if not progress:
         t.append("  Nothing running.\n", style=DIM)
     for d in progress:
         _line_head(t, d)
-        t.append(f"  {d.get('text')}", style=FG)
+        t.append(f"  {d.get('text')}", style=_text_style(d))
         if d.get("when"):
             t.append(f"  · {d['when']}", style=DIM)
         t.append("\n")
@@ -250,31 +259,48 @@ def _runs(t: Text, r: dict | None) -> None:
         t.append("\n")
 
 
+def chat_items(messages: list[dict]) -> list[tuple[float, str, dict]]:
+    """The chat as the phone shows it (mobile/app/thread.js, docs/adr/0002
+    Update 2026-11-08): (time, kind, message), oldest first. kind is me,
+    hj (his answer, at replied_at), say (podbay say) or line (a reply to a
+    board line, one entry; its answer belongs to the line)."""
+    out = []
+    for m in messages:
+        mid = str(m.get("id") or m.get("sk") or "")
+        if m.get("from") == "head-jeeves":
+            out.append((m.get("created") or 0, 0, mid, "say", m))
+        elif m.get("line") == "head-jeeves":
+            out.append((m.get("created") or 0, 0, mid, "me", m))
+            if m.get("reply"):
+                out.append((m.get("replied_at") or m.get("created") or 0, 1, mid, "hj", m))
+        else:
+            out.append((m.get("created") or 0, 0, mid, "line", m))
+    out.sort(key=lambda x: x[:3])
+    return [(at, kind, m) for at, _rank, _id, kind, m in out]
+
+
 def _thread(t: Text, messages: list[dict] | None) -> None:
     if messages is None:
         return
-    _heading(t, "Thread with Head Jeeves", len(messages))
-    if not messages:
+    items = chat_items(messages)[-12:]
+    _heading(t, "Thread with Head Jeeves", len(items))
+    if not items:
         t.append("  Nothing in the phone thread yet.\n", style=DIM)
-    for m in messages[:12]:
-        when = datetime.fromtimestamp(m.get("created") or 0).strftime("%a %H:%M")
-        if m.get("from") == "head-jeeves":
-            t.append(f"  {when}  ", style=DIM)
+    for at, kind, m in items:
+        when = datetime.fromtimestamp(at).strftime("%a %H:%M")
+        t.append(f"  {when}  ", style=DIM)
+        if kind in ("say", "hj"):
             t.append("Head Jeeves: ", style=f"bold {AMBER}")
-            t.append(f"{m.get('text')}\n", style=FG)
+            t.append(f"{m.get('reply') if kind == 'hj' else m.get('text')}\n", style=FG)
             continue
-        to = "Head Jeeves" if m.get("line") == "head-jeeves" else m.get("target")
-        t.append(f"  {when}  to {to}", style=DIM)
+        t.append("You" + ("" if kind == "me" else f" on {m.get('target')}") + ": ", style=f"bold {FG}")
+        t.append(f"{m.get('text')}", style=FG)
         t.append(f"  {MSG_STATE.get(m.get('state'), m.get('state'))}\n", style=RED if m.get("state") == "expired" else DIM)
-        t.append(f"    {m.get('text')}\n", style=FG)
-        if m.get("reply"):
-            t.append("    Head Jeeves: ", style=f"bold {AMBER}")
-            t.append(f"{m['reply']}\n", style=FG)
 
 
 def render(state: dict | None, messages: list[dict] | None = None, now: float | None = None) -> Text:
     """The whole board screen from a state.json object and, when given, the
-    thread's messages (newest first)."""
+    thread's messages (any order: the chat is drawn oldest first)."""
     now = now or datetime.now().timestamp()
     t = Text()
     if not state:

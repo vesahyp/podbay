@@ -377,23 +377,23 @@
   function board(s) {
     var sec = s.board.sections || {};
     var ask = (sec.decision || []).map(function (d) {
-      return '<article class="card ask" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
+      return '<article class="card ask' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") +
         lineThread(d.id) + '<div class="row">' + (d.options || []).map(function (o) { return '<button class="btn opt" type="button" data-reply="' + esc(d.id) + '" data-option="' + esc(o) + '">' + esc(o) + "</button>"; }).join("") +
         replyBtn(d.id, (d.options || []).length ? "Other" : "Answer") + "</div></article>";
     });
     var test = (sec.shipped || []).map(function (d) {
-      return '<article class="card" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
+      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") + steps(d.steps) +
         lineThread(d.id) + '<div class="row">' + replyBtn(d.id, "Works", "Works") + replyBtn(d.id, "Found a fault", "Found a fault: ") + replyBtn(d.id) + "</div></article>";
     });
     var done = (sec.finished || []).map(function (d) {
-      return '<article class="card" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
+      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") +
         lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
     });
     var prog = (sec.progress || []).map(function (d) {
-      return '<article class="card" id="line-' + esc(d.id) + '"><div class="mini">' + head(d) + (d.when ? '<span class="chip amber">' + esc(d.when) + "</span>" : "") + "</div>" +
+      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '"><div class="mini">' + head(d) + (d.asks ? '<span class="chip waiting">asks you</span>' : "") + (d.when ? '<span class="chip amber">' + esc(d.when) + "</span>" : "") + "</div>" +
         '<p class="line">' + esc(d.text) + '</p>' + lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
     });
     var now = new Date();
@@ -435,7 +435,16 @@
     var maxFree = Math.max(1024, Math.max.apply(null, freePts.map(function (p) { return p[1] || 0; }).concat([1])));
     var maxDisk = Math.max((m.disk_low_gb || 15) * 2, Math.max.apply(null, diskPts.map(function (p) { return p[1] || 0; }).concat([1])));
     var needs = m.overloaded || (m.disk_free_gb != null && m.disk_free_gb <= m.disk_low_gb) || m.docker_up === false || (m.power && m.power.source === "battery");
-    return "<h1>Machine</h1><p class=\"sub\">" + esc(s.mac || "The Mac") + ". " + (needs ? "Something needs a look." : "Nothing needs you.") + "</p>" + overloaded +
+    // Every live session, one row each; a session that asks you something
+    // is orange and first, and opens its board line's sheet.
+    var STATE_NAME = { working: "working", watching: "watching a job", due: "due", parked: "parked", needs_you: "your turn", stalled: "stalled", empty: "new" };
+    var sess = (s.sessions || []).map(function (x) {
+      var tag = x.line ? "button" : "div";
+      return "<" + tag + ' class="srow' + (x.asks ? " waiting" : "") + '"' + (x.line ? ' type="button" data-reply="' + esc(x.line) + '"' : "") + '><span class="k">' + esc(x.target) +
+        "<small>" + esc(x.name) + "</small></span>" + (x.asks ? '<span class="chip waiting">asks you</span>' : '<span class="chip">' + esc(STATE_NAME[x.state] || x.state) + "</span>") + "</" + tag + ">";
+    }).join("");
+    var sessions = sess ? '<h2>Sessions <span class="n">' + s.sessions.length + "</span></h2>" + '<article class="card">' + sess + "</article>" : "";
+    return "<h1>Machine</h1><p class=\"sub\">" + esc(s.mac || "The Mac") + ". " + (needs ? "Something needs a look." : "Nothing needs you.") + "</p>" + overloaded + sessions +
       '<div class="grid2"><article class="card"><div class="label">Power</div><div class="big">' + power + "</div></article>" +
       '<article class="card"><div class="label">Docker</div>' + docker + "</article></div>" +
       "<h2>Last 24 hours</h2>" +

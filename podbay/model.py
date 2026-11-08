@@ -30,6 +30,20 @@ REMOTE_URL_BASE = "https://claude.ai/code/"
 # Head Jeeves' own session, matched by registry name (see app.py).
 HEAD_JEEVES_NAME = "head-jeeves"
 
+# A session that asks the user something: a question (AskUserQuestion, or
+# a turn that ends in a question) or an open dialog or permission prompt.
+# Drawn in WAITING_ORANGE wherever podbay shows sessions: the session list,
+# the board screen, the phone app (--waiting in mobile/app/app.css, kept
+# equal by tests/test_waiting_colour.py). 4.9:1 on the app's dark
+# background, 5.3:1 on black, 4.0:1 on white.
+ASKS_USER_KINDS = ("ask_user_question", "question_text", "prompt", "permission")
+WAITING_ORANGE = "#d35c00"
+
+
+def asks_user(waiting_on: dict | None) -> bool:
+    return bool(waiting_on) and waiting_on.get("kind") in ASKS_USER_KINDS
+
+
 STALLED_THRESHOLD = timedelta(minutes=10)
 # A background Bash command has no timeout of its own; past this age a start
 # with no end record is taken as lost (the notification fell outside the tail).

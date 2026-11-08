@@ -63,6 +63,8 @@ from . import usage
 from . import voice
 from .inventory import build_payload, inventory_payload, render_status, render_table
 from .model import (
+    WAITING_ORANGE,
+    asks_user,
     DUE,
     EMPTY,
     HEAD_JEEVES_NAME,
@@ -131,6 +133,7 @@ ROW_STYLES = {
 }
 # Red = a finished turn waiting for a prompt; amber = mid-turn and silent,
 # usually a permission prompt.
+WAITING_STYLE = f"bold {WAITING_ORANGE}"
 UNREAD_GLYPH = "●"
 UNREAD_STYLE = f"bold {HAL_AMBER}"
 STATE_STYLES = {
@@ -460,12 +463,14 @@ def build_rows(sessions: list[Session], now: datetime) -> list[dict]:
     for s in ordered:
         derived = s.derive_status(now)
         head = is_head_jeeves(s)
-        row_style = HEAD_JEEVES_STYLE if head else ROW_STYLES.get(derived)
+        # A session that asks the user something is orange, the whole row.
+        asks = not head and asks_user(s.waiting_on)
+        row_style = HEAD_JEEVES_STYLE if head else WAITING_STYLE if asks else ROW_STYLES.get(derived)
         rows.append(
             {
                 "session_id": s.session_id,
                 "new": _cell(UNREAD_GLYPH, UNREAD_STYLE) if s.unread and not head else "",
-                "state": _state_cell(derived, row_style, force_style=HEAD_JEEVES_STYLE if head else None),
+                "state": _state_cell(derived, row_style, force_style=HEAD_JEEVES_STYLE if head else WAITING_STYLE if asks else None),
                 "age": _cell(humanize_age(s.age_seconds(now)), row_style),
                 "ctx": _ctx_cell(s.context_pct),
                 "model": _cell(_model_label(s.model), row_style),
@@ -502,7 +507,7 @@ def _detail_text(session: Session, now: datetime) -> Text:
     status_bits = [f"{glyph} {word}", humanize_age(session.age_seconds(now))]
     if session.terminal:
         status_bits.append(f"#{session.terminal}")
-    text.append(" · ".join(status_bits) + "\n", style=STATE_STYLES.get(derived, HAL_AMBER))
+    text.append(" · ".join(status_bits) + "\n", style=WAITING_STYLE if asks_user(session.waiting_on) else STATE_STYLES.get(derived, HAL_AMBER))
 
     text.append("\n")
     place = [_dir_label(session.cwd) or session.cwd]
