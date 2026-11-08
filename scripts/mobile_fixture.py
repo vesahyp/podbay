@@ -52,6 +52,73 @@ def shifted() -> tuple[dict, dict]:
     return state, msgs
 
 
+# A board line id as podbay notify --line sends it: a session id, the key
+# of headlines.json.
+SESSION_ID = "07b643a0-5a8b-4b70-814d-fef34079c12b"
+
+
+async def push_taps(page, state: dict, check) -> None:
+    """A tapped push opens its line's sheet with the answer buttons. sw.js
+    saves the tap's target in the "podbay-open" cache; this writes the same
+    entry and checks that the page takes it in each way iOS brings the app
+    up: started at its root with the hash dropped (app closed), made visible
+    again (app in the background), and the worker's message. Headless
+    Chromium shows no notifications, so scripts/sw_check.mjs proves the
+    worker's half."""
+    decision = state["board"]["sections"]["decision"][0]
+    old = decision["id"]
+    decision["id"] = SESSION_ID
+    state["lines"][SESSION_ID] = state["lines"].pop(old)
+
+    async def save(hash_: str, age_ms: int = 0) -> None:
+        await page.evaluate("""([hash, age]) => caches.open("podbay-open").then(c => c.put("/__open",
+            new Response(JSON.stringify({hash, at: Date.now() - age}), {headers: {"Content-Type": "application/json"}})))""",
+                            [hash_, age_ms])
+
+    async def sheet_for_line() -> tuple[bool, list[str]]:
+        try:
+            await page.wait_for_selector(".sheet .opts", timeout=4000)
+        except Exception:  # noqa: BLE001
+            return False, []
+        opts = await page.locator(".sheet .opts button").all_inner_texts()
+        quote = await page.locator(".sheet .quote").inner_text() if await page.locator(".sheet .quote").count() else ""
+        return quote.strip() != "" and SESSION_ID in await page.evaluate("location.hash"), opts
+
+    hash_ = f"#line/{SESSION_ID}"
+    want = decision["options"]
+
+    # App closed: iOS starts it at its root, without the hash.
+    await page.goto(f"{ORIGIN}/#board", wait_until="networkidle")
+    await save(hash_)
+    await page.goto(f"{ORIGIN}/", wait_until="networkidle")
+    ok, opts = await sheet_for_line()
+    check("push tap, app closed: opens the line's sheet at the root URL", ok and opts == want, (ok, opts))
+    await page.screenshot(path=str(OUT / "mobile-fixture-after-push-tap.png"))
+    gone = await page.evaluate('caches.open("podbay-open").then(c => c.match("/__open")).then(r => !r)')
+    check("push tap: the saved target is used once", gone)
+
+    # App in the background: it becomes visible again.
+    await page.goto(f"{ORIGIN}/#machine", wait_until="networkidle")
+    await save(hash_)
+    await page.evaluate('document.dispatchEvent(new Event("visibilitychange"))')
+    ok, opts = await sheet_for_line()
+    check("push tap, app in the background: opens the line's sheet", ok and opts == want, (ok, opts))
+
+    # App open: the worker posts the line.
+    await page.goto(f"{ORIGIN}/#thread", wait_until="networkidle")
+    await page.evaluate(f'navigator.serviceWorker.dispatchEvent(new MessageEvent("message", {{data: {{type: "open", hash: {json.dumps(hash_)}}}}}))')
+    ok, opts = await sheet_for_line()
+    check("push tap, app open: the worker's message opens the line's sheet", ok and opts == want, (ok, opts))
+
+    # A target from an old tap does not move the app.
+    await page.goto(f"{ORIGIN}/#machine", wait_until="networkidle")
+    await save(hash_, age_ms=10 * 60 * 1000)
+    await page.goto(f"{ORIGIN}/#machine", wait_until="networkidle")
+    await page.wait_for_timeout(500)
+    check("push tap: an old saved target is ignored", await page.locator(".sheet").count() == 0
+          and await page.evaluate("location.hash") == "#machine")
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
@@ -164,6 +231,8 @@ async def main() -> int:
                 colour = await rows.first.locator(".k").evaluate("e => getComputedStyle(e).color")
                 check("machine: in the waiting orange", colour == WAITING_RGB, colour)
                 check("machine: asking sessions first", "waiting" in (await page.locator(".srow").first.get_attribute("class") or ""))
+        if not args.no_check:
+            await push_taps(page, state, check)
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
 

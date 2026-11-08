@@ -1025,14 +1025,44 @@
   });
 
   window.addEventListener("hashchange", fromHash);
-  // A tapped notification while the app is open: go to its line.
+
+  // A tapped notification: go to its line. sw.js writes the tap's target
+  // to the "podbay-open" cache before it opens or wakes the app, because on
+  // iOS the hash in the URL and the worker's message can both be lost (the
+  // reasons are in sw.js). So the page takes the target from there when it
+  // starts, when it becomes visible and when the worker posts. A target
+  // older than OPEN_FRESH is from a tap that already led somewhere.
+  var OPEN_FRESH = 120000;
+  function openHash(hash) {
+    if (location.hash === hash) fromHash();
+    else { history.replaceState(null, "", hash); fromHash(); }
+    loadState();
+    if (app.sheet && app.sheet.kind === "reply") loadMessages();
+  }
+  function takeOpen() {
+    if (!window.caches) return Promise.resolve(false);
+    return caches.open("podbay-open").then(function (c) {
+      return c.match("/__open").then(function (res) {
+        if (!res) return null;
+        return c.delete("/__open").then(function () { return res.json(); });
+      });
+    }).then(function (open) {
+      if (!open || !open.hash || Date.now() - (open.at || 0) > OPEN_FRESH || !(loadAuth() || {}).refresh) return false;
+      track("push-open", {});
+      openHash(open.hash);
+      return true;
+    }).catch(function () { return false; });
+  }
   if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", function (ev) {
-    if (ev.data && ev.data.type === "open" && ev.data.hash) {
-      if (location.hash === ev.data.hash) fromHash(); else location.hash = ev.data.hash;
-      loadState();
-    }
+    if (!ev.data || ev.data.type !== "open" || !ev.data.hash) return;
+    var hash = ev.data.hash;
+    takeOpen().then(function (taken) { if (!taken) openHash(hash); });
   });
-  document.addEventListener("visibilitychange", function () { if (!document.hidden && loadAuth()) { loadState(); loadMe(); } });
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden || !loadAuth()) return;
+    takeOpen();
+    loadState(); loadMe();
+  });
 
   // ---- start ----------------------------------------------------------------------------
 
@@ -1042,6 +1072,7 @@
     timers = [];
     if (!(loadAuth() || {}).refresh) { render(); return; }
     fromHash();
+    takeOpen();
     loadState();
     loadMe();
     loadMessages();
