@@ -2365,6 +2365,21 @@ def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
     return match, caller
 
 
+def cmd_screen(target: str, lines: int) -> None:
+    """Print what the session's tab shows now: the dialog a permission
+    prompt or menu leaves on screen, which the transcript does not hold."""
+    match = _find_session(target)
+    if match is None or match.is_shell:
+        print(f"no live session matches {target!r}", file=sys.stderr)
+        sys.exit(1)
+    tty = iterm_mod.find_tty(match.pid)
+    text = iterm_mod.read_session_text(tty, max_lines=lines) if tty else None
+    if text is None:
+        print(voice.iterm_tab_missing(target, f"pid {match.pid}", machine_mod.overloaded_now()), file=sys.stderr)
+        sys.exit(1)
+    print(text)
+
+
 def cmd_pause(target: str | None, text: str) -> None:
     """Tell a session to finish its step, commit and wait, and record the
     pause (paused.py). No target lists the paused sessions."""
@@ -2612,6 +2627,10 @@ def main() -> None:
     send_parser.add_argument("target", help=target_help)
     send_parser.add_argument("text", nargs="+", help="message text")
 
+    screen_parser = sub.add_parser("screen", help="print the visible text of a session's iTerm2 tab (an open permission dialog shows here, not in the transcript)")
+    screen_parser.add_argument("target", help=target_help)
+    screen_parser.add_argument("--lines", type=int, default=40, help="how many of the last lines (default 40)")
+
     pause_parser = sub.add_parser("pause", help="tell a session to finish its current step, commit and wait, and record the pause; no target lists the paused sessions")
     pause_parser.add_argument("target", nargs="?", help=target_help)
     pause_parser.add_argument("text", nargs="*", help="the message (default: finish the step, commit, wait for a resume message)")
@@ -2683,6 +2702,8 @@ def main() -> None:
         sys.exit(cmd_notify(" ".join(args.text), "" if args.no_url else args.url))
     elif args.command == "board":
         cmd_board(Path(args.out) if args.out else None, args.url)
+    elif args.command == "screen":
+        cmd_screen(args.target, args.lines)
     elif args.command == "excerpt":
         cmd_excerpt(args.target, args.turns, args.last)
     elif args.command == "open":

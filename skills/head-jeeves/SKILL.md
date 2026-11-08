@@ -70,6 +70,9 @@ answer. Nothing else waits on you." Never list the sessions in the reply.
   whole: the way to read a session's final report. `last_text` in the
   inventory stays a 300 character glance. This is the whole
   transcript you need; do not open the JSONL files.
+- `podbay screen <name>` prints the last 40 lines the session's tab shows
+  now (`--lines N`). Use it for what the transcript does not hold, such as
+  an open permission dialog. Do not use osascript for this.
 - `podbay send <name> <text>` types a message into a session: the user's
   orders, verbatim or tidied, and your own one sentence to an agent when
   that would unblock it. Any length arrives whole as one prompt; never
@@ -367,7 +370,7 @@ reporting session, add what it finished (one glance at `podbay excerpt
 run on and their notification restarts it, so pass the report on and leave
 the session alone. A session waiting for a permission has a dialog open in
 its terminal that the transcript does not show; the excerpt ends at the
-tool call waiting for it, so tell the user what it asks for. An ended
+tool call waiting for it (`podbay screen <name>` shows the dialog), so tell the user what it asks for. An ended
 session is gone from the inventory, so its event carries its last words:
 pass on what they say it finished. An event that says the usage limit reset
 names the sessions podbay itself sent "The usage limit has reset. Continue

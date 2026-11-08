@@ -766,12 +766,48 @@ def send_text_result(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> st
     return "sent" if result.stdout.strip().lower() == "true" else "missing"
 
 
+def _probe(text: str) -> str:
+    """The tail of `text` with all whitespace removed: the screen wraps long
+    lines and indents them, so a match must ignore every break."""
+    return "".join(text.split())[-60:]
+
+
+def _count_on_screen(tty: str, probe: str) -> int | None:
+    screen = read_session_text(tty, max_lines=400)
+    if screen is None:
+        return None
+    return "".join(screen.split()).count(probe)
+
+
+CONFIRM_WAIT = 10.0
+CONFIRM_INTERVAL = 1.0
+
+
+def _arrived(tty: str, probe: str, before: int) -> bool:
+    """Whether `probe` shows on the tab more often than before the send.
+    Polls for CONFIRM_WAIT seconds: a busy iTerm2 draws the text late."""
+    deadline = time.monotonic() + CONFIRM_WAIT
+    while True:
+        now = _count_on_screen(tty, probe)
+        if now is not None and now > before:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(CONFIRM_INTERVAL)
+
+
 def send_text_retrying(tty: str, text: str) -> str:
     """send_text_result, tried again with backoff while it is safe: "busy"
     typed nothing, and "missing" on an overloaded machine can be an iTerm2
-    that listed its sessions half-way. "timeout" is returned as it is."""
+    that listed its sessions half-way. A "timeout" is settled by reading the
+    tab: "sent" when the text shows on it, otherwise "timeout". (A Claude
+    Code permission dialog on screen made iTerm2 answer late although the
+    text arrived, 2026-11-08.) Text that Claude Code folds into a
+    "[Pasted text]" label cannot be found and stays "timeout"."""
     from . import machine
 
+    probe = _probe(text)
+    before = (_count_on_screen(tty, probe) or 0) if probe else 0
     outcome = send_text_result(tty, text)
     for attempt in range(len(RETRY_DELAYS)):
         if outcome == "busy" or (outcome == "missing" and machine.overloaded_now()):
@@ -779,6 +815,8 @@ def send_text_retrying(tty: str, text: str) -> str:
             outcome = send_text_result(tty, text)
         else:
             break
+    if outcome == "timeout" and probe and _arrived(tty, probe, before):
+        return "sent"
     return outcome
 
 

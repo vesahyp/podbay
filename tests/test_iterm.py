@@ -491,3 +491,45 @@ def test_strip_title_removes_any_trailing_process_name():
         assert strip_title(f"✳ podbay-fix-false-finished ({process})") == "podbay-fix-false-finished"
     assert strip_title("◐ a name with (a note) inside (git)") == "a name with (a note) inside"
     assert strip_title("two words (not a process)") == "two words (not a process)"
+
+
+def _timeout_send(monkeypatch, screens):
+    """send_text_result times out; read_session_text returns `screens` in turn."""
+    import podbay.iterm as iterm
+
+    monkeypatch.setattr(iterm, "send_text_result", lambda tty, text, timeout=20.0: "timeout")
+    monkeypatch.setattr(iterm.time, "sleep", lambda s: None)
+    monkeypatch.setattr(iterm, "CONFIRM_WAIT", 0.0)
+    seq = list(screens)
+    monkeypatch.setattr(iterm, "read_session_text", lambda tty, max_lines=200: seq.pop(0) if len(seq) > 1 else seq[0])
+    return iterm
+
+
+def test_timeout_with_the_text_on_the_tab_is_sent(monkeypatch):
+    iterm = _timeout_send(monkeypatch, ["old screen", "old screen\n> Please do the\n  thing now."])
+    assert iterm.send_text_retrying("/dev/ttys004", "Please do the thing now.") == "sent"
+
+
+def test_timeout_without_the_text_stays_timeout(monkeypatch):
+    iterm = _timeout_send(monkeypatch, ["old screen", "old screen"])
+    assert iterm.send_text_retrying("/dev/ttys004", "Please do the thing now.") == "timeout"
+
+
+def test_old_copy_of_the_text_does_not_count_as_arrived(monkeypatch):
+    screen = "> Please do the thing now."
+    iterm = _timeout_send(monkeypatch, [screen, screen])
+    assert iterm.send_text_retrying("/dev/ttys004", "Please do the thing now.") == "timeout"
+
+
+def test_screen_prints_the_tab_text(monkeypatch, capsys):
+    import podbay.app as app
+
+    class S:
+        pid = 7
+        is_shell = False
+
+    monkeypatch.setattr(app, "_find_session", lambda t: S())
+    monkeypatch.setattr(app.iterm_mod, "find_tty", lambda pid: "/dev/ttys004")
+    monkeypatch.setattr(app.iterm_mod, "read_session_text", lambda tty, max_lines=40: "Do you want to proceed?")
+    app.cmd_screen("x", 40)
+    assert "Do you want to proceed?" in capsys.readouterr().out
