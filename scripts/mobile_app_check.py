@@ -154,7 +154,7 @@ async def main() -> int:
         await page.locator(".sheet button[data-close]").first.click()
 
         await page.locator("button[data-tab=thread]").click()
-        await page.wait_for_selector("text=Everything you send")
+        await page.wait_for_selector(".chathead")
         check("thread: the chat box to Head Jeeves", await page.locator("textarea#chat").count() == 1)
         await shot(page, "mobile-app-6-thread.png", full=True)
 

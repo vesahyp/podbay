@@ -5,7 +5,7 @@
 // The hash below is written by scripts/stamp_sw.py (make mobile-deploy runs
 // it): a deploy that changes any shell file changes these bytes, so the
 // browser installs this worker and drops the old cache.
-var CACHE = "podbay-shell-99dfad6ccd26";
+var CACHE = "podbay-shell-1b25c90f0527";
 var SHELL = ["/", "/index.html", "/app.css", "/thread.js", "/app.js", "/config.js", "/track-config.js", "/tracker.js", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", function (event) {

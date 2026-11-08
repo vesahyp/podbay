@@ -643,14 +643,15 @@
     return bubbles(items, { days: true });
   }
   function composer() {
-    var me = app.me || {}, act;
-    if (!app.me) return '<div class="composer"><div class="cin"><textarea id="chat" rows="1" disabled placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"></textarea></div></div>';
-    if (canSend() || me.passkeys > 0) act = '<button class="send" type="button" data-chat-send="1" aria-label="' + (canSend() ? "Send" : "Confirm with your passkey and send") + '"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
-    else if (me.enrol_open) return '<div class="composer"><button class="btn primary wide" type="button" data-add-passkey="1">Add a passkey to send</button></div>';
-    else return '<div class="composer"><p class="fine">Sending needs a passkey, and one can be added only from the Mac: podbay mobile passkey-allow.</p></div>';
-    return '<div class="composer"><p class="err" id="chat-err" hidden></p><div class="cin">' +
-      '<textarea id="chat" rows="1" maxlength="1000" placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"></textarea>' + act + "</div>" +
-      (canSend() ? "" : '<p class="fine">Send asks for your passkey once, then works for 30 days.</p>') + "</div>";
+    var me = app.me || {}, act = "", note = "";
+    var box = '<textarea id="chat" rows="1" maxlength="1000" placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"' + (app.me ? "" : " disabled") + "></textarea>";
+    if (!app.me) note = "";
+    else if (canSend() || me.passkeys > 0) {
+      act = '<button class="send" type="button" data-chat-send="1" aria-label="' + (canSend() ? "Send" : "Confirm with your passkey and send") + '"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
+      if (!canSend()) note = '<p class="fine">Send asks for your passkey once, then works for 30 days.</p>';
+    } else if (me.enrol_open) note = '<div class="row"><button class="btn primary wide" type="button" data-add-passkey="1">Add a passkey to send</button></div>';
+    else note = '<p class="fine">Sending needs a passkey, and one can be added only from the Mac: podbay mobile passkey-allow.</p>';
+    return '<div class="composer"><p class="err" id="chat-err" hidden></p><div class="cin">' + box + act + "</div>" + note + "</div>";
   }
   function thread() {
     return '<div class="chathead"><span class="eye" aria-hidden="true"></span><div><b>Head Jeeves</b><small>Gets your message in about 15 s</small></div></div>' +
