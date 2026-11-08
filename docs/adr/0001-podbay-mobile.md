@@ -2,7 +2,7 @@
 adr: 1
 title: podbay mobile is a phone web app that replaces the artifact board, with a serverless read path and a serverless text-only write path
 date: 2026-11-08
-status: Proposed
+status: Accepted
 deciders: owner
 ---
 
@@ -157,7 +157,7 @@ One item per message in the `podbay-mobile` table:
 | `target`, `quote` | copied from the snapshot by the Lambda, never from the request |
 | `text` | at most 1000 characters, one line, control characters removed |
 | `state` | `queued`, `delivered`, `answered`, `expired` |
-| `created`, `expires` | epoch seconds; `expires` is `created` + 30 minutes |
+| `created`, `expires` | epoch seconds; `expires` is `created` + 2 hours |
 | `reply` | Head Jeeves' answer, from `podbay reply` |
 | `ttl` | 90 days, then DynamoDB removes it |
 
@@ -192,16 +192,30 @@ not in this public repo). Plus, for this app:
 
 - **No self sign-up.** `allow_admin_create_user_only`, and the one user is
   created by Terraform. The allowlist is a second check.
-- **A passkey on top: yes.** Cognito's `WEB_AUTHN` first factor, same
-  ESSENTIALS tier. The app asks to add a passkey after the first OTP
-  sign-in and uses it from then on; OTP and Google stay for recovery.
-  The reason is in the threat model: the write path is as strong as the
-  Mac, and email OTP and Google sign-in are both only as strong as the
-  Gmail account.
+- **A send needs a passkey sign-in in the last 30 days.** An email code
+  or Google sign-in can read; it cannot send. The reason is in the threat
+  model: the write path is as strong as the Mac, and email OTP and Google
+  sign-in are both only as strong as the Gmail account.
+- **The API checks the passkey itself, not Cognito.** A Cognito token does
+  not say which factor signed in, so Cognito's own `WEB_AUTHN` factor
+  cannot carry this rule. The write Lambda verifies a WebAuthn assertion
+  (`py_webauthn`, relying party `app.podbay.tienoo.com`) and stores a send
+  grant keyed by the token's `origin_jti`, which stays the same for one
+  sign-in across refreshes. The grant ends 30 days after the passkey
+  check or when that sign-in ends. Another sign-in, with its own
+  `origin_jti`, has no grant.
+- **A passkey is added only from the Mac.** `podbay mobile passkey-allow`
+  opens a 15 minute window, and only then does the API register a new
+  passkey. Someone with the Gmail account can sign in and read, but
+  cannot add their own passkey.
 - **Tokens.** Access token 15 minutes, refresh token 30 days, stored in
-  IndexedDB on the app origin. Refresh token revocation is on, so a
+  `localStorage` on the app origin. Refresh token revocation is on, so a
   sign-out on the Mac (`podbay mobile signout`, AdminUserGlobalSignOut)
   ends every session at once.
+- **Tests sign in as a second user** in the `test` group, through an app
+  client that allows only `ADMIN_USER_PASSWORD_AUTH`, which needs AWS
+  credentials. The write Lambda marks its messages `test`, and the poller
+  marks them delivered without typing them.
 
 ### Threat model
 
@@ -214,17 +228,17 @@ path with the care of a remote shell.
 | Threat | Control |
 |---|---|
 | Someone signs in as the user | One user, admin-created, allowlist; passkey bound to the phone; OTP and Google need the Gmail account |
-| Gmail account taken over | Passkey as the daily login; open choice 2 decides whether a write also needs a passkey sign-in |
+| Gmail account taken over | Read only: a send needs a passkey check in the same sign-in, and a new passkey is added only in a window opened from the Mac |
 | Phone stolen while unlocked | 30 day refresh token; `podbay mobile signout` revokes it; the audit log and the Thread tab show every message sent |
 | A stolen access token | 15 minute life; JWT authorizer checks issuer, audience, expiry |
 | Many messages, or a script in a loop | Stage throttle; 30 an hour, 200 a day; each refusal audited |
-| An old message delivered late | 30 minute expiry; expired items are never typed |
+| An old message delivered late | 2 hour expiry; expired items are never typed |
 | A crafted message breaks out of the event | One line, control characters removed, 1000 character limit; `target` and `quote` come from the snapshot; `podbay send` already types text without a shell |
 | Text injected into another session's prompt (prompt injection) | Head Jeeves sees every phone message as an event marked `phone`; nothing new, the same text arrives today as a comment |
 | The state leaks | Private bucket, read only through the authorizer; log tails scrubbed before upload |
 | XSS in the app runs a send | Strict CSP (`default-src 'self'`, `connect-src` the API only), all text set with `textContent`, no third-party script |
 | Replay or double send | Idempotency key per message, conditional put |
-| AWS credentials on the Mac | A dedicated IAM user for the poller: PutObject on `state/` and Query, UpdateItem on the table. Nothing else |
+| AWS credentials on the Mac | The poller uses the AWS profile the nightly jobs already use. A narrow IAM user would protect nothing while that profile is on the same Mac |
 | The AWS account itself | Out of scope: whoever holds it holds the Mac's secrets bundle too |
 
 ### Tracking and error reporting
@@ -243,10 +257,11 @@ days.
 
 ### Domain
 
-`bay.tienoo.com`, its own origin. The public landing page stays on
+`app.podbay.tienoo.com`, its own origin. The public landing page stays on
 podbay.tienoo.com with its own CloudFront, so the app's service worker,
-storage and CSP are separate from a page anyone can open. Open choice 1
-has the other options.
+storage and CSP are separate from a page anyone can open. The API is on
+the same CloudFront under `/api/`, so the app makes no cross-origin call
+except to Cognito.
 
 ### Build slices, in order
 
@@ -275,9 +290,10 @@ Each slice ends with `make ship` and a check on the phone.
    comes off the phone.
 7. **Stats.** `podbay-mobile-traffic` pipeline, the Stats tab,
    `make mobile-errors`.
-8. **Retire the artifact board.** Remove the comment sweep, the
-   artifact publish steps in the skill and the board's composer code.
-   `podbay board` stays as the local HTML view.
+8. **Retire the artifact board.** For one month after the app is live,
+   Head Jeeves keeps publishing the artifact board as a fallback. Then
+   remove the comment sweep, the artifact publish steps in the skill and
+   the board's composer code. `podbay board` stays as the local HTML view.
 
 ## Consequences
 
@@ -301,20 +317,14 @@ Each slice ends with `make ship` and a check on the phone.
 - Running cost: about 1 to 2 USD a month (Cognito ESSENTIALS for one
   user is in its free tier; the rest is requests and storage).
 
-## Open choices
+## Choices made
 
-The owner decides these before slice 3. The ADR above uses the first
-option of each.
-
-1. **Domain.** `bay.tienoo.com` (own origin, short); `app.podbay.tienoo.com`
-   (own origin, clearly part of podbay); `podbay.tienoo.com/app/` (one
-   CloudFront and one certificate, but the public page and the app share
-   an origin, so the same storage and service worker scope).
-2. **What a send needs.** A passkey sign-in in the last 30 days, and an
-   OTP or Google session can read but not send; or any sign-in can send;
-   or a passkey check (Face ID) on every send.
-3. **Message expiry.** 30 minutes; 2 hours; or until 08:00 the next
-   morning for a message sent while the Mac sleeps.
-4. **The artifact board.** Remove it in slice 8 and keep `podbay board`
-   only as a local HTML file; or keep publishing it beside the app as a
-   fallback for a month.
+1. **Domain:** `app.podbay.tienoo.com`. Other options were
+   `bay.tienoo.com` and `podbay.tienoo.com/app/`.
+2. **What a send needs:** a passkey sign-in in the last 30 days; an email
+   code or Google sign-in can only read. Other options were any sign-in,
+   or Face ID on every send.
+3. **Message expiry:** 2 hours. Other options were 30 minutes, or until
+   08:00 the next morning.
+4. **The artifact board:** published beside the app for one month as a
+   fallback, then removed. The other option was to remove it at once.

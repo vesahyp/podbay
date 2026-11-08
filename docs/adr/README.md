@@ -6,4 +6,4 @@ supersedes it, and a fact gets a dated Update section.
 
 | # | Title | Status |
 |---|---|---|
-| [0001](0001-podbay-mobile.md) | podbay mobile is a phone web app that replaces the artifact board | Proposed |
+| [0001](0001-podbay-mobile.md) | podbay mobile is a phone web app that replaces the artifact board | Accepted |
