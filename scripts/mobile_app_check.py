@@ -94,6 +94,13 @@ async def main() -> int:
         await page.goto(f"{URL}/#board", wait_until="networkidle")
         await page.wait_for_selector("main h1", timeout=15000)
         check("board: the decisions section", await page.locator("h2.ask").count() == 1)
+        # A shipped card (it has the Found a fault button) has a Tested button.
+        shipped = page.locator("article.card:has(button[data-prefill='Found a fault: '])")
+        n_shipped = await shipped.count()
+        n_tested = await shipped.locator("button[data-tested]").count()
+        check(f"board: every shipped card has a Tested button ({n_shipped} cards)", n_tested == n_shipped, n_tested)
+        served = await page.evaluate("fetch('/app.js').then(r => r.text())")
+        check("app.js served with the Tested button", "data-tested" in served)
         fresh = (await page.locator("#fresh").text_content() or "").strip()
         check("header: the snapshot's age", "ago" in fresh, fresh)
         await shot(page, "mobile-app-1-board.png", full=True)
