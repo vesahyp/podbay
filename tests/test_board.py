@@ -123,6 +123,18 @@ def test_shipped_line_stays_until_tested_or_seven_days():
     assert list(found["shipped"]) == ["shipped:a"]
 
 
+def test_decision_without_a_live_session_stays_with_options_for_head_jeeves():
+    headlines = {
+        "decision:databricks": {"kind": "decision", "text": "Sign in to Databricks?", "options": ["Now", "Later"]},
+        "ended-session-id": {"kind": "decision", "text": "Approve the push?", "repo": "sora"},
+    }
+    found = _by_id(board.collect({"sessions": []}, NOW, headlines))
+    item = found["decision"]["decision:databricks"]
+    assert item["options"] == ["Now", "Later"] and item["target"] == "Head Jeeves"
+    assert found["decision"]["decision:ended-session-id"]["project"] == "sora"
+    assert board.collect({"sessions": []}, NOW, {})["decision"] == []
+
+
 def test_mark_tested_writes_the_field_and_takes_the_line_off(tmp_path):
     path = tmp_path / "headlines.json"
     path.write_text('{"abcdef123": {"kind": "shipped", "text": "Live", "repo": "sora", "at": "2026-10-03T12:00"},'

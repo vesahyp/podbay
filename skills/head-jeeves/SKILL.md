@@ -210,6 +210,14 @@ The lines on the board need judgment, so you write them, in
   noted it, or when it is more than 7 days old.
 - A `decision` for a session that is at work again is dropped by the
   board: the question was answered.
+- A decision that belongs to you, or to a session that has ended, is
+  not tied to a live session. Key it `decision:<short-slug>` (for example
+  `decision:databricks-signin`). It stays under Decisions, with its
+  `options` as buttons, until you delete the entry. The user's reply or
+  button press reaches you as a `/head-jeeves phone` event with the target
+  `Head Jeeves`. Delete the entry when you have the answer. Do not write
+  such a line under your own session id or tell the user a question is on
+  the board before you have checked `state.json` shows it.
 - A session with no entry gets the first sentence of its recap, which is
   rarely what the user needs. Write an entry for every session that needs
   a decision, has shipped, or is in progress, and delete entries for

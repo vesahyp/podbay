@@ -270,6 +270,16 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
     # A shipped line outlives its session until tested, for SHIPPED_DAYS at most.
     live = {s.get("session_id") for s in sessions} | {s.get("short_id") for s in sessions}
     for key, headline in headlines.items():
+        if key not in live and headline.get("kind") == "decision" and headline.get("text"):
+            # A decision no live session owns (Head Jeeves' own, or an ended
+            # session's) stays until Head Jeeves deletes the entry. Replies
+            # and option buttons go to Head Jeeves.
+            found["decision"].append({"id": key if key.startswith("decision:") else f"decision:{key}", "session": {},
+                                      "target": "Head Jeeves", "project": str(headline.get("repo") or "Head Jeeves"),
+                                      "when": "", "options": _options(headline), "asks": True,
+                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
+                                      "link": headline.get("link"), "steps": headline.get("steps")})
+            continue
         if key in live or headline.get("kind") != "shipped" or not headline.get("repo") or headline.get("tested"):
             continue
         if _recent(headline.get("at"), now):
