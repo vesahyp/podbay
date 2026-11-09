@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from podbay import board
@@ -65,7 +66,7 @@ def test_head_jeeves_headlines_win_and_stale_questions_drop():
         "s-96": {"kind": "decision", "text": "Publish Räkkä on itch.io now?", "repo": "hoyry", "options": ["Yes", "Wait"]},
         "gone": {"kind": "shipped", "text": "Stats board live", "link": "https://podbay.tienoo.com/stats/",
                  "repo": "podbay", "at": "2026-10-03T12:00"},
-        "old": {"kind": "shipped", "text": "Yesterday's work", "repo": "keitos", "at": "2026-10-02"},
+        "old": {"kind": "shipped", "text": "Yesterday's work", "repo": "keitos", "at": "2026-09-20"},
     }
     found = _by_id(board.collect(payload, NOW, headlines))
     assert found["decision"]["s-96"]["project"] == "hoyry" and found["decision"]["s-96"]["options"] == ["Yes", "Wait"]
@@ -110,3 +111,25 @@ def test_mac_name_drops_the_owner(monkeypatch):
     for full, short in (("Someone’s MacBook Air", "MacBook Air"), ("studio", "studio"), ("", "")):
         monkeypatch.setattr(machine, "_run", lambda cmd, out=full: out + "\n")
         assert machine.mac_name() == short
+
+
+def test_shipped_line_stays_until_tested_or_seven_days():
+    headlines = {
+        "a": {"kind": "shipped", "text": "Yesterday", "repo": "sora", "at": "2026-10-02T12:00"},
+        "b": {"kind": "shipped", "text": "Tested already", "repo": "sora", "at": "2026-10-03T12:00", "tested": "2026-10-03T13:00"},
+        "c": {"kind": "shipped", "text": "Too old", "repo": "sora", "at": "2026-09-20T12:00"},
+    }
+    found = _by_id(board.collect({"sessions": []}, NOW, headlines))
+    assert list(found["shipped"]) == ["shipped:a"]
+
+
+def test_mark_tested_writes_the_field_and_takes_the_line_off(tmp_path):
+    path = tmp_path / "headlines.json"
+    path.write_text('{"abcdef123": {"kind": "shipped", "text": "Live", "repo": "sora", "at": "2026-10-03T12:00"},'
+                    ' "q": {"kind": "decision", "text": "Q?"}}')
+    assert board.mark_tested("shipped:abcdef123", path, datetime(2026, 10, 3, 14, 0))
+    assert json.loads(path.read_text())["abcdef123"]["tested"] == "2026-10-03T14:00:00"
+    assert not board.mark_tested("shipped:nothing", path)
+    assert not board.mark_tested("q", path)
+    headlines, _ = board.load_headlines(path)
+    assert board.collect({"sessions": []}, NOW, headlines)["shipped"] == []

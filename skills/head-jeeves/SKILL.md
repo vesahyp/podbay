@@ -201,14 +201,19 @@ The lines on the board need judgment, so you write them, in
   short answers (`["Start line", "First checkpoint"]`): the phone app
   shows each one as an answer button. `pushed: true` records that the line went to the
   phone (see "Pushing to the phone"); the board ignores it.
-- A `shipped` entry whose session has ended stays on the board until the
-  end of the day in `at`, under `repo`, so give those two.
+- A `shipped` entry whose session has ended stays on the board, under
+  `repo`, until the user marks it tested or 7 days after `at`, so give
+  those two. The user's Tested button (phone app, or keys 1 to 9 on the
+  Mac board screen) writes `"tested": "<time>"` on the entry and the line
+  leaves the board. Keep that field when you rewrite the file: it tells
+  you the user tried it. Delete an entry once it is tested and you have
+  noted it, or when it is more than 7 days old.
 - A `decision` for a session that is at work again is dropped by the
   board: the question was answered.
 - A session with no entry gets the first sentence of its recap, which is
   rarely what the user needs. Write an entry for every session that needs
   a decision, has shipped, or is in progress, and delete entries for
-  sessions that are gone and not shipped today.
+  sessions that are gone and not shipped in the last 7 days.
 - Rewrite the file whole, as valid JSON. When it does not parse, the board
   shows no headlines at all; check it with `python3 -m json.tool` after
   each write.

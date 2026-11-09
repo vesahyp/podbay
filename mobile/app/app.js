@@ -10,7 +10,7 @@
   var STATE_EVERY = 30000;
   var MESSAGES_EVERY = 15000;
 
-  var app = { state: null, me: null, messages: [], loadedAt: 0, route: "board", arg: "", sheet: null, error: "" };
+  var app = { state: null, me: null, messages: [], loadedAt: 0, route: "board", arg: "", sheet: null, error: "", tested: {} };
 
   // ---- small helpers --------------------------------------------------------
 
@@ -382,10 +382,10 @@
         lineThread(d.id) + '<div class="row">' + (d.options || []).map(function (o) { return '<button class="btn opt" type="button" data-reply="' + esc(d.id) + '" data-option="' + esc(o) + '">' + esc(o) + "</button>"; }).join("") +
         replyBtn(d.id, (d.options || []).length ? "Other" : "Answer") + "</div></article>";
     });
-    var test = (sec.shipped || []).map(function (d) {
+    var test = (sec.shipped || []).filter(function (d) { return !app.tested[d.id]; }).map(function (d) {
       return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
         (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") + steps(d.steps) +
-        lineThread(d.id) + '<div class="row">' + replyBtn(d.id, "Works", "Works") + replyBtn(d.id, "Found a fault", "Found a fault: ") + replyBtn(d.id) + "</div></article>";
+        lineThread(d.id) + '<div class="row">' + '<button class="btn opt" type="button" data-tested="' + esc(d.id) + '">Tested</button>' + replyBtn(d.id, "Works", "Works") + replyBtn(d.id, "Found a fault", "Found a fault: ") + replyBtn(d.id) + "</div></article>";
     });
     var done = (sec.finished || []).map(function (d) {
       return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
@@ -929,6 +929,27 @@
       else chatError(e && e.message ? e.message : "Could not send.");
     });
   }
+  // Tested: a message that says only "Tested" on a shipped line. The Mac
+  // marks the line tested in headlines.json and does not type it to Head
+  // Jeeves. The card leaves at once; the next board upload drops it for good.
+  function markTested(btn) {
+    var id = btn.dataset.tested;
+    btn.disabled = true;
+    var first = canSend() ? Promise.resolve() : checkPasskey();
+    first.then(function () {
+      return api("POST", "messages", { line: id, text: "Tested", key: key() });
+    }).then(function () {
+      track("send", { kind: "tested" });
+      app.tested[id] = true;
+      render();
+    }).catch(function (e) {
+      btn.disabled = false;
+      if (e && e.status === 403 && e.body && e.body.error === "passkey") { loadMe().then(render); }
+      app.sheet = { kind: "reply", line: id, prefill: "Tested", option: "" };
+      loadMe().then(render);
+      render();
+    });
+  }
   function sendAgain(id) {
     var m = app.messages.filter(function (x) { return x.id === id; })[0];
     if (!m) return;
@@ -956,6 +977,7 @@
     if (!t) return;
     if (t.dataset.tab) { app.sheet = null; go(t.dataset.tab); if (t.dataset.tab === "thread") loadMessages(); return; }
     if (t.dataset.close) { closeSheet(); return; }
+    if (t.dataset.tested) { markTested(t); return; }
     if (t.dataset.reply) {
       app.sheet = { kind: "reply", line: t.dataset.reply, prefill: t.dataset.prefill || "", option: t.dataset.option || "" };
       history.replaceState(null, "", "#line/" + encodeURIComponent(t.dataset.reply));

@@ -92,3 +92,7 @@ async def test_the_b_key_opens_the_board_screen(monkeypatch):
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, BoardScreen)
+
+
+def test_shipped_lines_show_their_tested_key():
+    assert "[1] Tested" in boardview.render(STATE, [], now=NOW).plain

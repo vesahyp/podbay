@@ -790,7 +790,8 @@ class BoardScreen(ModalScreen[None]):
     }
     """
 
-    BINDINGS = [Binding("escape", "close", "Close"), Binding("b", "close", "Close", show=False)]
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("b", "close", "Close", show=False),
+                *[Binding(str(n), f"tested({n})", f"Tested {n}", show=False) for n in range(1, 10)]]
 
     def __init__(self, state: dict | None, messages: list[dict] | None):
         super().__init__()
@@ -810,6 +811,20 @@ class BoardScreen(ModalScreen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+    def action_tested(self, n: int) -> None:
+        """Key 1 to 9: the user tested the n-th line of Ready for you to
+        test. It is recorded in headlines.json (board.mark_tested) and the
+        line leaves the screen at once."""
+        shipped = ((self._state or {}).get("board", {}).get("sections", {}) or {}).get("shipped") or []
+        if not 1 <= n <= len(shipped):
+            return
+        line = shipped[n - 1]
+        if not board.mark_tested(str(line.get("id") or "")):
+            self.notify("Could not mark it tested: no shipped entry in headlines.json.", severity="warning")
+            return
+        shipped.pop(n - 1)
+        self.show(self._state, self._messages)
 
 
 class HistoryScreen(ModalScreen[None]):
@@ -1327,7 +1342,7 @@ class PodbayApp(App):
     def _mobile_poll(self) -> None:
         """Deliver the messages the phone app queued (mobile.poll)."""
         try:
-            for msg_id, outcome in mobile_mod.poll(self._mobile_store, lambda line: bool(self.call_from_thread(self._deliver_phone, line))):
+            for msg_id, outcome in mobile_mod.poll(self._mobile_store, lambda line: bool(self.call_from_thread(self._deliver_phone, line)), tested=board.mark_tested):
                 log.info("phone message %s: %s", msg_id, outcome)
             for sub_id, outcome in mobile_mod.register_pushes(self._mobile_store, mobile_mod.run_push_command):
                 log.info("phone push subscription %s: %s", sub_id, outcome)

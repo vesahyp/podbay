@@ -36,6 +36,7 @@ from datetime import datetime
 from typing import Callable
 
 from . import config
+from .board import TESTED_TEXT
 from .snapshot import fingerprint
 
 log = logging.getLogger(__name__)
@@ -192,12 +193,17 @@ def thread(store: Store, now: float | None = None) -> list[dict]:
 TEST_GRACE = 10
 
 
-def poll(store: Store, deliver: Callable[[str], bool], now: float | None = None, fake: bool = False) -> list[tuple[str, str]]:
+def poll(store: Store, deliver: Callable[[str], bool], now: float | None = None, fake: bool = False,
+         tested: Callable[[str], bool] | None = None) -> list[tuple[str, str]]:
     """One delivery pass. `deliver` types one line to Head Jeeves and says
     whether it went. Returns (id, outcome) for every message it touched.
     The screen marks a test user's message delivered without typing it;
     with `fake`, only the test user's messages are taken, and `deliver` is
-    the check's fake Head Jeeves."""
+    the check's fake Head Jeeves. `tested` takes a board line id and marks
+    that shipped line tested (board.mark_tested); a message that only says
+    "Tested" is handled by it and not typed, since Head Jeeves sees the
+    `tested` field in headlines.json. When it returns False the message is
+    typed like any other."""
     now = now or time.time()
     done = []
     for item in store.recent(now - LOOK_BACK):
@@ -213,6 +219,10 @@ def poll(store: Store, deliver: Callable[[str], bool], now: float | None = None,
                 continue
             if store.mark(sk, "queued", {"state": "delivered", "delivered_at": int(now), "note": "test user, not typed"}):
                 done.append((sk, "test"))
+            continue
+        if tested and not fake and str(item.get("text") or "").strip() == TESTED_TEXT and tested(str(item.get("line") or "")):
+            if store.mark(sk, "queued", {"state": "delivered", "delivered_at": int(now), "note": "marked tested"}):
+                done.append((sk, "tested"))
             continue
         # Claim it first, so a second screen or a retry can never type it twice.
         if not store.mark(sk, "queued", {"state": "delivering", "claimed_at": int(now)}):

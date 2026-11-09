@@ -35,10 +35,13 @@ STATE_DIR = Path.home() / ".local" / "state" / "podbay"
 #   "link": "https://...", "steps": ["...", "..."], "repo": "sora",
 #   "at": "2026-10-03T19:40", "options": ["...", "..."]}}; only kind and
 # text are required. Any other kind keeps that session off the board. A
-# shipped entry whose session has ended stays on the board for the day in
-# `at`, under `repo`.
+# shipped entry whose session has ended stays on the board under `repo`
+# until the user marks it tested (`tested` is set to a time, by
+# mark_tested) or SHIPPED_DAYS after `at`.
 HEADLINES_PATH = STATE_DIR / "headlines.json"
 LINE_CHARS = 160
+SHIPPED_DAYS = 7
+TESTED_TEXT = "Tested"  # the phone message that means: mark the line tested
 KINDS = ("decision", "shipped", "progress")
 # The sections in order: Head Jeeves' kinds, plus the finished sessions he
 # has not written a line for yet.
@@ -147,11 +150,39 @@ def _active_today(session: dict, now: datetime) -> bool:
     return seconds is not None and (now - timedelta(seconds=seconds)).date() == now.date()
 
 
-def _same_day(stamp: object, now: datetime) -> bool:
+def _recent(stamp: object, now: datetime) -> bool:
+    """`stamp` is no later than today and less than SHIPPED_DAYS old."""
     try:
-        return datetime.fromisoformat(str(stamp)[:19]).date() == now.date()
+        day = datetime.fromisoformat(str(stamp)[:19]).date()
     except ValueError:
         return False
+    return 0 <= (now.date() - day).days < SHIPPED_DAYS
+
+
+def mark_tested(line_id: str, path: Path | None = None, now: datetime | None = None) -> bool:
+    """The user tested a shipped line: write `tested` (a time) on its entry
+    in headlines.json, which takes it off the board and tells Head Jeeves.
+    `line_id` is the board line's id (a session id, or shipped:<key>).
+    False when no shipped entry matches or the file cannot be used."""
+    path = path or HEADLINES_PATH
+    key = line_id.removeprefix("shipped:")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict) or not key:
+        return False
+    hit = [k for k, v in data.items() if isinstance(v, dict) and v.get("kind") == "shipped"
+           and (k == key or (len(key) >= 6 and (k.startswith(key) or key.startswith(k))))]
+    if not hit:
+        return False
+    stamp = (now or datetime.now()).isoformat(timespec="seconds")
+    for k in hit:
+        data[k]["tested"] = stamp
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return True
 
 
 def _when(session: dict, now: datetime) -> str:
@@ -178,6 +209,8 @@ def _classify(session: dict, headline: dict | None, now: datetime) -> str | None
     state = session.get("state")
     if headline:
         kind = headline.get("kind")
+        if kind == "shipped" and headline.get("tested"):
+            return None  # the user has tested it
         if kind == "decision" and state not in (NEEDS_YOU, STALLED, DUE):
             kind = "progress"  # answered: the session is at work again, so the question is stale
             headline.pop("text", None)
@@ -234,12 +267,12 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
                 item["when"] = _when(s, now)
         found[kind].append(item)
 
-    # A shipped line outlives its session for the rest of the day.
+    # A shipped line outlives its session until tested, for SHIPPED_DAYS at most.
     live = {s.get("session_id") for s in sessions} | {s.get("short_id") for s in sessions}
     for key, headline in headlines.items():
-        if key in live or headline.get("kind") != "shipped" or not headline.get("repo"):
+        if key in live or headline.get("kind") != "shipped" or not headline.get("repo") or headline.get("tested"):
             continue
-        if _same_day(headline.get("at"), now):
+        if _recent(headline.get("at"), now):
             found["shipped"].append({"id": f"shipped:{key}", "session": {}, "target": _ended_target(str(headline["repo"])),
                                      "project": str(headline["repo"]), "when": "", "options": [], "asks": False,
                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),

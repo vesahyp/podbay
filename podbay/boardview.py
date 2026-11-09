@@ -117,13 +117,15 @@ def _board(t: Text, sections: dict) -> None:
     _heading(t, "Ready for you to test", len(shipped), GREEN)
     if not shipped:
         t.append("  Nothing new to test today.\n", style=DIM)
-    for d in shipped:
+    for n, d in enumerate(shipped, 1):
         _line_head(t, d)
         t.append(f"  {d.get('text')}\n", style=_text_style(d))
         if d.get("link"):
             t.append(f"  {d['link']}\n", style=AMBER)
         for i, step in enumerate(d.get("steps") or [], 1):
             t.append(f"    {i}. {step}\n", style=DIM)
+        if n <= 9:
+            t.append(f"  [{n}] Tested\n", style=GREEN)
     finished = sections.get("finished") or []
     if finished:
         _heading(t, "Finished today", len(finished))

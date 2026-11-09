@@ -156,3 +156,14 @@ def test_uploader_puts_on_change_and_on_heartbeat():
     assert up.tick({"generated_at": 3, "board": {"x": 2}}) is True  # changed
     clock[0] += mobile.HEARTBEAT
     assert up.tick({"generated_at": 4, "board": {"x": 2}}) is True  # heartbeat
+
+
+def test_a_tested_message_marks_the_line_and_is_not_typed():
+    store = FakeStore([_msg(1, line="shipped:x", text="Tested"), _msg(2, line="shipped:gone", text="Tested")])
+    typed: list[str] = []
+    marked: list[str] = []
+    done = dict(mobile.poll(store, lambda line: typed.append(line) or True, now=NOW,
+                            tested=lambda line: marked.append(line) or line == "shipped:x"))
+    ids = sorted(store.items)
+    assert done == {ids[0]: "tested", ids[1]: "delivered"}
+    assert marked == ["shipped:x", "shipped:gone"] and len(typed) == 1
