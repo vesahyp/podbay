@@ -88,6 +88,17 @@ def clean_line(text: str | None, limit: int = LINE_CHARS) -> str:
     return cut.rstrip(" ,;:.-") + "…"
 
 
+def full_text(text: str | None, limit: int = 2000) -> str:
+    """The whole of an agent's text as plain words: markdown gone, spaces
+    collapsed, nothing cut but a runaway text. The phone shows it when the
+    user taps a line that clean_line shortened."""
+    text = _LINK_RE.sub(r"\1", text or "")
+    text = _EMPH_RE.sub("", text)
+    text = _HEAD_RE.sub(r"\1", text)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
 def load_headlines(path: Path | None = None) -> tuple[dict[str, dict], str | None]:
     """Head Jeeves' lines, and the reason when the file cannot be used. A
     missing file is the normal case: no lines, no error."""
@@ -257,7 +268,8 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
                 "options": _options(headline) if kind == "decision" else [],
                 "asks": asks_user(s.get("waiting_on"))}
         if headline and headline.get("text"):
-            item.update(text=clean_line(headline["text"], 2 * LINE_CHARS), link=headline.get("link"), steps=headline.get("steps"))
+            item.update(text=clean_line(headline["text"], 2 * LINE_CHARS), link=headline.get("link"), steps=headline.get("steps"),
+                        full=full_text(headline["text"]))
         else:
             item["text"] = (_ask(s) if kind == "decision" else None) or clean_line(s.get("last_text")) or s.get("title") or ""
             if kind == "finished":
@@ -278,7 +290,8 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
                                       "target": "Head Jeeves", "project": str(headline.get("repo") or "Head Jeeves"),
                                       "when": "", "options": _options(headline), "asks": True,
                                       "text": clean_line(headline["text"], 2 * LINE_CHARS),
-                                      "link": headline.get("link"), "steps": headline.get("steps")})
+                                      "link": headline.get("link"), "steps": headline.get("steps"),
+                                      "full": full_text(headline["text"])})
             continue
         if key in live or headline.get("kind") != "shipped" or not headline.get("repo") or headline.get("tested"):
             continue
@@ -286,5 +299,6 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
             found["shipped"].append({"id": f"shipped:{key}", "session": {}, "target": _ended_target(str(headline["repo"])),
                                      "project": str(headline["repo"]), "when": "", "options": [], "asks": False,
                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
-                                     "link": headline.get("link"), "steps": headline.get("steps")})
+                                     "link": headline.get("link"), "steps": headline.get("steps"),
+                                     "full": full_text(headline["text"])})
     return found

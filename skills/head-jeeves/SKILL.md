@@ -233,6 +233,9 @@ on the board and each reply you write must be complete in itself:
 
 - One plain sentence, no markdown, no session names (`jeeves-64`), no
   terminal numbers.
+- A board line's text is at most about 150 characters. Detail goes behind
+  the link. The app cuts a longer line when folded, and the user has to tap
+  to read the rest.
 - Shipped user-facing work is "ready for you to test", never "done" and
   never "needs nothing from you": work that took hours always needs the
   user's own test. Give the full URL, with `https://`, and two or three

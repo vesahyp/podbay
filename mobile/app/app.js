@@ -10,7 +10,7 @@
   var STATE_EVERY = 30000;
   var MESSAGES_EVERY = 15000;
 
-  var app = { state: null, me: null, messages: [], loadedAt: 0, route: "board", arg: "", sheet: null, error: "", tested: {} };
+  var app = { state: null, me: null, messages: [], loadedAt: 0, route: "board", arg: "", sheet: null, error: "", tested: {}, unfolded: {} };
 
   // ---- small helpers --------------------------------------------------------
 
@@ -374,27 +374,33 @@
     var t = item.target && item.target.indexOf(item.project) >= 0 ? item.target.replace(item.project, "").trim() : "";
     return '<div class="repo">' + esc(item.project) + (t ? '<span class="t">' + esc(t) + "</span>" : "") + "</div>";
   }
+  // A line cut short on the server carries its whole text in d.full: a tap
+  // unfolds it in place (text and link), another tap folds it.
+  function lineBody(d) {
+    var link = safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "";
+    if (!d.full) return '<p class="line">' + esc(d.text) + "</p>" + link;
+    var open = !!app.unfolded[d.id];
+    return '<div class="fold" data-fold="' + esc(d.id) + '" role="button" tabindex="0" aria-expanded="' + open + '"><p class="line">' + esc(open ? d.full : d.text) + '</p></div>' + link;
+  }
+
   function board(s) {
     var sec = s.board.sections || {};
     var ask = (sec.decision || []).map(function (d) {
-      return '<article class="card ask' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
-        (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") +
+      return '<article class="card ask' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + lineBody(d) +
         lineThread(d.id) + '<div class="row">' + (d.options || []).map(function (o) { return '<button class="btn opt" type="button" data-reply="' + esc(d.id) + '" data-option="' + esc(o) + '">' + esc(o) + "</button>"; }).join("") +
         replyBtn(d.id, (d.options || []).length ? "Other" : "Answer") + "</div></article>";
     });
     var test = (sec.shipped || []).filter(function (d) { return !app.tested[d.id]; }).map(function (d) {
-      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
-        (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") + steps(d.steps) +
+      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + lineBody(d) + steps(d.steps) +
         lineThread(d.id) + '<div class="row">' + '<button class="btn opt" type="button" data-tested="' + esc(d.id) + '">Tested</button>' + replyBtn(d.id, "Works", "Works") + replyBtn(d.id, "Found a fault", "Found a fault: ") + replyBtn(d.id) + "</div></article>";
     });
     var done = (sec.finished || []).map(function (d) {
-      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + '<p class="line">' + esc(d.text) + "</p>" +
-        (safeUrl(d.link) ? '<a class="link" href="' + esc(safeUrl(d.link)) + '" target="_blank" rel="noopener">' + esc(safeUrl(d.link)) + "</a>" : "") +
+      return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '">' + head(d) + lineBody(d) +
         lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
     });
     var prog = (sec.progress || []).map(function (d) {
       return '<article class="card' + (d.asks ? " waiting" : "") + '" id="line-' + esc(d.id) + '"><div class="mini">' + head(d) + (d.asks ? '<span class="chip waiting">asks you</span>' : "") + (d.when ? '<span class="chip amber">' + esc(d.when) + "</span>" : "") + "</div>" +
-        '<p class="line">' + esc(d.text) + '</p>' + lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
+        lineBody(d) + lineThread(d.id) + '<div class="row">' + replyBtn(d.id) + "</div></article>";
     });
     var now = new Date();
     return "<h1>" + esc(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][now.getDay()]) + "</h1>" +
@@ -970,6 +976,14 @@
       var b = bar.getAttribute("data-bar").split("|").map(Number), cur = app.runSel;
       app.runSel = cur && cur.c === b[0] && cur.i === b[1] ? null : { c: b[0], i: b[1] };
       track("runs-bar", { chart: b[0] === 0 ? "nights" : "pipeline" });
+      render();
+      return;
+    }
+    var fold = ev.target.closest && ev.target.closest("[data-fold]");
+    if (fold && !(ev.target.closest("a"))) {
+      var fid = fold.getAttribute("data-fold");
+      app.unfolded[fid] = !app.unfolded[fid];
+      track("line-fold", { open: app.unfolded[fid] ? 1 : 0 });
       render();
       return;
     }

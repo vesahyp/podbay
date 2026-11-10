@@ -85,11 +85,14 @@ def board_part(payload: dict, now: datetime, headlines: dict[str, dict]) -> tupl
             line_id = str(item["id"])
             if not line_id:
                 continue
+            full = item.get("full") or ""
             out.append({
                 "id": line_id, "project": item["project"], "target": item["target"], "text": item["text"],
                 "link": item.get("link"), "steps": [str(s) for s in item.get("steps") or [] if str(s).strip()],
                 "when": item.get("when") or "", "options": item.get("options") or [],
                 "asks": bool(item.get("asks")),
+                # The whole text, only when the folded text is shorter: the app unfolds on a tap.
+                "full": full if full and full != item["text"] else None,
             })
             lines[line_id] = {"target": item["target"], "quote": _quote(item["text"])}
         sections[kind] = out

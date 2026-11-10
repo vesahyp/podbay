@@ -48,6 +48,8 @@ h2.ask { color: var(--amber); }
 .repo { font: 600 12px var(--mono); color: var(--amber); letter-spacing: .04em; overflow-wrap: anywhere; }
 .repo .t { color: var(--dim); font-weight: 400; margin-left: 6px; }
 .line { margin: 4px 0 0; overflow-wrap: anywhere; }
+.fold { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.fold:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
 .link { color: var(--amber); font-size: 13px; word-break: break-all; display: inline-block; margin-top: 4px; }
 ol.steps { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }

@@ -35,6 +35,18 @@
      "when": "",
      "options": [],
      "asks": false
+    },
+    {
+     "id": "shipped:fixture-import",
+     "project": "ledger",
+     "target": "ledger (session ended)",
+     "text": "The booking import now reads all three supplier files, matches each row to its customer by email and phone, and sends one summary mail per customer instead of one per row. Rows that cannot be matched are listed in a new Unmatched tab with the reason, so nothing is dropped without a trace. The nightly run takes about…",
+     "link": "https://ledger.example/imports",
+     "steps": [],
+     "when": "",
+     "options": [],
+     "asks": false,
+     "full": "The booking import now reads all three supplier files, matches each row to its customer by email and phone, and sends one summary mail per customer instead of one per row. Rows that cannot be matched are listed in a new Unmatched tab with the reason, so nothing is dropped without a trace. The nightly run takes about four minutes and the first full run is done. Customers with two addresses are merged only when the phone number is the same, and every merge is written to the audit log with the old and the new record."
     }
    ],
    "finished": [],

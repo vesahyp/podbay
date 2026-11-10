@@ -145,3 +145,11 @@ def test_mark_tested_writes_the_field_and_takes_the_line_off(tmp_path):
     assert not board.mark_tested("q", path)
     headlines, _ = board.load_headlines(path)
     assert board.collect({"sessions": []}, NOW, headlines)["shipped"] == []
+
+
+def test_full_text_keeps_every_sentence_and_drops_markdown():
+    text = "**Done.** The rest [here](http://x). " + "More. " * 5
+    full = board.full_text(text)
+    assert full.startswith("Done. The rest here. More.") and "**" not in full
+    assert board.clean_line(text) == "Done."
+    assert board.full_text("a " * 2000).endswith("…")

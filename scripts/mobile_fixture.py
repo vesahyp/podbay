@@ -213,6 +213,24 @@ async def main() -> int:
             if await waiting.count():
                 colour = await waiting.first.evaluate("e => getComputedStyle(e).borderLeftColor")
                 check("board: drawn in the waiting orange", colour == WAITING_RGB and token.lower() == WAITING_HEX, (colour, token))
+        # A long line: folded as it is, a tap shows all of it and its link,
+        # a second tap folds it. The before app has no fold: the shots show the cut.
+        long_card = page.locator("#line-shipped\\:fixture-import")
+        folded_text = await long_card.locator(".line").inner_text()
+        await long_card.scroll_into_view_if_needed()
+        await long_card.screenshot(path=str(OUT / f"mobile-fixture-{args.prefix}-long-folded.png"))
+        await long_card.locator(".line").click()
+        await page.wait_for_timeout(200)
+        await long_card.screenshot(path=str(OUT / f"mobile-fixture-{args.prefix}-long-unfolded.png"))
+        if not args.no_check:
+            full_text = state["board"]["sections"]["shipped"][-1]["full"]
+            check("board: a cut-off line is folded at first", folded_text.endswith("…") and await long_card.locator("a.link").count() == 1)
+            check("board: a tap shows the whole text and the link", await long_card.locator(".line").inner_text() == full_text and await long_card.locator("a.link").is_visible())
+            await long_card.locator(".line").click()
+            await page.wait_for_timeout(200)
+            check("board: a second tap folds it again", await long_card.locator(".line").inner_text() == folded_text)
+            short = page.locator("#line-shipped\\:fixture-login .fold")
+            check("board: a line that is not cut has no fold", await short.count() == 0)
         reply = page.locator("button.thr").first
         if await reply.count():
             await reply.click()
