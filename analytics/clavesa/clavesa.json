@@ -3,5 +3,12 @@
   "cloud": "aws",
   "version": 1,
   "catalog": "clavesa_podbay_traffic",
-  "system_catalog": "clavesa_podbay_traffic_system"
+  "system_catalog": "clavesa_podbay_traffic_system",
+  "hosted": {
+    "url": "https://ui.clavesa.dev",
+    "reader_principals": null,
+    "publisher_role_arn": "arn:aws:iam::699166197771:role/clavesa-ui-publisher",
+    "data_bucket": "clavesa-ui-data-699166197771",
+    "region": "eu-north-1"
+  }
 }
