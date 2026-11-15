@@ -7,7 +7,7 @@ NOW = datetime(2026, 10, 3, 12, 0)
 
 
 def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on=None, parked_until=None, shell=False, prompt="do it",
-             status="idle", subagents=0, main_turn_ts=None):
+             status="idle", subagents=0, main_turn_ts=None, main_agent_ts=None):
     ts = NOW - timedelta(minutes=minutes_ago)
     return Session(
         session_id=sid, pid=1, cwd="/x", name=sid, name_source="derived", status=status,
@@ -15,7 +15,7 @@ def _session(sid, *, last_turn="end_turn", minutes_ago=1, seen=False, waiting_on
         last_turn=last_turn, last_turn_ts=ts, seen_at=NOW if seen else None,
         waiting_on=waiting_on, parked_until=parked_until, is_shell=shell, iterm_title=sid.upper(), last_prompt=prompt,
         subagents_running=subagents, turn_ended=main_turn_ts is not None or last_turn == "end_turn",
-        main_turn_ts=main_turn_ts or ts,
+        main_turn_ts=main_turn_ts or ts, main_agent_ts=main_agent_ts,
     )
 
 
@@ -353,3 +353,22 @@ def test_the_first_run_ever_says_nothing_about_old_finishes():
     hal.remarks(memory, [done], {}, NOW)
     assert hal.remarks(memory, [done], {}, LATER) == []
     assert hal.load_announced() == {"a": done.last_turn_ts.isoformat()}
+
+
+def test_a_task_notification_after_a_report_does_not_raise_it_again():
+    # clavesa-hosted-ui-build, 2026-11-15: the same AGENT message (18:57) was
+    # announced three times, because each task notification (a user record)
+    # moved main_turn_ts while the newest assistant message stayed the same.
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
+    agent_at = NOW - timedelta(minutes=3)
+    first = _delegating("r", 2, 0, main_agent_ts=agent_at)
+    assert hal.remarks(memory, [first], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]
+    for minutes in (1, 0, -1):  # a notification lands: main_turn_ts moves, the AGENT message does not
+        again = _delegating("r", minutes, 0, main_agent_ts=agent_at)
+        assert hal.remarks(memory, [again], {}, NOW) == []
+    assert len(memory.events) == 0
+    # a new AGENT message is a new event
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
+    fresh = _delegating("r", -2, 0, main_agent_ts=NOW + timedelta(minutes=2))
+    assert hal.remarks(memory, [fresh], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]

@@ -380,6 +380,7 @@ def _tail_read_transcript(path: Path, tail_bytes: int, include_sidechain: bool) 
                 if ts is not None and (newest_assistant_ts is None or ts >= newest_assistant_ts):
                     newest_assistant_ts = ts
                     result["newest_assistant"] = {
+                        "ts": ts,
                         "stop_reason": stop_reason,
                         "text": "\n".join(texts),
                         "tool_uses": tool_uses,
@@ -1176,6 +1177,7 @@ def gather_sessions(
                 login_expired_at=transcript.get("login_expired_at"),
                 limit_stop=limit_stop,
                 main_turn_ts=main_last_turn_ts,
+                main_agent_ts=(newest_assistant or {}).get("ts") if path is not None else None,
                 tab_busy=tab.busy if tab else None,
                 context_pct=snapshot.get("context_pct") if snapshot else None,
                 model=(snapshot.get("model") if snapshot else None) or model_name_from_id(transcript.get("model_id")),

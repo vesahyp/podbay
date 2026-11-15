@@ -115,6 +115,10 @@ class Session:
     # subagent's turn overtakes last_turn_ts: a report that ended the main
     # turn while its agents ran is dated by this.
     main_turn_ts: datetime | None = None
+    # When the newest assistant message was written. A user record (a task
+    # notification, a tool result) moves main_turn_ts without a new AGENT
+    # message, so HAL dedupes its report/finish events on this instead.
+    main_agent_ts: datetime | None = None
 
     # iTerm2 tab-title glyph fallback (None when no tab or unrecognized
     # glyph); registry status is the last-resort fallback.

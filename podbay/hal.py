@@ -132,8 +132,13 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         # A turn that ended while the session's agents still run is a
         # report (a step is live, the next one is delegated), not a finish:
         # the session reads as working until the agents are done.
-        report = s.main_turn_ts if derived in (WORKING, STALLED) and s.turn_ended and s.subagents_running else None
-        turn = s.main_turn_ts or s.last_turn_ts
+        # The turn is keyed by the newest AGENT message, not by the newest
+        # record: a task notification (a user record) moves main_turn_ts and
+        # would announce the same message again (clavesa-hosted-ui-build,
+        # 2026-11-15).
+        agent_ts = s.main_agent_ts or s.main_turn_ts
+        report = agent_ts if derived in (WORKING, STALLED) and s.turn_ended and s.subagents_running else None
+        turn = s.main_agent_ts or s.main_turn_ts or s.last_turn_ts
         if not memory.primed or previous is None:
             unsaid = (
                 not memory.primed and memory.restored is not None and previous is None and report is None
