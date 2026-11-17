@@ -9,3 +9,5 @@ the record.
       or slower.
 - [ ] A terminal other than iTerm2 (Ghostty, Terminal.app): the table works;
       send, open and close do not. Worth a second backend if someone asks.
+
+- [ ] Privacy page for podbay.tienoo.com and the phone app: not written yet. It waits for the public contact address. Text: radiotienoo branch `privacy-page`, public/privacy.html (adapt the location part away).
