@@ -826,6 +826,68 @@ def send_text_retrying(tty: str, text: str) -> str:
     return outcome
 
 
+# Enter alone, for text that sits in the input box after a send: no Ctrl-U
+# first, which would delete it.
+ENTER_SCRIPT_LINES = [
+    "on run argv",
+    '  tell application "iTerm2"',
+    "    set targetTty to item 1 of argv",
+    "    repeat with w in windows",
+    "      repeat with t in tabs of w",
+    "        repeat with s in sessions of t",
+    "          if (tty of s) is targetTty then",
+    '            tell s to write text ""',
+    "            return true",
+    "          end if",
+    "        end repeat",
+    "      end repeat",
+    "    end repeat",
+    "    return false",
+    "  end tell",
+    "end run",
+]
+
+
+def press_enter(tty: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
+    """Press Enter in the session on `tty`. True when iTerm2 found it."""
+    return (_osascript_lines(ENTER_SCRIPT_LINES, [tty], timeout) or "").lower() == "true"
+
+
+_BOX_LINE_RE = re.compile(r"^\s*❯ ?(.*)$")
+_RULE_RE = re.compile(r"^\s*─{3,}")
+BOX_RULE_WITHIN = 30
+# Dim hints Claude Code draws in an empty box (2.1.330).
+BOX_PLACEHOLDERS = {"Press up to edit queued messages"}
+
+
+def input_box_text(screen: str | None) -> str | None:
+    """The text in Claude Code's input box: from the last `❯` line to the
+    rule under it, stripped. None when the screen shows no box. The screen
+    is plain text, so Claude Code's prompt suggestion (dim text in an empty
+    box) reads exactly like typed text here."""
+    lines = (screen or "").splitlines()
+    for i in range(len(lines) - 1, -1, -1):
+        m = _BOX_LINE_RE.match(lines[i])
+        if not m:
+            continue
+        body = [m.group(1)]
+        for line in lines[i + 1 : i + 1 + BOX_RULE_WITHIN]:
+            if _RULE_RE.match(line):
+                text = "\n".join(body).strip()
+                return "" if text in BOX_PLACEHOLDERS else text
+            body.append(line)
+        return None
+    return None
+
+
+def box_holds(box: str | None, text: str) -> bool:
+    """Whether the input box shows `text` (or Claude Code's fold of a long
+    paste) still waiting to be sent."""
+    flat = "".join((box or "").split())
+    probe = _probe(text)
+    return bool(flat) and ((bool(probe) and flat.endswith(probe)) or flat.startswith("[Pastedtext"))
+
+
 def send_text(tty: str, text: str, timeout: float = SCRIPT_TIMEOUT) -> bool:
     """send_text_result as a yes or no: True iff the text was written."""
     return send_text_result(tty, text, timeout) == "sent"

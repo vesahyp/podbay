@@ -612,6 +612,63 @@ def _user_entry_text(content) -> str:
     return _strip_wrapped_spans("\n".join(parts)).strip()
 
 
+PROMPT_CHECK_BYTES = 2 * 1024 * 1024
+# A text this short matches only a prompt that is the text and nothing
+# more: "." or "1" is inside almost every message.
+SHORT_PROMPT = 20
+
+
+def _prompt_needles(text: str) -> list[str]:
+    """What a record that holds `text` contains, whitespace removed: the
+    text's tail, and for a slash command also its arguments' tail, since
+    Claude Code records "/name args" as <command-name> and <command-args>."""
+    flat = "".join(text.split())
+    needles = [flat[-60:]] if flat else []
+    name, _, args = text.strip().partition(" ")
+    if name.startswith("/") and args.strip():
+        needles.append("".join(args.split())[-60:])
+    return needles
+
+
+def prompt_recorded(path: Path, text: str, since: datetime) -> bool:
+    """Whether the transcript at `path` took `text` as a prompt at or after
+    `since` (naive local): a user record that holds it, which an idle
+    session writes when it starts on it, or a queue enqueue, which a busy
+    session writes when it holds it for later. Claude Code writes neither
+    for text that sits in the input box."""
+    needles = _prompt_needles(text)
+    if not needles:
+        return False
+    short = len(needles[0]) < SHORT_PROMPT
+    for line in _tail_lines(path, PROMPT_CHECK_BYTES):
+        if '"user"' not in line and '"queue-operation"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        at = _iso_to_local_dt(record.get("timestamp"))
+        if at is None or at < since:
+            continue
+        if record.get("type") == "queue-operation" and record.get("operation") == "enqueue":
+            content = record.get("content")
+            body = content if isinstance(content, str) else ""
+        elif record.get("type") == "user" and not record.get("isMeta") and not record.get("isSidechain") and not record.get("isCompactSummary"):
+            body = _user_entry_text((record.get("message") or {}).get("content"))
+        else:
+            continue
+        flat = "".join(body.split())
+        if short:
+            # Queued prompts can reach the transcript joined into one record,
+            # one per line.
+            lines = {"".join(part.split()) for part in body.splitlines()} | {flat}
+            if any(n in lines for n in needles):
+                return True
+        elif any(n in flat for n in needles):
+            return True
+    return False
+
+
 def _tool_use_line(block: dict) -> str:
     name = block.get("name", "")
     tool_input = block.get("input")

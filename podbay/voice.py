@@ -735,3 +735,26 @@ def paused_list(entries: list[dict]) -> str:
         return "no session is paused"
     return "\n".join(f"{e.get('name') or e['session_id'][:8]}  paused {e.get('paused_at', '?')[:16].replace('T', ' ')}"
                      f"  {e.get('title') or ''}" for e in entries)
+
+
+def send_stuck(target: str, detail: str) -> str:
+    """podbay send typed the text and pressed Enter twice, and the session
+    still did not take it."""
+    return (
+        f"the text reached {target!r} ({detail}) but the session did not take it: it is still in the input box "
+        "after a second Enter. Read the tab with podbay screen before sending again."
+    )
+
+
+def send_unconfirmed(target: str, state: str) -> str:
+    """podbay send typed the text, and the transcript does not show it taken."""
+    return f"sent to {target!r}, {state}. Check with podbay screen or podbay excerpt before sending again."
+
+
+def screen_box_not_sent(box: str) -> str:
+    """podbay screen: the input box shows text that podbay did not type."""
+    return (
+        f"note: podbay did not type the text in the input box ({box[:60]!r}). It is most likely Claude Code's "
+        "prompt suggestion, dim text in an empty box that a screen read shows as typed. The session waits for a "
+        "prompt: send the words with podbay send, do not send \".\" to submit them."
+    )

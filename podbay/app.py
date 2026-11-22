@@ -2533,6 +2533,10 @@ def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
     if not tty:
         print(f"{target!r} (pid {match.pid}) has no terminal: ps shows no tty for it", file=sys.stderr)
         sys.exit(1)
+    transcript = _transcript_of(match)
+    if transcript is not None and iterm_mod.screen_waits_for_input(iterm_mod.read_session_text(tty, max_lines=40)):
+        transcript = None  # an answer to a dialog is a key, not a prompt
+    since = datetime.now() - SUBMIT_SLACK
     outcome = iterm_mod.send_text_retrying(tty, text)
     if outcome != "sent":
         reason = machine_mod.overloaded_now()
@@ -2545,7 +2549,68 @@ def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
     caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     if caller is not None:
         opened_mod.record_sent(match.session_id, text, caller.name or caller.session_id, datetime.now())
+    if transcript is not None:
+        submitted = _confirm_submitted(match.pid, tty, transcript, text, since)
+        log.info("send to %s: %s", target, submitted)
+        if submitted == STUCK:
+            print(voice.send_stuck(target, f"pid {match.pid}, {tty}"), file=sys.stderr)
+            sys.exit(1)
+        if submitted != TAKEN:
+            print(voice.send_unconfirmed(target, submitted), file=sys.stderr)
     return match, caller
+
+
+# podbay send checks that Claude Code took the text as a prompt: the
+# transcript records it (sources.prompt_recorded). Until 2026-11-22 a send
+# only typed, and an idle session's dim prompt suggestion, which a screen
+# read shows like typed text, was taken for a send whose Enter got lost.
+SUBMIT_WAIT = 10.0
+SUBMIT_POLL = 0.5
+SUBMIT_SLACK = timedelta(seconds=2)  # transcript clock vs ours
+TAKEN = "taken"
+TAKEN_ON_ENTER = "taken after a second Enter"
+LEFT_BOX = "left the input box, not in the transcript yet"
+NO_BOX = "not in the transcript yet, no input box on screen"
+STUCK = "stuck in the input box"
+
+
+def _transcript_of(session: Session) -> Path | None:
+    """The Claude session's transcript file; None for a shell, or before
+    the session has written one."""
+    if session.is_shell or not session.session_id:
+        return None
+    account = by_label(discover(), session.account)
+    if account is None:
+        return None
+    return sources.transcript_path_for(session.cwd or "", session.session_id, account.projects_dir)
+
+
+def _prompt_taken(pid: int, transcript: Path, text: str, since: datetime, wait: float) -> bool:
+    """Polls for `wait` seconds. A session that exits took its prompt (/exit)."""
+    deadline = time.monotonic() + wait
+    while True:
+        if sources.prompt_recorded(transcript, text, since) or _pid_gone(pid, 0):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(SUBMIT_POLL)
+
+
+def _confirm_submitted(pid: int, tty: str, transcript: Path, text: str, since: datetime) -> str:
+    """Whether the session took `text` as a prompt. When it did not and the
+    input box still holds the text, Enter once more and look again."""
+    if _prompt_taken(pid, transcript, text, since, SUBMIT_WAIT):
+        return TAKEN
+    box = iterm_mod.input_box_text(iterm_mod.read_session_text(tty, max_lines=60))
+    if box is None:
+        return NO_BOX
+    if not iterm_mod.box_holds(box, text):
+        return LEFT_BOX
+    log.warning("send: text still in the input box on %s, pressing Enter again", tty)
+    iterm_mod.press_enter(tty)
+    if _prompt_taken(pid, transcript, text, since, SUBMIT_WAIT):
+        return TAKEN_ON_ENTER
+    return STUCK
 
 
 def cmd_screen(target: str, lines: int) -> None:
@@ -2561,6 +2626,25 @@ def cmd_screen(target: str, lines: int) -> None:
         print(voice.iterm_tab_missing(target, f"pid {match.pid}", machine_mod.overloaded_now()), file=sys.stderr)
         sys.exit(1)
     print(text)
+    box = iterm_mod.input_box_text(text)
+    if box and not _typed_by_podbay(match.session_id, box):
+        print(voice.screen_box_not_sent(box), file=sys.stderr)
+
+
+TYPED_WITHIN = timedelta(days=1)
+
+
+def _typed_by_podbay(session_id: str, box: str) -> bool:
+    """Whether an agent's recent podbay send to the session matches `box`."""
+    cutoff = datetime.now() - TYPED_WITHIN
+    for entry in opened_mod.read_sent():
+        try:
+            at = datetime.fromisoformat(entry.get("sent_at", ""))
+        except ValueError:
+            continue
+        if entry.get("session_id") == session_id and at >= cutoff and iterm_mod.box_holds(box, entry.get("text", "")):
+            return True
+    return False
 
 
 def cmd_pause(target: str | None, text: str) -> None:
