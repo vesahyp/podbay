@@ -21,8 +21,9 @@ Keys:
               he is the session your phone shows when that account bridges
               at startup. Default: the default account.
   head_jeeves_compact_at  the context use, in percent, at which podbay sends
-              Head Jeeves `/compact` once he is idle (his turn ended, nothing
-              podbay sent him is unanswered), at most once per 30 minutes, so
+              Head Jeeves `/head-jeeves precompact` once he is idle (his turn
+              ended, nothing podbay sent him is unanswered), then `/compact`
+              once he has answered it, at most once per 30 minutes, so
               the session the phone is bridged to never fills up and never
               has to be replaced. Default 60; 0 or off never compacts.
   notify_command  the command `podbay notify <text>` runs with the text as

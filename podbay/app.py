@@ -175,7 +175,10 @@ HEAD_JEEVES_GLYPH = "◉"
 # queued command is dropped.
 HEAD_JEEVES_LAUNCH_TIMEOUT = timedelta(seconds=90)
 # Head Jeeves is the session the phone is bridged to, so a full context is
-# compacted in place, never replaced (config head-jeeves-compact-at). The
+# compacted in place, never replaced (config head-jeeves-compact-at). First
+# he gets HEAD_JEEVES_PRECOMPACT: he files what he learned and cleans up his
+# memory (skills/head-jeeves/SKILL.md, "/head-jeeves precompact"). Once he
+# has answered it, or after HEAD_JEEVES_PRECOMPACT_LIMIT, the /compact. The
 # focus names what the summary must carry; everything else he needs is in
 # files (see "What survives a compact" in skills/head-jeeves/SKILL.md).
 # One line: a slash command's arguments end at the first newline.
@@ -187,6 +190,11 @@ HEAD_JEEVES_COMPACT = (
     "Drop transcripts, excerpts and tool output."
 )
 HEAD_JEEVES_COMPACT_EVERY = timedelta(minutes=30)
+HEAD_JEEVES_PRECOMPACT = "/head-jeeves precompact"
+# How long he may take over the precompact. A /compact typed into a busy
+# session would wait behind his turn, so past this the round is dropped and
+# the next one starts with a fresh precompact HEAD_JEEVES_COMPACT_EVERY later.
+HEAD_JEEVES_PRECOMPACT_LIMIT = timedelta(minutes=20)
 # A review file that lands within this of a scan is "new": toast it.
 REVIEWS_POLL_SECONDS = 5
 # Remote Control on: the session can be driven from the phone or the web.
@@ -445,15 +453,43 @@ def compact_due(
     least HEAD_JEEVES_COMPACT_EVERY ago."""
     if threshold <= 0 or head.context_pct is None or head.context_pct < threshold:
         return False
-    if head.last_turn != "end_turn" or head.last_turn_ts is None:
-        return False
-    if head.awaiting_prompt or head.derive_status(now) != NEEDS_YOU:
-        return False
-    if last_sent_at is not None and head.last_turn_ts <= last_sent_at:
+    if not head_jeeves_idle(head, now, last_sent_at):
         return False
     if last_compact_at is not None and now - last_compact_at < HEAD_JEEVES_COMPACT_EVERY:
         return False
     return True
+
+
+def head_jeeves_idle(head: Session, now: datetime, last_sent_at: datetime | None) -> bool:
+    """His last turn ended, nothing is open (no question or permission
+    dialog, no subagent, no background task), and that turn is younger than
+    the last command podbay typed into him."""
+    if head.last_turn != "end_turn" or head.last_turn_ts is None:
+        return False
+    if head.awaiting_prompt or head.derive_status(now) != NEEDS_YOU:
+        return False
+    return last_sent_at is None or head.last_turn_ts > last_sent_at
+
+
+def compact_step(
+    head: Session,
+    now: datetime,
+    threshold: int,
+    last_compact_at: datetime | None,
+    last_sent_at: datetime | None,
+    precompact_at: datetime | None,
+) -> str | None:
+    """The next step of a compact round: "precompact" to send
+    HEAD_JEEVES_PRECOMPACT, "compact" to send HEAD_JEEVES_COMPACT once he
+    has answered the precompact, "give-up" when he has not within
+    HEAD_JEEVES_PRECOMPACT_LIMIT, or None to wait."""
+    if precompact_at is None:
+        return "precompact" if compact_due(head, now, threshold, last_compact_at, last_sent_at) else None
+    if head_jeeves_idle(head, now, max(precompact_at, last_sent_at or precompact_at)):
+        return "compact"
+    if now - precompact_at >= HEAD_JEEVES_PRECOMPACT_LIMIT:
+        return "give-up"
+    return None
 
 
 def build_rows(sessions: list[Session], now: datetime) -> list[dict]:
@@ -1036,6 +1072,8 @@ class PodbayApp(App):
         # compact goes only once he has answered everything podbay sent.
         self._head_jeeves_sent_at: datetime | None = None
         self._head_jeeves_compacted_at: datetime | None = None
+        # When the precompact of the round in progress went in; None between rounds.
+        self._head_jeeves_precompact_at: datetime | None = None
         self._head_jeeves_compact_at = head_jeeves_compact_at
         self._reviews_seen: dict[str, float] | None = None  # file -> mtime, None until the first look
         # The board screen's inputs: the last state.json and, with the phone
@@ -1512,22 +1550,37 @@ class PodbayApp(App):
         return True
 
     def _compact_head_jeeves(self, now: datetime) -> None:
-        """Send Head Jeeves `/compact` with HEAD_JEEVES_COMPACT when his
-        context use has reached the threshold and he is idle: never while a
-        turn runs, a launch is pending or a command podbay sent is still
-        unanswered, and at most once per HEAD_JEEVES_COMPACT_EVERY."""
+        """One compact round (compact_step): when his context use has reached
+        the threshold and he is idle, send HEAD_JEEVES_PRECOMPACT; once he has
+        answered it, HEAD_JEEVES_COMPACT. A round he does not answer within
+        HEAD_JEEVES_PRECOMPACT_LIMIT is dropped. Never while a launch is
+        pending, and a round starts at most once per HEAD_JEEVES_COMPACT_EVERY."""
         if not self._head_jeeves or self._head_jeeves_pending is not None:
             return
         head = self._head_jeeves_session()
-        if head is None or not compact_due(
-            head, now, self._head_jeeves_compact_at, self._head_jeeves_compacted_at, self._head_jeeves_sent_at
-        ):
+        if head is None:
             return
-        if not self._send_to_session(head, HEAD_JEEVES_COMPACT):
+        step = compact_step(
+            head, now, self._head_jeeves_compact_at, self._head_jeeves_compacted_at,
+            self._head_jeeves_sent_at, self._head_jeeves_precompact_at,
+        )
+        if step == "give-up":
+            self._head_jeeves_precompact_at = None
+            self._head_jeeves_compacted_at = now
+            log.warning("Head Jeeves did not answer the precompact in time; no compact this round")
+            return
+        if step is None:
+            return
+        command = HEAD_JEEVES_PRECOMPACT if step == "precompact" else HEAD_JEEVES_COMPACT
+        if not self._send_to_session(head, command):
             self.notify(voice.no_tab(), severity="warning")
             return
-        self._head_jeeves_compacted_at = now
         self._head_jeeves_sent_at = datetime.now()
+        if step == "precompact":
+            self._head_jeeves_precompact_at = now
+            return
+        self._head_jeeves_precompact_at = None
+        self._head_jeeves_compacted_at = now
         self.notify(voice.head_jeeves_compacting(head.context_pct or 0), title=voice.SHIP_NAME)
 
     def _start_head_jeeves(self, follow_up: str) -> None:
@@ -2502,7 +2555,7 @@ def cmd_mobile(action: str) -> int:
     return 0
 
 
-def cmd_excerpt(target: str, turns: int, last: bool = False) -> None:
+def cmd_excerpt(target: str, turns: int, last: bool = False, since_compact: bool = False) -> None:
     match = _find_session(target)
     if match is None or match.is_shell:
         print(f"no live session matches {target!r}", file=sys.stderr)
@@ -2512,7 +2565,7 @@ def cmd_excerpt(target: str, turns: int, last: bool = False) -> None:
     if path is None:
         print(f"{target!r} has no transcript yet", file=sys.stderr)
         sys.exit(1)
-    print(reviewer.excerpt(path, turns, last_agent=last))
+    print(reviewer.excerpt(path, turns, last_agent=last, since_compact=since_compact))
 
 
 def cmd_focus(target: str) -> None:
@@ -2943,6 +2996,7 @@ def main() -> None:
     excerpt_parser.add_argument("target", help=target_help)
     excerpt_parser.add_argument("--turns", type=int, default=reviewer.TURNS, help=f"how many entries (default {reviewer.TURNS})")
     excerpt_parser.add_argument("--last", action="store_true", help="only the newest AGENT message, whole")
+    excerpt_parser.add_argument("--since-compact", action="store_true", help="every entry since the session's last compact (--turns ignored)")
 
     open_parser = sub.add_parser("open", help="start a claude session in a free terminal (or a new window) and wait until it is up")
     open_parser.add_argument("directory", help="the repo it is for; it starts in the home base and is told this in its first prompt")
@@ -3001,7 +3055,7 @@ def main() -> None:
     elif args.command == "screen":
         cmd_screen(args.target, args.lines)
     elif args.command == "excerpt":
-        cmd_excerpt(args.target, args.turns, args.last)
+        cmd_excerpt(args.target, args.turns, args.last, args.since_compact)
     elif args.command == "open":
         cmd_open(args.directory, args.account, args.name, " ".join(args.prompt), args.wait, args.model)
     elif args.command == "close":

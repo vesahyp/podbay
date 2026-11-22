@@ -24,15 +24,19 @@ REVIEWS_DIR = Path.home() / ".local" / "state" / "podbay" / "reviews"
 TURNS = 80  # conversation entries in an excerpt, newest last
 TOOL_CHARS = 300  # a TOOL line is cut to this many characters; USER and AGENT turns are whole
 EXCERPT_CHARS = 60_000  # and the whole excerpt to this many
+SINCE_COMPACT_CHARS = 240_000  # or this many for --since-compact: a subagent reads it, not Head Jeeves
 KINDS = ("checkup", "handover")
 
 
-def excerpt(transcript_path: Path, turns: int = TURNS, last_agent: bool = False) -> str:
+def excerpt(transcript_path: Path, turns: int = TURNS, last_agent: bool = False, since_compact: bool = False) -> str:
     """The session's last `turns` conversation entries as plain text. USER
     and AGENT entries are whole (a final report is a few thousand
     characters); TOOL lines are cut. With `last_agent`, only the newest
-    AGENT entry, whole."""
-    entries = read_conversation(transcript_path, limit=turns)
+    AGENT entry, whole. With `since_compact`, every entry since the last
+    compact (`turns` is ignored), cut to SINCE_COMPACT_CHARS."""
+    if since_compact:
+        turns = 1_000_000
+    entries = read_conversation(transcript_path, limit=turns, since_compact=since_compact)
     if last_agent:
         entries = [e for e in entries if e.get("role") == "assistant"][-1:]
     lines: list[str] = []
@@ -45,8 +49,9 @@ def excerpt(transcript_path: Path, turns: int = TURNS, last_agent: bool = False)
         stamp = when.strftime("%H:%M") if when else ""
         lines.append(f"[{stamp}] {labels.get(e.get('role'), 'NOTE')}: {text}")
     body = "\n".join(lines)
-    if len(body) > EXCERPT_CHARS:
-        body = "…\n" + body[-EXCERPT_CHARS:]
+    cap = SINCE_COMPACT_CHARS if since_compact else EXCERPT_CHARS
+    if len(body) > cap:
+        body = "…\n" + body[-cap:]
     return body
 
 

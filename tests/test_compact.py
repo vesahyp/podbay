@@ -73,16 +73,57 @@ def test_config_threshold_default_off_and_clamped(tmp_path):
     assert config.head_jeeves_compact_at(path) == 60
 
 
-def test_the_loop_compacts_an_idle_full_head_jeeves_once(monkeypatch, tmp_path):
-    """One refresh over the threshold sends /compact; the next ones inside
-    30 minutes, and one where he is busy, send nothing."""
+def test_a_round_starts_with_the_precompact_when_idle():
+    assert app_mod.compact_step(_head(), NOW, 60, None, None, None) == "precompact"
+    assert app_mod.HEAD_JEEVES_PRECOMPACT == "/head-jeeves precompact"
+
+
+def test_no_precompact_while_busy_or_below_the_threshold():
+    busy = _head(status="busy", last_turn="in_progress", last_turn_ts=NOW - timedelta(seconds=10))
+    assert app_mod.compact_step(busy, NOW, 60, None, None, None) is None
+    assert app_mod.compact_step(_head(subagents_running=1), NOW, 60, None, None, None) is None
+    assert app_mod.compact_step(_head(context_pct=40), NOW, 60, None, None, None) is None
+    assert app_mod.compact_step(_head(), NOW, 60, NOW - timedelta(minutes=10), None, None) is None
+
+
+def test_compact_waits_until_he_has_answered_the_precompact():
+    sent = NOW - timedelta(minutes=5)
+    still_on_it = _head(status="busy", last_turn="in_progress", last_turn_ts=NOW - timedelta(seconds=10))
+    assert app_mod.compact_step(still_on_it, NOW, 60, None, sent, sent) is None
+    # idle, but the turn is older than the precompact: not answered yet
+    assert app_mod.compact_step(_head(last_turn_ts=sent - timedelta(minutes=1)), NOW, 60, None, sent, sent) is None
+    answered = _head(last_turn_ts=sent + timedelta(minutes=3))
+    assert app_mod.compact_step(answered, NOW, 60, None, sent, sent) == "compact"
+    # an event typed in after the precompact must be answered too
+    event_at = sent + timedelta(minutes=4)
+    assert app_mod.compact_step(answered, NOW, 60, None, event_at, sent) is None
+
+
+def test_the_compact_goes_whatever_the_context_use_after_the_precompact():
+    sent = NOW - timedelta(minutes=5)
+    answered = _head(context_pct=30, last_turn_ts=sent + timedelta(minutes=3))
+    assert app_mod.compact_step(answered, NOW, 60, None, sent, sent) == "compact"
+
+
+def test_the_round_is_dropped_past_the_time_limit():
+    sent = NOW - app_mod.HEAD_JEEVES_PRECOMPACT_LIMIT
+    still_on_it = _head(status="busy", last_turn="in_progress", last_turn_ts=NOW - timedelta(seconds=10))
+    assert app_mod.compact_step(still_on_it, NOW, 60, None, sent, sent) == "give-up"
+    just_inside = NOW - app_mod.HEAD_JEEVES_PRECOMPACT_LIMIT + timedelta(seconds=1)
+    assert app_mod.compact_step(still_on_it, NOW, 60, None, just_inside, just_inside) is None
+    # answered at the limit: compact, not give up
+    answered = _head(last_turn_ts=sent + timedelta(minutes=19))
+    assert app_mod.compact_step(answered, NOW, 60, None, sent, sent) == "compact"
+
+
+def test_the_loop_runs_precompact_then_compact(monkeypatch, tmp_path):
+    """Over the threshold and idle: the precompact; nothing while he works
+    on it; the /compact once he has answered; then nothing for 30 minutes."""
     import asyncio
 
     now = datetime.now()
-    idle = _head(status_updated_at=now - timedelta(minutes=5), updated_at=now, started_at=now - timedelta(hours=3),
-                 last_turn_ts=now - timedelta(minutes=2))
-    busy = _head(status="busy", status_updated_at=now, updated_at=now, started_at=now - timedelta(hours=3),
-                 last_turn="in_progress", last_turn_ts=now)
+    kw = dict(updated_at=now, started_at=now - timedelta(hours=3))
+    idle = _head(status_updated_at=now - timedelta(minutes=5), last_turn_ts=now - timedelta(minutes=2), **kw)
     monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [idle])
     monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
     sent: list[tuple[str, str]] = []
@@ -95,15 +136,83 @@ def test_the_loop_compacts_an_idle_full_head_jeeves_once(monkeypatch, tmp_path):
         async with application.run_test(size=(140, 40)) as pilot:
             await application.workers.wait_for_complete()
             await pilot.pause()
-            assert sent == [(HEAD_JEEVES_NAME, app_mod.HEAD_JEEVES_COMPACT)]
-            application._apply_refresh([idle], datetime.now() + timedelta(minutes=5))
-            application._apply_refresh([busy], datetime.now() + timedelta(minutes=40))
+            assert sent == [(HEAD_JEEVES_NAME, app_mod.HEAD_JEEVES_PRECOMPACT)]
+            t = datetime.now()
+            busy = _head(status="busy", status_updated_at=t, last_turn="in_progress", last_turn_ts=t, **kw)
+            application._apply_refresh([busy], t + timedelta(minutes=2))
+            application._apply_refresh([idle], t + timedelta(minutes=3))  # his turn from before
             await pilot.pause()
             assert len(sent) == 1
-            later = _head(status_updated_at=now - timedelta(minutes=5), updated_at=now, started_at=now - timedelta(hours=3),
-                          last_turn_ts=datetime.now() + timedelta(minutes=41))
-            application._apply_refresh([later], datetime.now() + timedelta(minutes=42))
+            done = _head(status_updated_at=t, last_turn_ts=t + timedelta(minutes=4), **kw)
+            application._apply_refresh([done], t + timedelta(minutes=5))
+            await pilot.pause()
+            assert sent[1:] == [(HEAD_JEEVES_NAME, app_mod.HEAD_JEEVES_COMPACT)]
+            later = _head(status_updated_at=t, last_turn_ts=t + timedelta(minutes=6), **kw)
+            application._apply_refresh([later], t + timedelta(minutes=20))
             await pilot.pause()
             assert len(sent) == 2
 
     asyncio.run(run())
+
+
+def test_the_loop_drops_a_precompact_he_does_not_answer(monkeypatch, tmp_path):
+    import asyncio
+
+    now = datetime.now()
+    kw = dict(updated_at=now, started_at=now - timedelta(hours=3))
+    idle = _head(status_updated_at=now - timedelta(minutes=5), last_turn_ts=now - timedelta(minutes=2), **kw)
+    monkeypatch.setattr(app_mod.sources, "gather_sessions", lambda *_a, **_k: [idle])
+    monkeypatch.setattr(app_mod.sources, "read_status_snapshots", lambda *_a, **_k: {}, raising=False)
+    sent: list[str] = []
+
+    async def run():
+        application = app_mod.PodbayApp(
+            state_store=StateStore(tmp_path / "s.json"), no_splash=True, head_jeeves=True, head_jeeves_compact_at=60,
+        )
+        monkeypatch.setattr(application, "_send_to_session", lambda s, text: sent.append(text) or True)
+        async with application.run_test(size=(140, 40)) as pilot:
+            await application.workers.wait_for_complete()
+            await pilot.pause()
+            assert sent == [app_mod.HEAD_JEEVES_PRECOMPACT]
+            t = datetime.now()
+            busy = _head(status="busy", status_updated_at=t, last_turn="in_progress", last_turn_ts=t, **kw)
+            application._apply_refresh([busy], t + timedelta(minutes=21))
+            await pilot.pause()
+            assert sent == [app_mod.HEAD_JEEVES_PRECOMPACT]  # dropped, no /compact behind his turn
+            assert application._head_jeeves_precompact_at is None
+            done = _head(status_updated_at=t, last_turn_ts=t + timedelta(minutes=22), **kw)
+            application._apply_refresh([done], t + timedelta(minutes=23))
+            await pilot.pause()
+            assert sent == [app_mod.HEAD_JEEVES_PRECOMPACT]  # the next round waits 30 minutes
+            application._apply_refresh([done], t + timedelta(minutes=52))
+            await pilot.pause()
+            assert sent == [app_mod.HEAD_JEEVES_PRECOMPACT] * 2
+
+    asyncio.run(run())
+
+
+def test_excerpt_since_compact_reads_only_what_came_after_it(tmp_path):
+    """The precompact's reviewer reads Head Jeeves' transcript since his last compact."""
+    import json
+
+    from podbay import reviewer
+
+    def user(ts, text, **over):
+        return {"type": "user", "timestamp": ts, "message": {"role": "user", "content": text}, **over}
+
+    def agent(ts, text):
+        return {"type": "assistant", "timestamp": ts,
+                "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}}
+
+    path = tmp_path / "hj.jsonl"
+    records = [
+        user("2026-11-22T08:00:00.000Z", "old order"), agent("2026-11-22T08:01:00.000Z", "old answer"),
+        {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-22T09:00:00.000Z"},
+        user("2026-11-22T09:00:00.000Z", "summary of the old part", isCompactSummary=True),
+        user("2026-11-22T10:00:00.000Z", "new order"), agent("2026-11-22T10:01:00.000Z", "new answer"),
+    ]
+    path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+    since = reviewer.excerpt(path, since_compact=True)
+    assert "new order" in since and "new answer" in since
+    assert "old" not in since and "summary" not in since
+    assert "old order" in reviewer.excerpt(path)  # the plain excerpt is unchanged

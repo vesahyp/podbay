@@ -424,8 +424,10 @@ carries the item either way.
 Your context fills up over a day, and this session is the one the phone is
 bridged to, so podbay compacts it in place instead of replacing it: when
 your context use passes the threshold in `podbay config
-head-jeeves-compact-at` and you are idle, it types `/compact` with a focus
-list, at most once per 30 minutes. The summary that remains is a memory
+head-jeeves-compact-at` and you are idle, it first sends `/head-jeeves
+precompact` (see Commands), then, once you are idle again, `/compact` with
+a focus list, at most once per 30 minutes. If you take over 20 minutes on
+the precompact, podbay drops that round and tries again later. The summary that remains is a memory
 aid, not the record. Everything you need is in files, and you read it from
 there afterwards:
 
@@ -583,6 +585,38 @@ overload event. Also resume a paused session, one at a time, when a session
 you kept finishes, even when no overload-cleared event came. Tell the user
 in one line which sessions you resumed.
 
+### /head-jeeves precompact
+
+podbay compacts you next. First make the work easier from what went on
+since the last compact, and tidy your memory. Keep it short:
+
+1. **Review with a fresh agent.** Start one subagent (the Agent tool) to
+   read `podbay excerpt head-jeeves --since-compact`. It is not defending
+   your choices, and the transcript stays out of your context. Ask it for:
+   what went wrong or was slow (where the user had to correct you, repeat
+   themselves, or saw something you missed), what would make the work
+   easier, and each durable lesson as a proposed edit with its place
+   (step 2). Also give it your `MEMORY.md` and ask for memories to merge,
+   delete or fix.
+2. **File each lesson in one place:**
+   - how you work: this skill (`skills/head-jeeves/SKILL.md` in podbay);
+   - how the user works, or a practice across repos: the home repo's
+     `CLAUDE.md` or `practices/`;
+   - a fact about one project: that repo's `CLAUDE.md`, through a session
+     in that repo (`podbay open` or `podbay send`);
+   - a fault or missing feature in podbay or other tooling: start a
+     session to fix it (see "Faults");
+   - anything else durable: a memory file in your memory directory (the
+     path your system prompt gives), with its one line in `MEMORY.md`.
+3. **Clean up the memory.** Merge duplicates, delete memories that the
+   skill or a repo now covers, fix stale facts, keep `MEMORY.md` to one
+   line per memory.
+4. **Bring `headlines.json` up to date.**
+5. **Commit and push** your edits in small commits (podbay: `make check`,
+   then `make ship`).
+
+Finish within 20 minutes. Reply in one line: what you filed, where. No push.
+
 ### /head-jeeves
 
 No argument: say in one line that you are on duty, then wait.
@@ -594,6 +628,9 @@ No argument: say in one line that you are on duty, then wait.
   that refers back to an earlier message. The user reads it cold.
 - You never edit files in any repo, run builds, or deploy. The other
   sessions do the work; you read, relay, start, restart, close and report.
+  One exception: in `/head-jeeves precompact` you edit your memory files,
+  this skill and the home repo's `CLAUDE.md` and `practices/`, and commit
+  and push them.
 - You send the user nothing (no `podbay say`, no push, no decision line)
   except the waits in "What needs the user's yes". A push (`podbay notify`)
   goes only for those, once per item, and not between 23:00 and 07:00

@@ -705,7 +705,9 @@ def _assistant_entries(content, timestamp) -> list[dict]:
     return entries
 
 
-def read_conversation(path: Path, limit: int = 40, max_bytes: int = CONVERSATION_MAX_BYTES) -> list[dict]:
+def read_conversation(
+    path: Path, limit: int = 40, max_bytes: int = CONVERSATION_MAX_BYTES, since_compact: bool = False
+) -> list[dict]:
     """Return up to `limit` recent conversation entries, in chronological
     order, walking the transcript backwards from its end until `limit`
     entries are found (or `max_bytes` have been read).
@@ -714,7 +716,8 @@ def read_conversation(path: Path, limit: int = 40, max_bytes: int = CONVERSATION
     "text": ...}`. User records with isMeta or isSidechain set are skipped,
     as are assistant records with isSidechain set; system-reminder and
     task-notification spans are stripped from user text; entries left empty
-    after stripping are dropped.
+    after stripping are dropped. With `since_compact`, the walk stops at the
+    newest compact summary: only what came after the last compact.
     """
     collected: list[list[dict]] = []  # per record, newest record first
     count = 0
@@ -729,6 +732,8 @@ def read_conversation(path: Path, limit: int = 40, max_bytes: int = CONVERSATION
 
         if record.get("isSidechain"):
             continue
+        if since_compact and record.get("isCompactSummary"):
+            break
 
         rtype = record.get("type")
         timestamp = record.get("timestamp")
