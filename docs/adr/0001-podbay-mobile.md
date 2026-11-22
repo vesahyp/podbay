@@ -140,6 +140,9 @@ All of these send text. There is no other action.
   from `jeeves/crontab`, which is how a missed night is told from a night
   with nothing scheduled.
 - `runs`: the clavesa run history that `make runs-publish` exports.
+- `spend` (added 2026-11-22): the AWS running cost per account and day
+  from the home repo's monthly `aws-costs` report, shown on a Costs screen
+  opened from the Machine tab. `docs/aws-costs.md`.
 
 Before the upload, every log line goes through a scrubber that removes
 anything shaped like a key or token (AWS keys, `sk-`, `ghp_`, JWTs, long

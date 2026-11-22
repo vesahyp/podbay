@@ -134,6 +134,59 @@ def test_parse_power():
     assert snapshot.parse_power("") is None
 
 
+def _spend_report() -> dict:
+    """A report.json as aws-costs writes it, with made-up amounts."""
+    days = ["2026-11-01", "2026-11-02", "2026-11-03"]
+    return {"generated": "2026-11-03 19:10", "accounts": [
+        {"profile": "alpha", "fetched": "2026-11-03 19:10", "normal_per_day": 0.4,
+         "last_month": {"month": "2026-10", "days": 31, "running": 12.5, "anomalies": 1.0, "one-off": 0, "tax": 3.0, "credit": 0},
+         "this_month": {"month": "2026-11", "days": 2, "running": 0.8, "anomalies": 0, "one-off": 0, "tax": 0, "credit": 0, "through": "2026-11-02"},
+         "anomalies": [{"kind": "above normal", "service": "S3", "start": "2026-11-02", "end": "2026-11-02", "excess": 0.3,
+                        "usage_types": ["Requests"], "peak": 0.5, "normal_per_day": 0.1}],
+         "left_out": [{"day": "2026-11-01", "usd": 9}], "domains": [{"domain": "example.test"}],
+         "services": [["S3", 1.0]],
+         "chart": {"days": days, "series": {"S3": [0.1, 0.51234, 0.2], "Lambda": [0, 0, 0.0001]},
+                   "band": [[0.1, 0.2, 0.3], [0.1, 0.25, 0.3], [0.1, 0.2, 0.3]], "excess": [0, 0.3, 0],
+                   "oneoff": [0, 0, 0], "tax": [0, 0, 0]}},
+        {"profile": "beta", "fetched": "2026-10-03 19:10", "stale": "beta: login failed", "normal_per_day": 0.1,
+         "last_month": None, "this_month": None, "anomalies": [],
+         "chart": {"days": days, "series": {"KMS": [0.03, 0.03, 0.03]}, "band": [], "excess": [], "oneoff": [], "tax": []}},
+        {"profile": "broken"},
+    ]}
+
+
+def test_spend_part_keeps_the_chart_and_drops_the_detail():
+    out = snapshot.spend_part(_spend_report())
+    assert out["generated"] == "2026-11-03 19:10"
+    alpha, beta = out["accounts"]
+    assert alpha["series"] == {"S3": [0.1, 0.512, 0.2]}  # an all-zero service is left out
+    assert alpha["normal"] == [0.2, 0.25, 0.2]
+    assert alpha["last_month"]["running"] == 12.5 and alpha["this_month"]["through"] == "2026-11-02"
+    assert alpha["anomalies"][0] == {"kind": "above normal", "service": "S3", "start": "2026-11-02", "end": "2026-11-02",
+                                     "excess": 0.3, "usage_types": ["Requests"]}
+    assert "left_out" not in alpha and "domains" not in alpha and alpha["stale"] is None
+    # A failed account keeps its old data, its old fetch time and why.
+    assert beta["stale"] == "beta: login failed" and beta["fetched"] == "2026-10-03 19:10" and beta["normal"] == []
+    assert snapshot.spend_part(None) is None and snapshot.spend_part({"accounts": []}) is None
+
+
+def test_build_carries_the_spend_part():
+    state = snapshot.build(payload={"sessions": []}, headlines={}, quota_payload=None, health=None, power=None,
+                           docker_up=None, agents=[], crontab_text="", cron_dir=None, runs_json=None,
+                           spend_json=_spend_report(), now=NOW)
+    assert [a["profile"] for a in state["spend"]["accounts"]] == ["alpha", "beta"]
+    assert len(json.dumps(state["spend"])) < 2000
+
+
+def test_read_spend_json_and_runs_json_cache_apart(tmp_path):
+    a, b = tmp_path / "runs.json", tmp_path / "report.json"
+    a.write_text('{"runs": []}')
+    b.write_text('{"accounts": []}')
+    assert snapshot.read_runs_json(str(a)) == {"runs": []}
+    assert snapshot.read_spend_json(str(b)) == {"accounts": []}
+    assert snapshot.read_runs_json(str(a)) == {"runs": []}
+
+
 def test_build_lines_and_options():
     session = {"session_id": "s1", "short_id": "s1", "name": "sora-laps", "tab": "6", "repo": "sora", "state": "needs_you",
                "age_seconds": 60, "has_transcript": True, "waiting_on": {"kind": "question_text", "detail": "Start line or checkpoint?"}}

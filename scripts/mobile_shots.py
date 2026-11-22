@@ -9,6 +9,10 @@ picks the screen. The viewport is the iPhone 16 screen as a Home Screen
 web app shows it (393 x 852, no Safari bars), at the device's scale 3.
 Where the screen scrolls, the viewport grows to the page height, so
 every card shows and the tab bar stays at the bottom.
+
+The AWS costs screen came after the mock, so its shots are of the real app
+(mobile/app/) over the made-up fixture in tests/fixtures/mobile/, served by
+scripts/mobile_fixture.py's context: no AWS, no real figures.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ import asyncio
 from pathlib import Path
 
 from playwright.async_api import async_playwright
+
+from mobile_fixture import ORIGIN, fixture_context, fixture_me, shifted
 
 REPO = Path(__file__).resolve().parent.parent
 MOCK = REPO / "mobile" / "mock" / "index.html"
@@ -31,6 +37,36 @@ SHOTS = (
     ("5-nightly-log", "log", False),
     ("6-thread", "thread", True),
 )
+# (file name, what to do on the Costs screen, full page)
+APP_SHOTS = (
+    ("7-costs", None, True),
+    ("8-costs-day", "day", True),
+)
+
+
+async def app_shots(p, errors: list[str]) -> None:
+    state, msgs = shifted()
+    browser, ctx = await fixture_context(p, REPO / "mobile" / "app", state, msgs, fixture_me())
+    page = await ctx.new_page()
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    await page.set_viewport_size({"width": 393, "height": 852})
+    for name, action, full in APP_SHOTS:
+        await page.goto(f"{ORIGIN}/#costs", wait_until="networkidle")
+        await page.evaluate("localStorage.setItem('podbay.costs', JSON.stringify({acct: 'lab', range: 90, hidden: {}}))")
+        await page.reload(wait_until="networkidle")
+        await page.wait_for_selector("#costs-chart svg")
+        if action == "day":
+            await page.locator("#costs-chart [data-cbar='85']").dispatch_event("click")
+            await page.wait_for_selector("#costs-chart .rdetail")
+            await page.evaluate("document.querySelector('#costs-chart').scrollIntoView()")
+        path = OUT / f"{name}.png"
+        if full and action is None:
+            height = await page.evaluate("document.documentElement.scrollHeight")
+            await page.set_viewport_size({"width": 393, "height": max(852, height)})
+        await page.screenshot(path=str(path))
+        await page.set_viewport_size({"width": 393, "height": 852})
+        print(path.relative_to(REPO))
+    await browser.close()
 
 
 async def main() -> None:
@@ -56,6 +92,7 @@ async def main() -> None:
             await page.set_viewport_size({"width": 393, "height": 852})
             print(path.relative_to(REPO))
         await browser.close()
+        await app_shots(p, errors)
         if errors:
             raise SystemExit(f"page errors: {errors}")
 

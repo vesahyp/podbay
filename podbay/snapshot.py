@@ -15,13 +15,18 @@ and uploads it when it changed (mobile.py); the API hands it to the app.
     runs      clavesa pipeline run timings by phase: every pipeline per
               night for 30 nights, and the last 30 runs of each pipeline,
               from the runs.json file in `podbay config mobile-runs-file`
+    spend     the AWS running cost per account from the report.json the
+              home repo's monthly `aws-costs` run writes (`podbay config
+              mobile-spend-file`): per day and service over 90 days, the
+              normal level, month totals, anomalies, when each account's
+              data was read and whether its last run failed
     lines     every id the app can reply to, with the target and quote the
               API puts in front of the text; the API never takes these from
               the phone
     repos     the repos a new session can start in
 
 Everything here is pure except the small readers at the bottom (power,
-Docker, launchd, crontab, runs.json), which return None or empty when a
+Docker, launchd, crontab, runs.json, report.json), which return None or empty when a
 command is missing, so a machine without them still gets a snapshot.
 """
 
@@ -405,6 +410,53 @@ def runs_part(runs_json: dict | None) -> dict | None:
             "nights": nights, "pipelines": pipelines}
 
 
+# --- AWS spend ----------------------------------------------------------------
+
+SPEND_MONTH_KEYS = ("month", "days", "running", "anomalies", "one-off", "tax", "credit", "through")
+
+
+def spend_part(report: dict | None) -> dict | None:
+    """The AWS cost report for the app's Costs screen, from the
+    report.json of the home repo's `aws-costs` (run monthly by cron). Per
+    account: the running cost per service per day (USD, the chart),
+    the normal level per day (the 14-day median, the band's middle), the
+    last full month and the month to date, the anomalies, `fetched` (when
+    Cost Explorer was read) and `stale` (why the last run kept old data, or
+    null). Usage types and domains stay out: the anomaly lines name them."""
+    if not isinstance(report, dict):
+        return None
+    accounts = []
+    for a in report.get("accounts") or []:
+        if not isinstance(a, dict) or not isinstance(a.get("chart"), dict):
+            continue
+        c = a["chart"]
+        days = [str(d) for d in c.get("days") or []]
+        series = {str(k): [round(_num(x), 3) for x in v] for k, v in (c.get("series") or {}).items()
+                  if isinstance(v, list) and len(v) == len(days) and any(_num(x) >= 0.0005 for x in v)}
+        band = c.get("band") or []
+        normal = [round(_num(b[1]), 3) if isinstance(b, (list, tuple)) and len(b) > 1 else 0.0 for b in band]
+
+        def month(m: object) -> dict | None:
+            return {k: m.get(k) for k in SPEND_MONTH_KEYS if k in m} if isinstance(m, dict) else None
+
+        accounts.append({
+            "profile": str(a.get("profile") or "?"),
+            "fetched": a.get("fetched") or report.get("generated"),
+            "stale": a.get("stale") or None,
+            "normal_per_day": _num(a.get("normal_per_day")),
+            "last_month": month(a.get("last_month")),
+            "this_month": month(a.get("this_month")),
+            "anomalies": [{k: x.get(k) for k in ("kind", "service", "start", "end", "excess", "usage_types")}
+                          for x in a.get("anomalies") or [] if isinstance(x, dict)],
+            "days": days,
+            "series": series,
+            "normal": normal if len(normal) == len(days) else [],
+        })
+    if not accounts:
+        return None
+    return {"generated": report.get("generated"), "accounts": accounts}
+
+
 # --- the whole object --------------------------------------------------------
 
 
@@ -420,6 +472,7 @@ def build(
     crontab_text: str,
     cron_dir: Path | None,
     runs_json: dict | None,
+    spend_json: dict | None = None,
     repos: list[str] | None = None,
     now: datetime | None = None,
 ) -> dict:
@@ -448,6 +501,7 @@ def build(
         "accounts": accounts_part(quota_payload),
         "nightly": nightly,
         "runs": runs_part(runs_json),
+        "spend": spend_part(spend_json),
         "lines": lines,
         "repos": repos,
     }
@@ -537,13 +591,13 @@ def read_crontab() -> str:
     return _run(["crontab", "-l"])
 
 
-_runs_cache: dict = {"key": None, "data": None}
+_json_cache: dict[str, dict] = {}
 
 
-def read_runs_json(path: str | None) -> dict | None:
-    """runs.json from the file at `path` (podbay config mobile-runs-file),
-    read again only when its size or modification time changes. A missing
-    or broken file gives None."""
+def read_json_file(path: str | None) -> dict | None:
+    """A JSON file the home repo writes (runs.json, the AWS cost
+    report.json), read again only when its size or modification time
+    changes. A missing or broken file gives None."""
     if not path:
         return None
     p = Path(path).expanduser()
@@ -551,11 +605,22 @@ def read_runs_json(path: str | None) -> dict | None:
         st = p.stat()
     except OSError:
         return None
-    key = (str(p), st.st_mtime_ns, st.st_size)
-    if _runs_cache["key"] != key:
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _json_cache.get(str(p))
+    if not cached or cached["key"] != key:
         try:
-            _runs_cache["data"] = json.loads(p.read_text())
+            data = json.loads(p.read_text())
         except (OSError, ValueError):
-            _runs_cache["data"] = None
-        _runs_cache["key"] = key
-    return _runs_cache["data"]
+            data = None
+        cached = _json_cache[str(p)] = {"key": key, "data": data}
+    return cached["data"]
+
+
+def read_runs_json(path: str | None) -> dict | None:
+    """runs.json from `podbay config mobile-runs-file`."""
+    return read_json_file(path)
+
+
+def read_spend_json(path: str | None) -> dict | None:
+    """The AWS cost report.json from `podbay config mobile-spend-file`."""
+    return read_json_file(path)

@@ -109,11 +109,14 @@ podbay/
   snapshot.py       `podbay snapshot`: state.json, what both boards show
                       (board lines with ids, machine, accounts, nightly
                       cells from cronrun's history, clavesa run timings by
-                      phase, the lines the API may quote); log tails
+                      phase, the AWS cost report as `spend`, the lines
+                      the API may quote); log tails
                       scrubbed of keys. The screen writes it every minute
   boardview.py      the board screen in the TUI (key b), drawn from
                       state.json, so the Mac shows what the phone shows
 docs/               findings about Claude Code that the code depends on
+docs/aws-costs.md   the Costs screen: data path from the home repo's monthly
+                      aws-costs report, the screen, its monthly cost
 docs/adr/           architecture decisions; 0001 is podbay mobile, 0002 makes
                       it the only phone app and removes the artifact board
 mobile/mock/        the podbay mobile vision mock: one static page, made-up

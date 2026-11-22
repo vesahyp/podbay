@@ -48,6 +48,9 @@ Keys:
   mobile_runs_file  the runs.json file `clavesa pipeline timings --all`
               wrote (the home repo's runs-export), for the run timings
               charts on the Nightly tab. Empty leaves them out.
+  mobile_spend_file  the AWS cost report.json the home repo's monthly
+              aws-costs run writes, for the Costs screen (Machine tab).
+              Empty leaves it out.
   mobile_url  the app's address. `podbay notify` then links to the app,
               and `--line <id>` to one line in it.
   mobile_push_command  the command that registers the app's Web Push
@@ -87,6 +90,7 @@ KEYS = {
     "mobile-table": "mobile_table",
     "mobile-cron-dir": "mobile_cron_dir",
     "mobile-runs-file": "mobile_runs_file",
+    "mobile-spend-file": "mobile_spend_file",
     "mobile-url": "mobile_url",
     "mobile-push-command": "mobile_push_command",
 }

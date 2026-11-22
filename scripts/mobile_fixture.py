@@ -119,24 +119,13 @@ async def push_taps(page, state: dict, check) -> None:
           and await page.evaluate("location.hash") == "#machine")
 
 
-async def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
-    ap.add_argument("--prefix", default="after")
-    ap.add_argument("--no-check", action="store_true")
-    args = ap.parse_args()
-    app_dir = Path(args.app)
-    OUT.mkdir(exist_ok=True)
-    state, msgs = shifted()
-    me = {"email": "owner@example.com", "test": False, "can_send_until": int(time.time()) + 86400, "passkeys": 1, "enrol_open": False}
-    failures: list[str] = []
-    errors: list[str] = []
+def fixture_me() -> dict:
+    return {"email": "owner@example.com", "test": False, "can_send_until": int(time.time()) + 86400, "passkeys": 1, "enrol_open": False}
 
-    def check(name: str, ok: bool, detail: object = "") -> None:
-        print(f"{'ok  ' if ok else 'FAIL'} {name}" + ("" if ok else f"  {detail}"))
-        if not ok:
-            failures.append(name)
 
+async def fixture_context(p, app_dir: Path, state: dict, msgs: dict, me: dict):
+    """A signed-in iPhone 16 browser context that serves the app from
+    `app_dir` and answers /api/ from the given fixture objects."""
     async def serve(route):
         url = route.request.url[len(ORIGIN):].split("?")[0].split("#")[0]
         if url.startswith("/api/"):
@@ -151,14 +140,63 @@ async def main() -> int:
             return await route.fulfill(status=404, body="")
         return await route.fulfill(body=path.read_bytes(), content_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
 
+    browser = await p.chromium.launch()
+    device = dict(p.devices["iPhone 16"])
+    ctx = await browser.new_context(**device, service_workers="block")
+    auth = {"access": "fixture", "refresh": "fixture", "exp": int(time.time() * 1000) + 3600_000, "email": "owner@example.com", "clientId": "fixture"}
+    await ctx.add_init_script(f"localStorage.setItem('podbay.auth', {json.dumps(json.dumps(auth))});")
+    await ctx.route(f"{ORIGIN}/**", serve)
+    await ctx.route("https://cognito-idp.**", lambda r: r.fulfill(status=400, json={}))
+    return browser, ctx
+
+
+async def costs_checks(page, check) -> None:
+    """The Costs screen over the fixture's made-up spend part: the Machine
+    tab's card opens it, the account tiles switch, 30 days draws 30 bars,
+    a service chip hides its segments, a bar tap shows that day, and the
+    stale account says so."""
+    await page.goto(f"{ORIGIN}/#machine", wait_until="networkidle")
+    await page.evaluate("localStorage.removeItem('podbay.costs')")
+    await page.click("[data-costs]")
+    await page.wait_for_selector("#costs-chart svg")
+    check("costs: the Machine card opens the Costs screen", "#costs" in page.url)
+    check("costs: the run date shows", "Tue 3 Nov" in (await page.inner_text("#costs-run")))
+    await page.click("[data-crange='30']")
+    check("costs: 30 days draws 30 bars", await page.locator("#costs-chart [data-cbar]").count() == 30)
+    colour = await page.get_attribute("[data-csvc='CloudFront'] svg rect", "stroke")
+    before = await page.locator(f"#costs-chart rect[fill='{colour}']").count()
+    await page.click("[data-csvc='CloudFront']")
+    after = await page.locator(f"#costs-chart rect[fill='{colour}']").count()
+    check("costs: a service chip hides its segments", before > 0 and after == 0, (before, after))
+    await page.click("[data-csvc='CloudFront']")
+    await page.locator("#costs-chart [data-cbar='25']").dispatch_event("click")
+    detail = await page.inner_text("#costs-chart .rdetail")
+    check("costs: a bar tap shows the day's services", "All services" in detail and "S3" in detail, detail[:120])
+    await page.click("[data-cacct='home']")
+    check("costs: a stale account says so", "home is stale" in (await page.inner_text("#main")))
+    await page.click("[data-cacct='shop']")
+
+
+async def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
+    ap.add_argument("--prefix", default="after")
+    ap.add_argument("--no-check", action="store_true")
+    args = ap.parse_args()
+    app_dir = Path(args.app)
+    OUT.mkdir(exist_ok=True)
+    state, msgs = shifted()
+    me = fixture_me()
+    failures: list[str] = []
+    errors: list[str] = []
+
+    def check(name: str, ok: bool, detail: object = "") -> None:
+        print(f"{'ok  ' if ok else 'FAIL'} {name}" + ("" if ok else f"  {detail}"))
+        if not ok:
+            failures.append(name)
+
     async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        device = dict(p.devices["iPhone 16"])
-        ctx = await browser.new_context(**device, service_workers="block")
-        auth = {"access": "fixture", "refresh": "fixture", "exp": int(time.time() * 1000) + 3600_000, "email": "owner@example.com", "clientId": "fixture"}
-        await ctx.add_init_script(f"localStorage.setItem('podbay.auth', {json.dumps(json.dumps(auth))});")
-        await ctx.route(f"{ORIGIN}/**", serve)
-        await ctx.route("https://cognito-idp.**", lambda r: r.fulfill(status=400, json={}))
+        browser, ctx = await fixture_context(p, app_dir, state, msgs, me)
         page = await ctx.new_page()
         page.on("pageerror", lambda e: errors.append(str(e)))
 
@@ -251,6 +289,9 @@ async def main() -> int:
                 check("machine: asking sessions first", "waiting" in (await page.locator(".srow").first.get_attribute("class") or ""))
         if not args.no_check:
             await push_taps(page, state, check)
+        if not args.no_check and state.get("spend"):
+            await costs_checks(page, check)
+            await full("costs")
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
 

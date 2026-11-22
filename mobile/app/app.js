@@ -464,7 +464,20 @@
       (agents ? '<h2>Background jobs</h2><article class="card">' + agents + "</article>" : "") +
       '<h2>Claude accounts</h2><article class="card">' + (accounts || '<p class="none">No accounts.</p>') + "</article>" +
       '<div class="row gap">' + replyBtn("machine", "Ask Head Jeeves about the Mac") + "</div>" + pushCard() +
+      costsCard(s) +
       '<h2>This app</h2><div class="row"><button class="btn wide" type="button" data-stats="1">How the app is used, and its errors</button></div>';
+  }
+  // The Machine tab's way into the Costs screen: the normal daily cost of
+  // all accounts and the age of the last monthly run, amber when a run was
+  // missed or an account is stale.
+  function costsCard(s) {
+    var sp = s.spend;
+    if (!sp || !sp.accounts || !sp.accounts.length) return "";
+    var all = sp.accounts.reduce(function (t, x) { return t + (x.normal_per_day || 0); }, 0), age = daysOld(sp.generated);
+    var stale = sp.accounts.filter(function (x) { return x.stale; }).length, late = age != null && age > 35;
+    return '<h2>AWS costs</h2><button class="card ccard' + (stale || late ? " warnish" : "") + '" type="button" data-costs="1"><span class="mini"><span class="big">' + all.toFixed(2) + '<small>USD/day normal</small></span><span class="chev">›</span></span>' +
+      '<span class="label">' + esc(sp.accounts.map(function (x) { return x.profile; }).join(", ")) + " · run " + esc(sp.generated ? ddmm(sp.generated.slice(0, 10)) : "?") +
+      (stale ? " · " + stale + " stale" : "") + (late ? " · no run for " + Math.floor(age) + " days" : "") + "</span></button>";
   }
 
   // ---- stats (the nightly podbay-mobile-traffic rollup) ----------------------------
@@ -533,6 +546,159 @@
     return api("GET", "stats").then(function (s) { app.stats = s; if (app.route === "stats") render(); }, function (e) {
       app.stats = { days: [] }; app.error = "Could not load the stats: " + e.message; render();
     });
+  }
+
+  // ---- AWS costs (the snapshot's spend part: the monthly aws-costs report) --------
+  // A service keeps one colour in every account and every filter: the 8
+  // services that cost most over all accounts get the categorical slots in
+  // fixed order (validated for this dark surface), every other one is grey.
+  var SPEND_SLOTS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9", "#e66767"], SPEND_OTHER = "#6b7078";
+  var COSTS_KEY = "podbay.costs";
+  function costsPrefs() {
+    if (!app.costs) {
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem(COSTS_KEY) || "{}") || {}; } catch (e) { saved = {}; }
+      app.costs = { acct: saved.acct || "", range: saved.range === 30 ? 30 : 90, hidden: saved.hidden || {}, sel: -1 };
+    }
+    return app.costs;
+  }
+  function saveCosts() {
+    var c = app.costs;
+    try { localStorage.setItem(COSTS_KEY, JSON.stringify({ acct: c.acct, range: c.range, hidden: c.hidden })); } catch (e) { /* private mode */ }
+  }
+  function spendColors(sp) {
+    var tot = {};
+    sp.accounts.forEach(function (a) { Object.keys(a.series).forEach(function (k) { tot[k] = (tot[k] || 0) + sum(a.series[k]); }); });
+    var col = {};
+    Object.keys(tot).sort(function (a, b) { return tot[b] - tot[a]; }).forEach(function (k, i) { col[k] = i < SPEND_SLOTS.length ? SPEND_SLOTS[i] : SPEND_OTHER; });
+    return col;
+  }
+  function usd(v) { return (v || 0).toFixed(2) + " USD"; }
+  function monthName(ym) {
+    return ym ? ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][Number(ym.slice(5, 7)) - 1] + " " + ym.slice(0, 4) : "";
+  }
+  function daysOld(stamp) {
+    var t = Date.parse(String(stamp || "").replace(" ", "T"));
+    return isNaN(t) ? null : (Date.now() - t) / 86400000;
+  }
+  function costStep(max) {
+    var steps = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500], step = steps[steps.length - 1];
+    for (var i = 0; i < steps.length; i++) if (max / steps[i] <= 4.2) { step = steps[i]; break; }
+    return { step: step, top: Math.max(step, Math.ceil(max / step - 1e-9) * step) };
+  }
+  // The daily stacked bars of one account: one bar per day, one segment per
+  // shown service, the normal level as a line, an anomaly day marked red.
+  function costChart(a, from, svcs, col, sel, anomalyDay) {
+    var days = a.days.slice(from), n = days.length, w = 340, h = 180, pl = 34, pb = 16, top = 12, iw = w - pl, ih = h - pb - top;
+    var totals = days.map(function (_, i) { return svcs.reduce(function (t, k) { return t + (a.series[k][from + i] || 0); }, 0); });
+    var normal = (a.normal || []).slice(from);
+    var sc = costStep(Math.max.apply(null, totals.concat(normal, [0.05]))), slot = iw / n, bw = Math.max(1.5, slot - (slot > 5 ? 2 : 1)), s = "";
+    function y(v) { return top + ih - (v / sc.top) * ih; }
+    for (var t = 0; t <= sc.top + 1e-9; t += sc.step) {
+      s += '<line x1="' + pl + '" x2="' + w + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="#221c18"/><text x="' + (pl - 4) + '" y="' + (y(t) + 3) + '" text-anchor="end">' + (sc.step < 1 ? t.toFixed(2) : Math.round(t)) + "</text>";
+    }
+    s += '<text x="' + (pl - 4) + '" y="4" text-anchor="end">USD</text>';
+    days.forEach(function (d, i) {
+      var x = pl + i * slot + (slot - bw) / 2, acc = 0;
+      if (i === sel) s += '<rect x="' + (pl + i * slot) + '" y="' + top + '" width="' + slot + '" height="' + ih + '" fill="#ffffff" opacity=".08"/>';
+      svcs.forEach(function (k) {
+        var v = a.series[k][from + i] || 0;
+        if (v <= 0) return;
+        var hh = (v / sc.top) * ih;
+        s += '<rect x="' + x.toFixed(1) + '" y="' + y(acc + v).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.75, hh > 3 ? hh - 1 : hh).toFixed(1) + '" fill="' + col[k] + '"/>';
+        acc += v;
+      });
+      if (anomalyDay[d]) {
+        var cx = x + bw / 2, ty = y(acc) - 3;
+        s += '<path d="M' + (cx - 3.5) + " " + (ty - 6) + " L" + (cx + 3.5) + " " + (ty - 6) + " L" + cx + " " + ty + ' Z" fill="#e0201f"/>';
+      }
+      if ((n - 1 - i) % (n > 40 ? 14 : 7) === 0) s += '<text x="' + Math.min(w - 14, Math.max(pl + 14, pl + i * slot + slot / 2)) + '" y="' + (h - 2) + '" text-anchor="middle">' + esc(ddmm(d)) + "</text>";
+    });
+    if (normal.length === n) {
+      s += '<polyline points="' + normal.map(function (v, i) { return (pl + i * slot + slot / 2).toFixed(1) + "," + y(v).toFixed(1); }).join(" ") +
+        '" fill="none" stroke="#f2ede8" stroke-width="1.5" stroke-dasharray="4 3" opacity=".85"/>';
+    }
+    days.forEach(function (d, i) {
+      s += '<rect class="hit" data-cbar="' + i + '" x="' + (pl + i * slot) + '" y="0" width="' + slot + '" height="' + h + '" fill="transparent"><title>' + esc(longDay(d) + ", " + usd(totals[i])) + "</title></rect>";
+    });
+    return '<svg viewBox="0 0 ' + w + " " + h + '" role="img" aria-label="' + esc(a.profile + ": USD per day, stacked by service, last " + n + " days") + '">' + s + "</svg>";
+  }
+  function costs(s) {
+    var sp = s.spend, back = '<div class="row gap"><button class="btn wide" type="button" data-tab="machine">Back to the Machine tab</button></div>';
+    if (!sp || !sp.accounts || !sp.accounts.length) {
+      return '<h1>AWS costs</h1><p class="none">No AWS cost report on the Mac yet. The aws-costs run on the 3rd of each month at 19:10 writes it.</p>' + back;
+    }
+    var p = costsPrefs(), col = spendColors(sp);
+    var a = sp.accounts.filter(function (x) { return x.profile === p.acct; })[0] || sp.accounts[0];
+    p.acct = a.profile;
+    var age = daysOld(sp.generated), run = sp.generated ? longDay(sp.generated.slice(0, 10)) : "?";
+    var sub = "From the monthly aws-costs run, " + run + (age != null ? " (" + Math.floor(age) + (Math.floor(age) === 1 ? " day ago" : " days ago") + ")" : "") +
+      ". It runs on the 3rd of each month. Running cost only: tax, credits and one-offs such as domain renewals are left out.";
+    var tiles = sp.accounts.map(function (x) {
+      var lm = x.last_month || {}, on = x.profile === a.profile;
+      return '<button class="card ctile' + (on ? " on" : "") + (x.stale ? " stale" : "") + '" type="button" data-cacct="' + esc(x.profile) + '" aria-pressed="' + on + '">' +
+        '<span class="label">' + esc(x.profile) + "</span>" +
+        '<span class="big">' + (x.normal_per_day || 0).toFixed(2) + "<small>USD/day</small></span>" +
+        '<span class="label">' + esc(monthName(lm.month).slice(0, 3) || "Last month") + " " + (lm.running != null ? (lm.running).toFixed(2) : "–") + " USD</span>" +
+        (x.stale ? '<span class="chip amber">stale</span>' : "") + "</button>";
+    }).join("");
+    var allNormal = sp.accounts.reduce(function (t, x) { return t + (x.normal_per_day || 0); }, 0);
+    var n = a.days.length, from = Math.max(0, n - p.range), svcAll = Object.keys(a.series);
+    var inRange = {};
+    svcAll.forEach(function (k) { inRange[k] = sum(a.series[k].slice(from)); });
+    svcAll.sort(function (x, y) { return inRange[y] - inRange[x]; });
+    var shown = svcAll.filter(function (k) { return !p.hidden[k]; });
+    var anomalyDay = {};
+    (a.anomalies || []).forEach(function (x) {
+      if (!x.start) return;
+      a.days.forEach(function (d) { if (d >= x.start && d <= (x.end || x.start) && !p.hidden[x.service]) (anomalyDay[d] = anomalyDay[d] || []).push(x); });
+    });
+    var sel = p.sel >= 0 && p.sel < n - from ? p.sel : -1;
+    var chips = svcAll.map(function (k) {
+      var off = !!p.hidden[k];
+      return '<button class="schip' + (off ? " off" : "") + '" type="button" data-csvc="' + esc(k) + '" aria-pressed="' + !off + '">' +
+        '<svg class="sw" viewBox="0 0 10 10"><rect width="10" height="10" rx="2" fill="' + (off ? "none" : col[k]) + '" stroke="' + col[k] + '"/></svg>' + esc(k) + " <small>" + inRange[k].toFixed(2) + "</small></button>";
+    }).join("");
+    var lm = a.last_month || {}, tm = a.this_month || {};
+    var stale = a.stale ? '<article class="card warn"><div class="repo">' + esc(a.profile) + ' is stale</div><p class="line">The last run could not read this account (' + esc(a.stale) +
+      "). These figures are from " + esc(String(a.fetched || "?")) + ".</p></article>" : "";
+    var months = '<div class="grid2"><article class="card"><div class="label">' + esc(monthName(lm.month) || "Last month") + '</div><div class="big">' + (lm.running != null ? lm.running.toFixed(2) : "–") + "<small>USD</small></div>" +
+      '<div class="label">running cost' + (lm.anomalies ? ", of which " + lm.anomalies.toFixed(2) + " above normal" : "") + "</div></article>" +
+      '<article class="card"><div class="label">' + esc(monthName(tm.month).split(" ")[0] || "This month") + " to date</div><div class=\"big\">" + (tm.running != null ? tm.running.toFixed(2) : "–") + "<small>USD</small></div>" +
+      '<div class="label">' + (tm.through ? "1 to " + esc(ddmm(tm.through)) : "no days yet") + "</div></article></div>";
+    var detail = "";
+    if (sel >= 0) {
+      var d = a.days[from + sel], rows = svcAll.map(function (k) { return [k, a.series[k][from + sel] || 0]; }).filter(function (r) { return r[1] >= 0.005; }).sort(function (x, y) { return y[1] - x[1]; });
+      var tot = rows.reduce(function (t, r) { return t + r[1]; }, 0), max = rows.length ? rows[0][1] : 1;
+      detail = '<div class="rdetail"><div class="mini"><b>' + esc(longDay(d)) + "</b>" + (anomalyDay[d] ? '<span class="chip red">above normal</span>' : "") + "</div>" +
+        '<div class="prow total"><span>All services</span><span>' + usd(tot) + "</span></div>" +
+        rows.map(function (r) {
+          return '<div class="qrow' + (p.hidden[r[0]] ? " off" : "") + '"><span class="k"><svg class="sw" viewBox="0 0 10 10"><rect width="10" height="10" rx="2" fill="' + col[r[0]] + '"/></svg>' + esc(r[0]) +
+            '</span><div class="bar"><b style="background:' + col[r[0]] + '" data-w="' + Math.round((r[1] / max) * 100) + '"></b></div><span class="r">' + r[1].toFixed(2) + "</span></div>";
+        }).join("") + (rows.length ? "" : '<p class="none">No running cost this day.</p>') +
+        (anomalyDay[d] || []).map(function (x) {
+          return '<p class="q">' + esc(x.service + ": " + (x.kind === "new service" ? "new service" : "+" + (x.excess || 0).toFixed(2) + " USD above normal") +
+            ((x.start !== x.end) ? ", " + ddmm(x.start) + " to " + ddmm(x.end) : "") + ((x.usage_types || []).length ? " (" + x.usage_types.slice(0, 3).join(", ") + ")" : "")) + "</p>";
+        }).join("") +
+        '<div class="row">' + replyBtn("machine", "Ask Head Jeeves about this day", "AWS costs, " + a.profile + ", " + d + ": ") + "</div></div>";
+    }
+    var anomalies = (a.anomalies || []).filter(function (x) { return (x.end || x.start) >= a.days[from]; }).sort(function (x, y) { return (y.excess || 0) - (x.excess || 0); }).map(function (x) {
+      return '<div class="prow"><span>' + esc(ddmm(x.start) + (x.end && x.end !== x.start ? "–" + ddmm(x.end) : "") + " " + x.service) + "</span><span>" +
+        esc(x.kind === "new service" ? "new" : "+" + (x.excess || 0).toFixed(2)) + "</span></div>";
+    }).join("");
+    var table = tableTwin(["day", "total"].concat(shown), a.days.slice(from).map(function (d, i) {
+      return [d, shown.reduce(function (t, k) { return t + (a.series[k][from + i] || 0); }, 0).toFixed(2)].concat(shown.map(function (k) { return (a.series[k][from + i] || 0).toFixed(2); }));
+    }).reverse());
+    return "<h1>AWS costs</h1><p class=\"sub\" id=\"costs-run\">" + esc(sub) + "</p>" +
+      '<h2>Normal daily cost <span class="n">' + allNormal.toFixed(2) + " USD/day</span></h2>" +
+      '<div class="ctiles">' + tiles + "</div>" + stale + months +
+      '<article class="card chartcard" id="costs-chart"><div class="mini"><h3>' + esc(a.profile) + ", per day</h3>" +
+      '<div class="seg">' + [30, 90].map(function (r) { return '<button class="btn' + (p.range === r ? " on" : "") + '" type="button" data-crange="' + r + '">' + r + " d</button>"; }).join("") + "</div></div>" +
+      '<p class="q">USD per day, stacked by service. The dashed line is the normal level; a red mark is a day above it. Tap a bar for its services.</p>' +
+      costChart(a, from, shown, col, sel, anomalyDay) + detail +
+      '<div class="schips">' + chips + "</div>" + table + "</article>" +
+      (anomalies ? '<h2>Above normal, last ' + p.range + ' days</h2><article class="card">' + anomalies + "</article>" : "") +
+      '<p class="q">Cost Explorer read ' + esc(String(a.fetched || "?")) + ". Totals are in USD before tax.</p>" + back;
   }
 
   // ---- notifications ------------------------------------------------------------
@@ -790,7 +956,7 @@
         return;
       }
       freshness();
-      $("#tabs").innerHTML = tabs(app.route === "stats" ? "machine" : app.route);
+      $("#tabs").innerHTML = tabs(app.route === "stats" || app.route === "costs" ? "machine" : app.route);
       // While the chat box is in use, a poll redraws only the list under
       // it: the keyboard stays up and nothing typed is lost.
       var chat = $("#chat");
@@ -808,6 +974,7 @@
       else if (app.route === "nightly") html = nightly(s, app.sheet && app.sheet.kind === "log" ? [app.sheet.label, app.sheet.day] : null);
       else if (app.route === "thread") html = thread();
       else if (app.route === "stats") html = stats();
+      else if (app.route === "costs") html = costs(s);
       else html = board(s);
       if (app.error && s) html = '<p class="err">' + esc(app.error) + "</p>" + html;
       if (app.route !== "thread") html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
@@ -860,7 +1027,7 @@
       app.route = "nightly";
       app.sheet = { kind: "log", label: parts[1], day: parts[2] };
     } else {
-      app.route = ["board", "machine", "nightly", "thread", "stats"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
+      app.route = ["board", "machine", "nightly", "thread", "stats", "costs"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
     }
     if (app.route === "thread") { app.stick = true; loadMessages(); }
     if (app.route === "stats") loadStats();
@@ -979,6 +1146,14 @@
       render();
       return;
     }
+    var cbar = ev.target.closest && ev.target.closest("[data-cbar]");
+    if (cbar) {
+      var cp = costsPrefs(), ci = Number(cbar.getAttribute("data-cbar"));
+      cp.sel = cp.sel === ci ? -1 : ci;
+      track("costs-bar", {});
+      render();
+      return;
+    }
     var fold = ev.target.closest && ev.target.closest("[data-fold]");
     if (fold && !(ev.target.closest("a"))) {
       var fid = fold.getAttribute("data-fold");
@@ -1020,6 +1195,10 @@
     if (t.dataset.again) { sendAgain(t.dataset.again); return; }
     if (t.dataset.push) { turnOnPush(); return; }
     if (t.dataset.stats) { app.sheet = null; go("stats"); loadStats(); return; }
+    if (t.dataset.costs) { app.sheet = null; go("costs"); return; }
+    if (t.dataset.cacct) { var ca = costsPrefs(); ca.acct = t.dataset.cacct; ca.sel = -1; saveCosts(); track("costs-account", { n: [].indexOf.call(t.parentNode.children, t) }); render(); return; }
+    if (t.dataset.crange) { var cr = costsPrefs(); cr.range = Number(t.dataset.crange); cr.sel = -1; saveCosts(); track("costs-range", { days: cr.range }); render(); return; }
+    if (t.dataset.csvc) { var cs = costsPrefs(); if (cs.hidden[t.dataset.csvc]) delete cs.hidden[t.dataset.csvc]; else cs.hidden[t.dataset.csvc] = 1; saveCosts(); track("costs-service", { on: cs.hidden[t.dataset.csvc] ? 0 : 1 }); render(); return; }
     if (t.dataset.signout) { signOut(); return; }
     if (t.dataset.restart) { signin = { stage: "email", email: "", session: "", err: "" }; render(); return; }
     if (t.id === "fresh") { loadState(); return; }
