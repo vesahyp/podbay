@@ -1316,10 +1316,24 @@ class PodbayApp(App):
             self._board_state = state
             write_snapshot(state, SNAPSHOT_PATH)
             self.call_from_thread(self._refresh_board_screen)
+            self._tell_stale_lines(state)
             if self._mobile_uploader is not None and self._mobile_uploader.tick(state):
                 log.debug("mobile snapshot uploaded")
         except Exception:  # noqa: BLE001 -- the phone's view must never take the TUI down
             log.warning("mobile snapshot failed", exc_info=True)
+
+    def _tell_stale_lines(self, state: dict) -> None:
+        """One event to Head Jeeves for each board line that went stale
+        (board.stale_lines), once per line and reason, across restarts."""
+        if not self._head_jeeves or self._quitting:
+            return
+        told = board.load_told()
+        new, keep = board.stale_to_tell(state["board"].get("stale") or [], told)
+        for line in new:
+            if self.call_from_thread(self._send_to_head_jeeves, f"/head-jeeves event {line['name']}: {voice.hal_stale_line(line)}"):
+                keep[line["key"]] = line["why"]
+        if keep != told:
+            board.save_told(keep)
 
     def _refresh_board_screen(self) -> None:
         for screen in self.screen_stack:

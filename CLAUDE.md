@@ -104,7 +104,8 @@ podbay/
                       session says "Login expired"; docs/login-expiry.md
                       has how the end is known
   board.py          the board's lines by section, from the inventory and
-                      Head Jeeves' headlines.json
+                      Head Jeeves' headlines.json; a line whose session
+                      stopped is marked stale and Head Jeeves hears of it
   snapshot.py       `podbay snapshot`: state.json, what both boards show
                       (board lines with ids, machine, accounts, nightly
                       cells from cronrun's history, clavesa run timings by

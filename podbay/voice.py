@@ -401,6 +401,13 @@ def hal_ended(title: str, last_text: str | None) -> str:
     return f"{title} has ended.{tail}"
 
 
+def hal_stale_line(line: dict) -> str:
+    """A board line Head Jeeves wrote that its session no longer bears out
+    (board.stale_lines): what it says, why it is stale, and its key."""
+    return (f"The board's {line['kind']} line for {line['title']} is stale: {line['words']}. "
+            f"It says: \"{line['text']}\" Rewrite or delete the entry {line['key']} in headlines.json.")
+
+
 def hal_question(title: str) -> str:
     return f"{title} has a question for Head Jeeves."
 

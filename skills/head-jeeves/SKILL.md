@@ -515,7 +515,9 @@ of it only through the board, unless it waits on their yes. A session that
 reported is not finished: its agents run on and their notification
 restarts it. Put the report on the board, then check the session once more
 about 10 minutes later (a Monitor or a timer): it must be at work or
-finished. Do this until podbay sends an idle event of its own. A session
+finished. podbay sends a finished event of its own when a session that
+reported then writes nothing for 10 minutes with no background task
+running: its agents are done or lost, so read the excerpt and move it on. A session
 whose last words say it will continue must be seen working; when it sits
 idle, send it on with `podbay send`. A session waiting for a permission has a dialog open in
 its terminal that the transcript does not show; the excerpt ends at the
@@ -531,6 +533,13 @@ limit shows `limit_stop` in the inventory, and podbay resumes it after the
 reset, so never restart one by hand before then. No file. Then update the headlines. If the
 session finished, its `opened_by` is `head-jeeves` and nothing in it waits
 on the user, quit its claude (see Rules).
+
+An event that says a board line is stale names a `headlines.json` entry
+that its session no longer bears out: a progress line whose session has
+been idle over 30 minutes, stopped on a usage limit or ended, or a decision
+line keyed by a session id whose session is limit-stopped or ended. The
+board marks the line as stale until you act. Rewrite the entry to say what
+is true now, or delete it. podbay sends each stale line once per reason.
 
 ### /head-jeeves checkup <name> <session-id>
 

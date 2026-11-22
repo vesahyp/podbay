@@ -153,3 +153,54 @@ def test_full_text_keeps_every_sentence_and_drops_markdown():
     assert full.startswith("Done. The rest here. More.") and "**" not in full
     assert board.clean_line(text) == "Done."
     assert board.full_text("a " * 2000).endswith("…")
+
+
+def test_a_line_over_a_session_that_stopped_is_stale_and_listed_for_head_jeeves():
+    # 2026-11-21: a progress line said "today" over a session idle for hours.
+    payload = {"sessions": [
+        _session(session_id="s-idle", name="idle-1", title="Access control", state="needs_you", age_seconds=2 * 3600),
+        _session(session_id="s-fresh", name="fresh-1", state="needs_you", age_seconds=10 * 60),
+        _session(session_id="s-work", name="work-1", state="working", age_seconds=5 * 3600),
+        _session(session_id="s-lim", name="lim-1", state="needs_you", age_seconds=60,
+                 limit_stop={"kind": "message", "at": "2026-10-03T17:00:00"}),
+        _session(session_id="s-ask", name="ask-1", state="needs_you", age_seconds=5 * 3600),
+    ]}
+    headlines = {
+        "s-idle": {"kind": "progress", "text": "Column hiding, done today"},
+        "s-fresh": {"kind": "progress", "text": "Just finished a step"},
+        "s-work": {"kind": "progress", "text": "Long build running"},
+        "s-lim": {"kind": "progress", "text": "Halfway through the migration"},
+        "s-ask": {"kind": "decision", "text": "Sign in to Databricks in your browser?"},  # waits idle by design
+        "s-gone": {"kind": "progress", "text": "Rewriting the rules", "repo": "jeeves"},
+        "s-gone-ask": {"kind": "decision", "text": "Approve the push?"},
+        "decision:own": {"kind": "decision", "text": "Head Jeeves' own question"},
+    }
+    found = board.collect(payload, NOW, headlines)
+    by = _by_id(found)
+    assert by["progress"]["s-idle"]["stale"] == "idle"
+    assert by["progress"]["s-idle"]["when"] == "stale: the session has been idle for 2h"
+    assert by["progress"]["s-lim"]["when"] == "stale: the session is stopped on a usage limit"
+    assert not by["progress"]["s-fresh"].get("stale") and not by["progress"]["s-work"].get("stale")
+    assert not by["decision"]["s-ask"].get("stale") and not by["decision"]["decision:own"].get("stale")
+    assert by["decision"]["decision:s-gone-ask"]["stale"] == "ended"
+
+    stale = {line["key"]: line for line in board.stale_lines(found, payload, headlines)}
+    assert {k: v["why"] for k, v in stale.items()} == {
+        "s-idle": "idle", "s-lim": "limit", "s-gone-ask": "ended", "s-gone": "ended"}
+    assert stale["s-idle"]["name"] == "idle-1" and stale["s-idle"]["text"] == "Column hiding, done today"
+    assert stale["s-gone"]["title"] == "jeeves" and stale["s-gone"]["kind"] == "progress"
+
+
+def test_each_stale_line_is_told_once_per_reason(tmp_path):
+    idle = {"key": "a", "why": "idle"}
+    new, told = board.stale_to_tell([idle], {})
+    assert new == [idle]
+    told = {"a": "idle"}
+    assert board.stale_to_tell([idle], told) == ([], {"a": "idle"})
+    ended = {"key": "a", "why": "ended"}
+    assert board.stale_to_tell([ended], told)[0] == [ended]  # a new reason is news
+    assert board.stale_to_tell([], told) == ([], {})  # fixed: forgotten, so a relapse is told again
+    path = tmp_path / "told.json"
+    board.save_told({"a": "idle"}, path)
+    assert board.load_told(path) == {"a": "idle"}
+    assert board.load_told(tmp_path / "missing.json") == {}

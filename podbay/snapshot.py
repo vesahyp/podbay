@@ -3,7 +3,8 @@
 and uploads it when it changed (mobile.py); the API hands it to the app.
 
     board     the board's lines by section (board.collect), each with a
-              stable id, plus a one-line summary
+              stable id and `stale` (why, or null), plus a one-line
+              summary and the stale Head Jeeves lines (board.stale_lines)
     machine   power, Docker, load, memory, disk now and over 24 hours at
               10 minute steps, the user's launchd agents
     accounts  each Claude account: login end, the 5 hour and 7 day windows,
@@ -74,8 +75,9 @@ def _quote(text: str | None) -> str:
 # --- board -------------------------------------------------------------------
 
 
-def board_part(payload: dict, now: datetime, headlines: dict[str, dict]) -> tuple[dict, dict]:
-    """The board's sections for the app, and the lines map entries for them."""
+def board_part(payload: dict, now: datetime, headlines: dict[str, dict]) -> tuple[dict, dict, list[dict]]:
+    """The board's sections for the app, the lines map entries for them,
+    and the stale Head Jeeves lines (board.stale_lines)."""
     found = board.collect(payload, now, headlines)
     lines: dict[str, dict] = {}
     sections: dict[str, list[dict]] = {}
@@ -91,12 +93,13 @@ def board_part(payload: dict, now: datetime, headlines: dict[str, dict]) -> tupl
                 "link": item.get("link"), "steps": [str(s) for s in item.get("steps") or [] if str(s).strip()],
                 "when": item.get("when") or "", "options": item.get("options") or [],
                 "asks": bool(item.get("asks")),
+                "stale": item.get("stale"),
                 # The whole text, only when the folded text is shorter: the app unfolds on a tap.
                 "full": full if full and full != item["text"] else None,
             })
             lines[line_id] = {"target": item["target"], "quote": _quote(item["text"])}
         sections[kind] = out
-    return sections, lines
+    return sections, lines, board.stale_lines(found, payload, headlines)
 
 
 def sessions_part(payload: dict, sections: dict) -> list[dict]:
@@ -421,7 +424,7 @@ def build(
     now: datetime | None = None,
 ) -> dict:
     now = now or datetime.now()
-    sections, lines = board_part(payload, now, headlines)
+    sections, lines, stale = board_part(payload, now, headlines)
     nightly, nightly_lines = nightly_part(crontab_text, cron_dir, now)
     lines.update(nightly_lines)
     lines["machine"] = {"target": "machine", "quote": "the Mac"}
@@ -439,7 +442,7 @@ def build(
         "v": VERSION,
         "generated_at": round(now.timestamp()),
         "mac": payload.get("mac") or "",
-        "board": {"sections": sections, "summary": summary},
+        "board": {"sections": sections, "summary": summary, "stale": stale},
         "machine": machine_part(health, power, docker_up, agents, now.timestamp()),
         "sessions": sessions_part(payload, sections),
         "accounts": accounts_part(quota_payload),

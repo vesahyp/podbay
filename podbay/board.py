@@ -14,6 +14,14 @@ refers to an earlier message, and a link is the full URL.
 - finished: sessions done today that Head Jeeves has not written a line for.
 - progress: one line per project, with roughly when.
 
+A line Head Jeeves wrote goes stale when its session stops: a progress
+line whose session is idle over STALE_IDLE, stopped on a usage limit or
+ended, and a decision line keyed by a session id whose session is
+limit-stopped or ended. A decision's session waits idle by design, so idle
+alone does not make it stale. A stale line is marked on the board (its
+`when` says why) and listed in `stale_lines`, which the screen turns into
+one event for Head Jeeves per line (stale_to_tell).
+
 The lines need judgment, so Head Jeeves supplies them in
 ~/.local/state/podbay/headlines.json, keyed by session id (see
 HEADLINES_PATH and the head-jeeves skill for the format). A session with no
@@ -43,6 +51,11 @@ LINE_CHARS = 160
 SHIPPED_DAYS = 7
 TESTED_TEXT = "Tested"  # the phone message that means: mark the line tested
 KINDS = ("decision", "shipped", "progress")
+# A progress line over a session idle this long is stale: a line said
+# "today" over a session that had stopped hours before (2026-11-21).
+STALE_IDLE = timedelta(minutes=30)
+# What the screen already told Head Jeeves: {line key: why}.
+STALE_TOLD_PATH = STATE_DIR / "stale-told.json"
 # The sections in order: Head Jeeves' kinds, plus the finished sessions he
 # has not written a line for yet.
 _BUCKETS = (*KINDS, "finished")
@@ -238,6 +251,72 @@ def _classify(session: dict, headline: dict | None, now: datetime) -> str | None
     return None
 
 
+def _stale(session: dict, kind: str, now: datetime) -> tuple[str, str] | None:
+    """(why, words) when a headline of `kind` over this live session is
+    stale: why is "limit" or "idle", words say it on the board."""
+    if session.get("limit_stop"):
+        return "limit", "the session is stopped on a usage limit"
+    seconds = session.get("age_seconds") or 0
+    if kind == "progress" and session.get("state") == NEEDS_YOU and seconds >= STALE_IDLE.total_seconds():
+        return "idle", f"the session has been idle for {humanize_age(seconds)}"
+    return None
+
+
+def _mark_stale(item: dict, why: str, words: str) -> None:
+    item["stale"] = why
+    item["stale_words"] = words
+    item["when"] = f"stale: {words}"
+
+
+def stale_lines(found: dict[str, list[dict]], payload: dict, headlines: dict[str, dict]) -> list[dict]:
+    """Every stale Head Jeeves line: the marked board lines, plus the
+    progress lines of ended sessions, which the board does not show.
+    Each is {key, kind, why, words, name, text}: `key` is its entry in
+    headlines.json, `name` the session's name or the key's first 8."""
+    out = []
+    for kind in ("progress", "decision"):
+        for item in found.get(kind, []):
+            if not item.get("stale"):
+                continue
+            s = item.get("session") or {}
+            key = str(item["id"]).removeprefix("decision:")
+            out.append({"key": key, "kind": kind, "why": item["stale"], "words": item["stale_words"],
+                        "name": s.get("name") or key[:8], "title": s.get("title") or item["project"],
+                        "text": item["text"]})
+    live = {s.get("session_id") for s in payload.get("sessions", [])} | {s.get("short_id") for s in payload.get("sessions", [])}
+    for key, headline in headlines.items():
+        if key not in live and headline.get("kind") == "progress" and headline.get("text"):
+            out.append({"key": key, "kind": "progress", "why": "ended", "words": "the session has ended",
+                        "name": key[:8], "title": str(headline.get("repo") or key[:8]),
+                        "text": clean_line(headline["text"], 2 * LINE_CHARS)})
+    return out
+
+
+def stale_to_tell(stale: list[dict], told: dict[str, str]) -> tuple[list[dict], dict[str, str]]:
+    """The stale lines Head Jeeves has not heard about for this reason yet,
+    and what `told` becomes: lines no longer stale drop out, so a line
+    that goes stale again is told again."""
+    now_stale = {line["key"]: line["why"] for line in stale}
+    new = [line for line in stale if told.get(line["key"]) != line["why"]]
+    return new, {k: v for k, v in told.items() if now_stale.get(k) == v}
+
+
+def load_told(path: Path | None = None) -> dict[str, str]:
+    try:
+        data = json.loads((path or STALE_TOLD_PATH).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def save_told(told: dict[str, str], path: Path | None = None) -> None:
+    path = path or STALE_TOLD_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(told, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def _options(headline: dict | None) -> list[str]:
     """A decision's answer buttons: Head Jeeves' optional `options` list,
     each one short line."""
@@ -270,6 +349,9 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
         if headline and headline.get("text"):
             item.update(text=clean_line(headline["text"], 2 * LINE_CHARS), link=headline.get("link"), steps=headline.get("steps"),
                         full=full_text(headline["text"]))
+            stale = _stale(s, kind, now) if kind in ("progress", "decision") else None
+            if stale:
+                _mark_stale(item, *stale)
         else:
             item["text"] = (_ask(s) if kind == "decision" else None) or clean_line(s.get("last_text")) or s.get("title") or ""
             if kind == "finished":
@@ -286,12 +368,15 @@ def collect(payload: dict, now: datetime | None = None, headlines: dict[str, dic
             # A decision no live session owns (Head Jeeves' own, or an ended
             # session's) stays until Head Jeeves deletes the entry. Replies
             # and option buttons go to Head Jeeves.
-            found["decision"].append({"id": key if key.startswith("decision:") else f"decision:{key}", "session": {},
-                                      "target": "Head Jeeves", "project": str(headline.get("repo") or "Head Jeeves"),
-                                      "when": "", "options": _options(headline), "asks": True,
-                                      "text": clean_line(headline["text"], 2 * LINE_CHARS),
-                                      "link": headline.get("link"), "steps": headline.get("steps"),
-                                      "full": full_text(headline["text"])})
+            item = {"id": key if key.startswith("decision:") else f"decision:{key}", "session": {},
+                    "target": "Head Jeeves", "project": str(headline.get("repo") or "Head Jeeves"),
+                    "when": "", "options": _options(headline), "asks": True,
+                    "text": clean_line(headline["text"], 2 * LINE_CHARS),
+                    "link": headline.get("link"), "steps": headline.get("steps"),
+                    "full": full_text(headline["text"])}
+            if not key.startswith("decision:"):
+                _mark_stale(item, "ended", "the session has ended")  # keyed by a session that is gone
+            found["decision"].append(item)
             continue
         if key in live or headline.get("kind") != "shipped" or not headline.get("repo") or headline.get("tested"):
             continue

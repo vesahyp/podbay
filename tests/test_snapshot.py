@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from podbay import snapshot
+from podbay import snapshot, voice
 
 NOW = datetime(2026, 11, 8, 12, 0)
 
@@ -152,3 +152,17 @@ def test_build_lines_and_options():
                            power=None, docker_up=None, agents=[], crontab_text=CRONTAB, cron_dir=None, runs_json=None,
                            repos=["atlas"], now=NOW + timedelta(seconds=30))
     assert snapshot.fingerprint(state) == snapshot.fingerprint(later)
+
+
+def test_build_marks_a_stale_line_and_lists_it():
+    session = {"session_id": "s1", "short_id": "s1", "name": "abac-1", "title": "Access control", "tab": "6", "repo": "clavesa",
+               "state": "needs_you", "age_seconds": 3 * 3600, "has_transcript": True}
+    headlines = {"s1": {"kind": "progress", "text": "Column hiding, done today"}}
+    state = snapshot.build(payload={"sessions": [session]}, headlines=headlines, quota_payload=None, health=None,
+                           power=None, docker_up=None, agents=[], crontab_text=CRONTAB, cron_dir=None, runs_json=None, now=NOW)
+    line = state["board"]["sections"]["progress"][0]
+    assert line["stale"] == "idle" and line["when"] == "stale: the session has been idle for 3h"
+    assert [(s["key"], s["why"]) for s in state["board"]["stale"]] == [("s1", "idle")]
+    assert voice.hal_stale_line(state["board"]["stale"][0]) == (
+        "The board's progress line for Access control is stale: the session has been idle for 3h. "
+        "It says: \"Column hiding, done today\" Rewrite or delete the entry s1 in headlines.json.")
