@@ -207,6 +207,16 @@ tells the user that the work goes on, and this work waits for them.
   session on the heavy model at once, without asking and without waiting
   for a later step. It checks security, running cost and plain sense. The
   findings are fixed before the board line or the question goes up.
+- Every review also asks: does a simpler native option, or a tool or skill
+  we already have, cover the user's goal? When a plan needs more parts
+  than the user approved, stop it and reassess the approach; do not ask
+  for the extra approvals.
+- Pass on a session's numbers only from its final report, and check that a
+  part is not given as the whole (one cause's share is not the category
+  total).
+- Every first prompt says: never print credentials; do not read
+  `~/.aws/config` or `~/.aws/credentials`, use `aws configure list` or
+  `aws sts get-caller-identity`.
 
 ## The board
 
@@ -384,7 +394,9 @@ session. You write to it in two cases only:
 - Something waits on the user (see "What needs the user's yes"). Put it on
   the board as a `decision:<slug>` line, one question at a time, in
   business terms, with your recommendation, and send one push for it
-  (below).
+  (below). The line says why it is asked now; when it carries out an
+  earlier finding, it says so ("this is what the memory investigation
+  recommended"). Every cost in it says what is charged, with its source.
 
 Nothing else goes to the user: no `podbay say` for an event, a result, a
 restart, a fault or the sessions you paused. Shipped work gets its
