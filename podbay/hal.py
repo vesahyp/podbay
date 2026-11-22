@@ -28,6 +28,12 @@ QUIET_INTERVAL = timedelta(hours=2)
 # turn's end and its next write, and a false finished event sends Head
 # Jeeves to a session that is still working.
 FINISH_HOLD = timedelta(seconds=10)
+# A report whose agents then go quiet: no write to any transcript and no
+# running background task for this long reads as finished. Without it a
+# session that reported and then sat idle raised no further event, since
+# an agent launch that is never notified keeps it WORKING for hours
+# (clavesa-abac, 2026-11-21: last report at 14:26, then idle for hours).
+REPORT_QUIET = timedelta(minutes=10)
 # The waiting_on kinds that mean a dialog is open in the terminal (see
 # sources.compute_waiting_on). Announced on the registry's word alone: both
 # sessions that sat unannounced for hours on 2026-10-08 were at a
@@ -92,6 +98,9 @@ class Memory:
     # status flip alone once announced the same turn as finished and then
     # as reported again (raide-build-3d-2, 2026-10-08).
     announced: dict[str, datetime] = field(default_factory=dict)
+    # session id -> the reported turn already announced as finished because
+    # its agents went quiet (REPORT_QUIET). One finish per report.
+    quiet_said: dict[str, datetime] = field(default_factory=dict)
     last_quiet_at: datetime | None = None
     restored: dict[str, str] | None = None  # load_announced() at the first refresh
     primed: bool = False  # the first refresh only sets the baseline
@@ -139,7 +148,11 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
         agent_ts = s.main_agent_ts or s.main_turn_ts
         report = agent_ts if derived in (WORKING, STALLED) and s.turn_ended and s.subagents_running else None
         turn = s.main_agent_ts or s.main_turn_ts or s.last_turn_ts
+        quiet = (report is not None and memory.quiet_said.get(s.session_id) != report
+                 and now - s.activity_at >= REPORT_QUIET and not s.running_background_tasks(now))
         if not memory.primed or previous is None:
+            if quiet:
+                memory.quiet_said[s.session_id] = report  # the baseline: quiet before podbay looked
             unsaid = (
                 not memory.primed and memory.restored is not None and previous is None and report is None
                 and derived == NEEDS_YOU and s.unread and turn is not None and s.session_id not in paused_ids
@@ -160,6 +173,12 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
             memory.announced[s.session_id] = report
             if s.session_id not in paused_ids and (s.seen_at is None or report > s.seen_at):
                 line = voice.hal_reported(s.title)
+        elif quiet:
+            # Reported, then nothing for REPORT_QUIET: the agents are done or
+            # lost, and the session waits. Announce it as a finish.
+            memory.quiet_said[s.session_id] = report
+            if s.session_id not in paused_ids:
+                line = voice.hal_finished(s.title)
         elif previous == derived and first_seen is None:
             continue
         elif derived == NEEDS_YOU and kind in DIALOG_KINDS:
@@ -206,6 +225,7 @@ def remarks(memory: Memory, sessions: list[Session], limits: dict[str, dict], no
     memory.statuses = current
     memory.unconfirmed = unconfirmed
     memory.announced = {k: v for k, v in memory.announced.items() if k in current}
+    memory.quiet_said = {k: v for k, v in memory.quiet_said.items() if k in current}
     if memory.announced != before_announced or memory.restored is None:
         save_announced(memory.announced)
     memory.seen = {s.session_id: s for s in sessions if s.session_id in current}

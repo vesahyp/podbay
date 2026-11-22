@@ -372,3 +372,49 @@ def test_a_task_notification_after_a_report_does_not_raise_it_again():
     hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy")], {}, NOW)
     fresh = _delegating("r", -2, 0, main_agent_ts=NOW + timedelta(minutes=2))
     assert hal.remarks(memory, [fresh], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]
+
+
+def _quiet_reporter(sid, report_minutes_ago, *, background=None, **kw):
+    """An orchestrator that reported `report_minutes_ago` and wrote nothing
+    since: its launched agent was never notified, so it still counts one
+    running agent and reads as working (clavesa-abac, 2026-11-21)."""
+    s = _session(sid, minutes_ago=report_minutes_ago, subagents=1,
+                 main_turn_ts=NOW - timedelta(minutes=report_minutes_ago),
+                 waiting_on={"kind": "subagents_running", "detail": "1"}, **kw)
+    s.background_tasks = background or []
+    return s
+
+
+def test_a_report_whose_agents_go_quiet_is_announced_as_finished_once():
+    memory = hal.Memory()
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
+    assert hal.remarks(memory, [_quiet_reporter("r", 0)], {}, NOW) == ["R has reported, Frank. Its agents are still at work."]
+    assert hal.remarks(memory, [_quiet_reporter("r", 0)], {}, NOW + timedelta(minutes=9)) == []
+    quiet = NOW + hal.REPORT_QUIET
+    assert hal.remarks(memory, [_quiet_reporter("r", 0)], {}, quiet) == ["R has finished. It is waiting for Head Jeeves."]
+    assert memory.events == [("r", "R has finished. It is waiting for Head Jeeves.")]
+    hal.remarks(memory, [_quiet_reporter("r", 0)], {}, quiet + timedelta(hours=3))
+    assert memory.events == []
+    # the next report is a new turn: reported, and after another quiet spell, finished again
+    later = quiet + timedelta(hours=4)
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=-240 - 10)], {}, later)
+    assert len(hal.remarks(memory, [_quiet_reporter("r", -250)], {}, later)) == 1
+    assert hal.remarks(memory, [_quiet_reporter("r", -250)], {}, later + hal.REPORT_QUIET) == ["R has finished. It is waiting for Head Jeeves."]
+
+
+def test_a_quiet_report_with_a_live_background_task_or_agent_writes_is_not_finished():
+    memory = hal.Memory()
+    task = [{"id": "b1", "ts": NOW, "ended": False}]
+    hal.remarks(memory, [_session("r", last_turn="in_progress", status="busy", minutes_ago=0)], {}, NOW)
+    hal.remarks(memory, [_quiet_reporter("r", 0, background=task)], {}, NOW)
+    assert hal.remarks(memory, [_quiet_reporter("r", 0, background=task)], {}, NOW + timedelta(minutes=30)) == []
+    # an agent that keeps writing keeps the session alive
+    writing = _quiet_reporter("r", 0)
+    writing.subagent_written_at = NOW + timedelta(minutes=25)
+    assert hal.remarks(memory, [writing], {}, NOW + timedelta(minutes=30)) == []
+
+
+def test_a_quiet_report_seen_on_the_first_refresh_is_the_baseline():
+    memory = hal.Memory()
+    assert hal.remarks(memory, [_quiet_reporter("r", 60)], {}, NOW) == []
+    assert hal.remarks(memory, [_quiet_reporter("r", 60)], {}, NOW + timedelta(minutes=1)) == []
