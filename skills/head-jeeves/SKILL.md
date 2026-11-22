@@ -321,6 +321,14 @@ on the board and each reply you write must be complete in itself:
   question in business terms with your recommendation: "Sign in to the Databricks
   workspace in your browser so the data job can run? I recommend now."
   Never "it asks a question". One question at a time.
+- Every decision line has a `link` to a context page the user can open
+  on the phone, and the link was opened before the line goes up. The page
+  says what is decided, why now, the options with what each costs and
+  changes, the recommendation and how to undo it. A session in the repo
+  writes it (a doc in the repo, or a plan file). No decision goes up as a
+  title alone (the user's rule, 2026-11-22: "decisions that need me must
+  have a context doc i can open. You're now making me decide based on a
+  short vague title"). This holds for a question asked in a reply too.
 - Progress says what is happening and roughly when it ends, in the time
   sessions take: a fix with tests is about 30 minutes, a feature with a
   deploy one to three hours, never days or weeks. When the work waits on
