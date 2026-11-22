@@ -1366,8 +1366,16 @@ class PodbayApp(App):
         if not self._head_jeeves or self._quitting:
             return
         told = board.load_told()
-        new, keep = board.stale_to_tell(state["board"].get("stale") or [], told)
+        # Head Jeeves may have deleted an entry since the snapshot was built.
+        present, err = board.load_headlines()
+        stale = state["board"].get("stale") or []
+        if err is None:
+            stale = [ln for ln in stale if ln["key"] in present]
+        new, keep = board.stale_to_tell(stale, told)
         for line in new:
+            # Re-read per line: the sends take time and he may delete meanwhile.
+            if err is None and line["key"] not in board.load_headlines()[0]:
+                continue
             if self.call_from_thread(self._send_to_head_jeeves, f"/head-jeeves event {line['name']}: {voice.hal_stale_line(line)}"):
                 keep[line["key"]] = line["why"]
         if keep != told:
@@ -2605,6 +2613,11 @@ def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
     if transcript is not None and iterm_mod.screen_waits_for_input(iterm_mod.read_session_text(tty, max_lines=40)):
         transcript = None  # an answer to a dialog is a key, not a prompt
     since = datetime.now() - SUBMIT_SLACK
+    caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
+    if _is_exit_order(text, caller):
+        # Before the send, so the end is already known to be on purpose when
+        # HAL sees the session go: no "has ended" event for Head Jeeves.
+        opened_mod.record_closed(match.session_id, datetime.now())
     outcome = iterm_mod.send_text_retrying(tty, text)
     if outcome != "sent":
         reason = machine_mod.overloaded_now()
@@ -2614,7 +2627,6 @@ def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
         else:
             print(voice.iterm_tab_missing(target, detail, reason), file=sys.stderr)
         sys.exit(1)
-    caller = _calling_session(sessions, _ancestor_pids(os.getpid()))
     if caller is not None:
         opened_mod.record_sent(match.session_id, text, caller.name or caller.session_id, datetime.now())
     if transcript is not None:
@@ -2626,6 +2638,11 @@ def _deliver(target: str, text: str) -> tuple[Session, Session | None]:
         if submitted != TAKEN:
             print(voice.send_unconfirmed(target, submitted), file=sys.stderr)
     return match, caller
+
+
+def _is_exit_order(text: str, caller: Session | None) -> bool:
+    """Head Jeeves quitting a session with /exit: its end is on purpose."""
+    return caller is not None and is_head_jeeves(caller) and text.strip() == "/exit"
 
 
 # podbay send checks that Claude Code took the text as a prompt: the
