@@ -111,6 +111,24 @@ async def main() -> int:
         check("machine: three 24 hour charts", charts == 3, charts)
         check("machine: the account bars have widths", await page.locator(".bar b[style*=width]").count() > 0)
         await shot(page, "mobile-app-2-machine.png", full=True)
+        # The AWS costs card opens the Costs screen over the real monthly
+        # report: one tile per account, the bars, a tapped day's services.
+        if await page.locator("button[data-costs]").count():
+            await page.locator("button[data-costs]").click()
+            await page.wait_for_selector("#costs-chart svg")
+            run = (await page.locator("#costs-run").text_content() or "").strip()
+            check("costs: the run date shows", "aws-costs run" in run and "ago" in run, run)
+            tiles = await page.locator("button[data-cacct]").count()
+            check("costs: one tile per account", tiles >= 1, tiles)
+            check("costs: bars drawn", await page.locator("#costs-chart svg rect[fill^='#']").count() > 0)
+            await shot(page, "mobile-app-2b-costs.png", full=True)
+            await page.locator("#costs-chart rect.hit").last.dispatch_event("click")
+            await page.wait_for_selector("#costs-chart .rdetail")
+            check("costs: a tapped day shows its services", await page.locator("#costs-chart .rdetail .qrow").count() >= 1)
+            await page.locator("#costs-chart").scroll_into_view_if_needed()
+            await page.screenshot(path=str(OUT / "mobile-app-2c-costs-day.png"))
+        else:
+            check("costs: the Machine tab has the AWS costs card", False, "no spend part in the snapshot")
 
         await page.locator("button[data-tab=nightly]").click()
         await page.wait_for_selector(".ng")
