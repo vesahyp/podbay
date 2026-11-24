@@ -220,3 +220,15 @@ def test_inventory_idle_minutes_match_the_age():
     assert row["state"] == "working"
     assert row["idle_minutes"] == pytest.approx(1, abs=0.1)
     assert row["idle_minutes"] == pytest.approx(row["age_seconds"] / 60, abs=0.1)
+
+
+def test_render_table_status_is_the_derived_state_not_the_registry_status():
+    # Registry status "shell" means a Claude session whose tool is a shell
+    # (a background command). The table must not print it as the status.
+    s = _session("sail", status="shell", turn_ended=True)
+    payload = inventory_payload([s], set())
+    state = payload["sessions"][0]["state"]
+    assert state != "shell"
+    row = render_table(payload).splitlines()[1]
+    assert state in row
+    assert " shell " not in row

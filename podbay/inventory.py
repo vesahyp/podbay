@@ -302,13 +302,16 @@ def machine_lines(payload: dict) -> list[str]:
 def render_table(payload: dict) -> str:
     sessions = payload["sessions"]
     groups = payload["repo_groups"]
+    # STATUS is the derived state (working, watching, needs_you ...), never the
+    # raw registry status: the registry says "shell" for a Claude session
+    # whose tool is a shell, which read as "claude is gone" (2026-11-24).
     headers = ["TAB", "TITLE", "NAME", "ACCT", "REPOS", "STATUS", "IDLE", "CTX%", "WAITING", "LAST"]
     rows = []
     for s in sessions:
         repos = [r + ("*" if r in s["repos_edited"] else "") for r in s["repos_touched"]]
         rows.append([
             f"#{s['tab']}" if s.get("tab") else "-",
-            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", s["registry_status"] + (" paused" if s.get("paused") else "") + (" login-expired" if s.get("login_expired") else ""),
+            (s.get("title") or "-")[:40], s["name"] or s["short_id"], s.get("account") or "-", ",".join(repos) or "-", (s.get("state") or s["registry_status"]) + (" paused" if s.get("paused") else "") + (" login-expired" if s.get("login_expired") else ""),
             f"{s['idle_minutes']}m" if s["idle_minutes"] is not None else "-",
             f"{s['context_pct']:.0f}" if isinstance(s["context_pct"], (int, float)) else "-",
             s["waiting_on"]["kind"] if s["waiting_on"] else "-",
