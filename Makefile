@@ -192,6 +192,7 @@ mobile-deploy: | infra/.terraform
 # and sends one test message, which the Mac never types.
 mobile-test: | infra/.terraform
 	@node scripts/sw_check.mjs
+	@node scripts/auth_check.mjs
 	@$(PODBAY) --with playwright python -m playwright install chromium >/dev/null
 	@$(if $(SEND),$(PODBAY) podbay mobile passkey-allow >/dev/null &&) \
 	  $(MOBILE_ENV) $(PODBAY) --with playwright python scripts/mobile_app_check.py $(if $(SEND),--send)

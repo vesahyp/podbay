@@ -133,7 +133,9 @@ infra/mobile.tf     app.podbay.tienoo.com: Cognito, SES, the app and state
                       /podbay/mobile/owner-email, never in this repo
 mobile/app/         the phone app, static, no build: index, app.js, app.css,
                       thread.js (the chat's time order, tested in Node by
-                      scripts/thread_check.mjs), sw.js (shell cache, push,
+                      scripts/thread_check.mjs), auth.js (the sign-in;
+                      only Cognito's refusal of the refresh token signs
+                      the phone out; scripts/auth_check.mjs), sw.js (shell cache, push,
                       tap), the vendored tracker
   podbay/mobile.py  the Mac side: snapshot upload, the 15 s message poll,
                       podbay reply, podbay say (Head Jeeves' own lines in

@@ -5,8 +5,6 @@
   "use strict";
 
   var CFG = window.PODBAY || {};
-  var COGNITO = "https://cognito-idp." + (CFG.region || "eu-north-1") + ".amazonaws.com/";
-  var AUTH_KEY = "podbay.auth";
   var STATE_EVERY = 30000;
   var MESSAGES_EVERY = 15000;
 
@@ -68,78 +66,36 @@
     });
   }
 
-  // ---- auth (Cognito USER_AUTH with EMAIL_OTP, no SDK) ----------------------
+  // ---- auth (mobile/app/auth.js: Cognito USER_AUTH with EMAIL_OTP) -----------
 
-  function loadAuth() {
-    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); } catch (e) { return null; }
-  }
-  function saveAuth(a) {
-    try { if (a) localStorage.setItem(AUTH_KEY, JSON.stringify(a)); else localStorage.removeItem(AUTH_KEY); } catch (e) { /* private mode */ }
-  }
-  function cognito(target, body) {
-    return fetch(COGNITO, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "AWSCognitoIdentityProviderService." + target },
-      body: JSON.stringify(body),
-    }).then(function (r) {
-      return r.json().then(function (j) {
-        if (!r.ok) { var e = new Error(j.message || j.__type || "sign-in failed"); e.type = j.__type; throw e; }
-        return j;
-      });
-    });
-  }
-  function storeResult(res, email, clientId, old) {
-    var a = {
-      access: res.AccessToken,
-      refresh: res.RefreshToken || (old && old.refresh),
-      exp: Date.now() + (res.ExpiresIn || 900) * 1000,
-      email: email,
-      clientId: clientId,
-    };
-    saveAuth(a);
-    return a;
-  }
-  var refreshing = null;
-  function accessToken() {
-    var a = loadAuth();
-    if (!a || !a.refresh) return Promise.resolve(null);
-    if (a.access && a.exp - 60000 > Date.now()) return Promise.resolve(a.access);
-    if (!refreshing) {
-      refreshing = cognito("InitiateAuth", {
-        AuthFlow: "REFRESH_TOKEN_AUTH", ClientId: a.clientId || CFG.clientId, AuthParameters: { REFRESH_TOKEN: a.refresh },
-      }).then(function (res) {
-        return storeResult(res.AuthenticationResult, a.email, a.clientId || CFG.clientId, a).access;
-      }, function () {
-        saveAuth(null);
-        return null;
-      }).finally(function () { refreshing = null; });
-    }
-    return refreshing;
-  }
+  var AUTH = window.PodbayAuth.create({ storage: localStorage, fetch: window.fetch.bind(window), region: CFG.region, clientId: CFG.clientId });
+  function loadAuth() { return AUTH.load(); }
+  function cognito(target, body) { return AUTH.cognito(target, body); }
+  function storeResult(res, email, clientId, old) { return AUTH.store(res, email, clientId, old); }
   function signOut() {
-    var a = loadAuth();
-    saveAuth(null);
-    if (a && a.refresh) cognito("RevokeToken", { ClientId: a.clientId || CFG.clientId, Token: a.refresh }).catch(function () {});
+    AUTH.signOut();
     app.state = null; app.me = null; app.messages = [];
     render();
   }
 
   // ---- API --------------------------------------------------------------------
 
+  // A call that finds the login gone (Cognito refused the refresh token)
+  // shows the sign-in screen. A call that could not reach Cognito or the API
+  // keeps the login and shows the error; the next poll tries again.
   function api(method, path, body) {
-    return accessToken().then(function (token) {
-      if (!token) { var e = new Error("signed out"); e.status = 401; throw e; }
-      return fetch("/api/" + path, {
-        method: method,
-        headers: Object.assign({ Authorization: "Bearer " + token }, body ? { "Content-Type": "application/json" } : {}),
-        body: body ? JSON.stringify(body) : undefined,
-      });
+    return AUTH.authorized("/api/" + path, {
+      method: method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
-        if (r.status === 401) { saveAuth(null); render(); }
         if (!r.ok) { var e = new Error(j.message || j.error || ("HTTP " + r.status)); e.status = r.status; e.body = j; throw e; }
         return j;
       });
+    }, function (e) {
+      if (e.signedOut) render();
+      throw e;
     });
   }
   function loadState() {
@@ -147,7 +103,7 @@
       app.state = s; app.loadedAt = Date.now(); app.error = "";
       render();
     }, function (e) {
-      app.error = e.status === 404 ? "The Mac has not sent its state yet." : (e.status === 401 ? "" : "Could not load: " + e.message);
+      app.error = e.status === 404 ? "The Mac has not sent its state yet." : (e.signedOut ? "" : "Could not load: " + e.message);
       render();
     });
   }
