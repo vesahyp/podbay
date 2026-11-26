@@ -9,13 +9,20 @@
 // fails for any other reason (no network while iOS wakes the app, a
 // page reload that cuts the request, Cognito throttling or down) keeps the
 // login and the next call tries again. Before 2026-11-26 any failure deleted
-// it, and the phone asked for a new sign-in a few times a week.
+// it. CloudTrail shows one unplanned sign-out in the 18 days before the fix.
 (function (root) {
   "use strict";
 
   var KEY = "podbay.auth";
-  // Cognito's answers that mean the refresh token cannot be used again.
-  var REFUSED = { NotAuthorizedException: 1, UserNotFoundException: 1, RefreshTokenReuseException: 1 };
+  // Cognito's answers that mean the login can never work again, so a retry
+  // cannot succeed: the token is refused, the user is gone, or the app client
+  // no longer exists (ResourceNotFoundException) or no longer accepts the
+  // request (InvalidParameterException, UnsupportedOperationException).
+  // Throttling and 5xx are not here: they pass.
+  var REFUSED = {
+    NotAuthorizedException: 1, UserNotFoundException: 1, RefreshTokenReuseException: 1,
+    ResourceNotFoundException: 1, InvalidParameterException: 1, UnsupportedOperationException: 1,
+  };
 
   function create(opts) {
     var storage = opts.storage;
@@ -76,14 +83,25 @@
           // Another tab may have signed out meanwhile: keep it signed out.
           var current = load();
           if (!current || current.refresh !== a.refresh) return current && current.access && current.exp - 60000 > now() ? current.access : null;
+          // A 200 that is not Cognito's answer (a captive portal): no answer.
+          if (!res || !res.AuthenticationResult) {
+            var bad = new Error("Could not reach the sign-in service: unexpected answer");
+            bad.offline = true;
+            throw bad;
+          }
           return store(res.AuthenticationResult, a.email, clientId, a).access;
         }, function (e) {
           if (REFUSED[e.type]) {
             var current = load();
-            if (current && current.refresh === a.refresh) save(null);
-            return null;
+            if (current && current.refresh === a.refresh) {
+              if (opts.onEnded) { try { opts.onEnded(e); } catch (x) { /* the screen must not block the sign-out */ } }
+              save(null);
+              return null;
+            }
+            return current && current.access && current.exp - 60000 > now() ? current.access : null;
           }
-          var err = new Error("Could not reach the sign-in service: " + e.message);
+          // A Cognito answer arrived (e.type set): say so. No answer: network.
+          var err = new Error(e.type ? "The sign-in service is busy, try again: " + e.message : "Could not reach the sign-in service: " + e.message);
           err.offline = true;
           throw err;
         });

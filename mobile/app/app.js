@@ -68,7 +68,15 @@
 
   // ---- auth (mobile/app/auth.js: Cognito USER_AUTH with EMAIL_OTP) -----------
 
-  var AUTH = window.PodbayAuth.create({ storage: localStorage, fetch: window.fetch.bind(window), region: CFG.region, clientId: CFG.clientId });
+  // Cognito ended the login (the 30 days are over): say why on the sign-in
+  // screen and keep what was typed in the chat box for after the sign-in.
+  // Called before the login is deleted, so the box is still on the page.
+  function loginEnded() {
+    var box = document.querySelector("#chat");
+    if (box && box.value) app.draft = box.value;
+    signin.err = "Your monthly sign-in is due.";
+  }
+  var AUTH = window.PodbayAuth.create({ storage: localStorage, fetch: window.fetch.bind(window), region: CFG.region, clientId: CFG.clientId, onEnded: loginEnded });
   function loadAuth() { return AUTH.load(); }
   function cognito(target, body) { return AUTH.cognito(target, body); }
   function storeResult(res, email, clientId, old) { return AUTH.store(res, email, clientId, old); }
@@ -894,7 +902,7 @@
   }
   function composer() {
     var me = app.me || {}, act = "", note = "";
-    var box = '<textarea id="chat" rows="1" maxlength="1000" placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"' + (app.me ? "" : " disabled") + "></textarea>";
+    var box = '<textarea id="chat" rows="1" maxlength="1000" placeholder="Message Head Jeeves" aria-label="Message Head Jeeves"' + (app.me ? "" : " disabled") + ">" + esc(app.draft || "") + "</textarea>";
     if (!app.me) note = "";
     else if (canSend() || me.passkeys > 0) {
       act = '<button class="send" type="button" data-chat-send="1" aria-label="' + (canSend() ? "Send" : "Confirm with your passkey and send") + '"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
@@ -1164,6 +1172,7 @@
     }).then(function () {
       track("send", { kind: "chat" });
       app.chatKey = null;
+      app.draft = "";
       box.value = "";
       box.style.height = "";
       box.blur();

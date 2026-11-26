@@ -331,6 +331,9 @@ resource "aws_cognito_user_pool_client" "mobile" {
 
   access_token_validity  = 15
   id_token_validity      = 15
+  # Keep refresh token rotation OFF (no refresh_token_rotation block). With it,
+  # a renewal whose answer is lost (a reload) leaves the phone with a spent
+  # token and a RefreshTokenReuseException sign-out. Review 2026-11-26, N2.
   refresh_token_validity = 30
   token_validity_units {
     access_token  = "minutes"

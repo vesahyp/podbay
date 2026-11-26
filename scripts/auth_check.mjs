@@ -128,4 +128,73 @@ for (const reply of [
   assert.equal(w.calls.cognito.length, 0);
 }
 
-console.log("auth_check: 7 cases pass");
+// 8. Permanent Cognito errors end the login like a refusal: the app client
+//    was replaced (ResourceNotFoundException) or the call is no longer valid.
+//    A retry could never work, so the phone must not stay stuck on an error.
+for (const type of ["ResourceNotFoundException", "InvalidParameterException", "UnsupportedOperationException"]) {
+  const w = world({ cognito: () => Promise.resolve(response(400, { __type: type, message: "x" })) });
+  assert.equal(await w.auth.accessToken(), null, type);
+  assert.equal(w.stored(), null, type + " deletes the login");
+}
+
+// 9. The login ending calls onEnded once, before the login is deleted, so the
+//    screen can say why and keep a chat draft. A failure to renew does not.
+{
+  const seen = [];
+  const w = world({ cognito: refused("Refresh Token has expired") });
+  const storage = w.storage;
+  const auth = create({ storage, fetch: (u, i) => (u === COGNITO ? refused("x")() : null), region: "eu-north-1", clientId: "client", now: () => T0,
+    onEnded: (e) => seen.push({ type: e.type, stillStored: !!storage.getItem(KEY) }) });
+  assert.equal(await auth.accessToken(), null);
+  assert.deepEqual(seen, [{ type: "NotAuthorizedException", stillStored: true }]);
+  const w2 = world({ cognito: unreachable });
+  const auth2 = create({ storage: w2.storage, fetch: () => unreachable(), region: "eu-north-1", clientId: "client", now: () => T0, onEnded: () => seen.push("bad") });
+  await assert.rejects(auth2.accessToken(), (e) => e.offline === true);
+  assert.equal(seen.length, 1, "a network failure does not end the login");
+}
+
+// 10. A Cognito answer that did arrive (throttling) is not called a network
+//     failure; no answer at all is.
+{
+  const w = world({ cognito: () => Promise.resolve(response(400, { __type: "TooManyRequestsException", message: "Rate exceeded" })) });
+  await assert.rejects(w.auth.accessToken(), (e) => e.offline === true && !/reach/.test(e.message) && /Rate exceeded/.test(e.message));
+  const n = world({ cognito: unreachable });
+  await assert.rejects(n.auth.accessToken(), (e) => /Could not reach the sign-in service/.test(e.message));
+}
+
+// 11. Signed out in another tab while the renewal ran: stays signed out, the
+//     late answer does not bring the login back.
+{
+  let answer;
+  const w = world({ cognito: () => new Promise((res) => { answer = res; }) });
+  const p = w.auth.accessToken();
+  w.storage.removeItem(KEY);
+  answer(await renewed());
+  assert.equal(await p, null);
+  assert.equal(w.stored(), null, "no login brought back");
+}
+
+// 12. Signed in again (new refresh token) while an old renewal ran: the new
+//     login is kept, not overwritten, and a late refusal does not delete it.
+{
+  for (const late of [renewed, refused("old")]) {
+    let answer;
+    const w = world({ cognito: () => new Promise((res) => { answer = res; }) });
+    const p = w.auth.accessToken();
+    const fresh = { access: "access-9", refresh: "refresh-9", exp: T0 + 600_000, email: "phone@example.test", clientId: "client" };
+    w.storage.setItem(KEY, JSON.stringify(fresh));
+    answer(await late());
+    assert.equal(await p, "access-9");
+    assert.deepEqual(w.stored(), fresh);
+  }
+}
+
+// 13. A 200 answer that is not JSON (a captive portal): the login stays and
+//     the failure is reported as a failed renewal, not a TypeError.
+{
+  const w = world({ cognito: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError("bad")) }) });
+  await assert.rejects(w.auth.accessToken(), (e) => e.offline === true);
+  assert.ok(w.auth.signedIn());
+}
+
+console.log("auth_check: 13 cases pass");
