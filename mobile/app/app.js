@@ -543,12 +543,12 @@
     var d = new Date(epoch * 1000);
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   }
-  // Where tapping a push goes: its own place in the app (a board line, a
-  // screen), or nothing when it only opened the board's top.
+  // Where tapping a push goes: the place in the app its link names (a
+  // board line, a screen, the board), or nothing when the link was only the
+  // app's root, as for an AWS alarm.
   function pushTarget(p) {
     var u = String(p.url || ""), i = u.indexOf("#");
-    var h = i >= 0 ? u.slice(i + 1) : "";
-    return h && h !== "board" ? h : "";
+    return i >= 0 ? u.slice(i + 1) : "";
   }
   function linkify(text) {
     return esc(text).replace(/https?:\/\/[^\s<>"']+/g, function (m) {
@@ -565,8 +565,9 @@
     if (!p.delivered) chips += '<span class="chip red">no device took it</span>';
     var target = pushTarget(p), open = target ? '<span class="chev">›</span>' : "";
     var inner = '<div class="mini"><span class="label">' + esc(hhmm(p.at)) + "</span>" + chips + open + "</div><h3>" + esc(p.title) + "</h3>" +
-      (p.body ? '<p class="q pbody">' + (target ? esc(p.body) : linkify(p.body)) + "</p>" : "");
-    return target ? '<button class="card pitem" type="button" data-open-push="' + esc(target) + '">' + inner + "</button>" : '<article class="card pitem">' + inner + "</article>";
+      (p.body ? '<p class="q pbody">' + linkify(p.body) + "</p>" : "");
+    // An article, not a button, so a link in the body stays a link.
+    return target ? '<article class="card pitem tap" role="link" tabindex="0" data-open-push="' + esc(target) + '">' + inner + "</article>" : '<article class="card pitem">' + inner + "</article>";
   }
   function pushes(s) {
     var p = s.pushes;
@@ -1253,6 +1254,8 @@
   // ---- events -------------------------------------------------------------------------
 
   document.addEventListener("click", function (ev) {
+    var pushCard = ev.target.closest && !ev.target.closest("a") && ev.target.closest("[data-open-push]");
+    if (pushCard) { track("push-open", {}); location.hash = "#" + pushCard.getAttribute("data-open-push"); return; }
     var bar = ev.target.closest && ev.target.closest("[data-bar]");
     if (bar) {
       var b = bar.getAttribute("data-bar").split("|").map(Number), cur = app.runSel;
@@ -1312,7 +1315,6 @@
     if (t.dataset.stats) { app.sheet = null; go("stats"); loadStats(); return; }
     if (t.dataset.costs) { app.sheet = null; go("costs"); return; }
     if (t.dataset.releases) { app.sheet = null; go("releases"); return; }
-    if (t.dataset.openPush) { track("push-open", {}); location.hash = "#" + t.dataset.openPush; return; }
     if (t.dataset.cacct) { var ca = costsPrefs(); ca.acct = t.dataset.cacct; ca.sel = -1; saveCosts(); track("costs-account", { n: [].indexOf.call(t.parentNode.children, t) }); render(); return; }
     if (t.dataset.crange) { var cr = costsPrefs(); cr.range = Number(t.dataset.crange); cr.sel = -1; saveCosts(); track("costs-range", { days: cr.range }); render(); return; }
     if (t.dataset.csvc) { var cs = costsPrefs(); if (cs.hidden[t.dataset.csvc]) delete cs.hidden[t.dataset.csvc]; else cs.hidden[t.dataset.csvc] = 1; saveCosts(); track("costs-service", { on: cs.hidden[t.dataset.csvc] ? 0 : 1 }); render(); return; }

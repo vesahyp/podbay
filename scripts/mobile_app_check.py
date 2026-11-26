@@ -157,6 +157,13 @@ async def main() -> int:
             await page.screenshot(path=str(OUT / "mobile-app-4-log.png"))
             await page.locator(".sheet button[data-close]").first.click()
 
+        # Pushes: the real push history, newest first, with the per-day chart.
+        await page.locator("button[data-tab=pushes]").click()
+        await page.wait_for_selector("text=Pushes per day")
+        n = await page.locator(".pitem").count()
+        check("pushes: the list has the real pushes", n >= 1, n)
+        await shot(page, "mobile-app-3d-pushes.png", full=True)
+
         # Stats: reached from the Machine tab, charts from the nightly rollup
         # and the errors panel.
         await page.locator("button[data-tab=machine]").click()

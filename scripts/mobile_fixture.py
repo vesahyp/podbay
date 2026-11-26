@@ -225,6 +225,11 @@ async def pushes_checks(page, check) -> None:
     await page.wait_for_selector(".sheet")
     check("pushes: a Head Jeeves push opens its board line", "#line/fixture-decision" in page.url and await page.get_attribute(".tab.on", "data-tab") == "board")
     await page.goto(f"{ORIGIN}/#pushes", wait_until="networkidle")
+    await page.click("[data-open-push='board'] h3")
+    await page.wait_for_timeout(300)
+    check("pushes: a push linked to the board opens the board", await page.get_attribute(".tab.on", "data-tab") == "board", page.url)
+    await page.goto(f"{ORIGIN}/#pushes", wait_until="networkidle")
+    check("pushes: an alarm push has nothing to open", await page.locator(".pitem:not(.tap)").count() == 3)
 
 
 async def main() -> int:
