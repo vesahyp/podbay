@@ -506,8 +506,11 @@
   function rwItem(it) {
     var pushed = it.pushed_at ? '<span class="chip amber">pushed ' + esc(rwStamp(it.pushed_at)) + "</span>" : "";
     var breaks = it.breaks ? '<span class="chip red">could break</span>' : "";
+    var link = safeUrl(it.link);
     return '<article class="card rwitem' + (it.pushed_at ? " pushed" : "") + '"><div class="mini"><span class="label">' + esc(it.source) + " · " + esc(it.date ? ddmm(it.date) : "") + "</span>" + pushed + breaks + "</div>" +
-      '<h3><a href="' + esc(it.link || "#") + '" target="_blank" rel="noopener">' + esc(it.title) + "</a></h3>" +
+      (link ? '<h3><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(it.title) + ' <span class="ext" aria-hidden="true">↗</span></a></h3>' +
+        '<a class="rwsrc" href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link.replace(/^https?:\/\//, "").split("/")[0]) + "</a>"
+        : "<h3>" + esc(it.title) + "</h3>") +
       '<p class="q">' + (it.part ? "<b>" + esc(it.part) + ":</b> " : "") + esc(it.why || "") + "</p></article>";
   }
   function releases(s) {

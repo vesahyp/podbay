@@ -239,6 +239,8 @@ body.chatting { padding-bottom: calc(150px + var(--safe-bottom)); }
    (the whole bar is what was read, the green part what was kept). */
 .rwitem h3 { margin: 4px 0 6px; font-size: 15px; line-height: 1.3; }
 .rwitem h3 a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.rwitem h3 .ext { color: var(--amber); font-size: 13px; }
+.rwitem .rwsrc { display: inline-block; margin: -2px 0 6px; font: 12px var(--mono); color: var(--amber); text-decoration: none; }
 .rwitem .mini { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
 .rwitem.pushed { border-color: #4a3410; }
 /* Pushes: one card per push; a card that opens a line or a screen has a

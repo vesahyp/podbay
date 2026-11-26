@@ -157,6 +157,18 @@ async def main() -> int:
             await page.screenshot(path=str(OUT / "mobile-app-4-log.png"))
             await page.locator(".sheet button[data-close]").first.click()
 
+        # Release watch: the Nightly card opens it; every item's title is a
+        # link to its source that opens in a new tab.
+        if await page.locator("button[data-releases]").count():
+            await page.locator("button[data-releases]").click()
+            await page.wait_for_selector(".rwitem")
+            await page.evaluate("document.querySelectorAll('details.rwmore').forEach(d => d.open = true)")
+            items = await page.locator(".rwitem").count()
+            links = await page.locator(".rwitem h3 a[target=_blank][href^='http']").count()
+            check("releases: every item title links to its source", items > 0 and links == items, (items, links))
+            await shot(page, "mobile-app-3e-releases.png", full=True)
+            await page.locator("button[data-tab=nightly]").first.click()
+
         # Pushes: the real push history, newest first, with the per-day chart.
         await page.locator("button[data-tab=pushes]").click()
         await page.wait_for_selector("text=Pushes per day")

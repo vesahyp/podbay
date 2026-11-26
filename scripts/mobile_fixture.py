@@ -195,6 +195,10 @@ async def releases_checks(page, check) -> None:
     check("releases: a push link opens the screen", "could remove a part" in main_text and "another runner" in main_text, main_text[:160])
     pushed = await page.inner_text(".rwitem.pushed")
     check("releases: the pushed item says when", "pushed 21.11 10:20" in pushed, pushed[:160])
+    n_items = await page.locator(".rwitem").count()
+    check("releases: each title links to its source in a new tab",
+          await page.locator(".rwitem h3 a[target=_blank][href^='http']").count() == n_items
+          and await page.locator(".rwitem a.rwsrc").count() == n_items, n_items)
     check("releases: one bar per source", await page.locator(".bar b.rwall").count() == 2)
     check("releases: the Nightly tab is on", await page.get_attribute(".tab.on", "data-tab") == "nightly")
 
