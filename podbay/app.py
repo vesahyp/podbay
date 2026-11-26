@@ -2502,6 +2502,7 @@ def gather_snapshot(now: datetime | None = None) -> dict:
         cron_dir=Path(cron_dir).expanduser() if cron_dir else None,
         runs_json=snapshot_mod.read_runs_json(config.mobile_setting("mobile_runs_file")),
         spend_json=snapshot_mod.read_spend_json(config.mobile_setting("mobile_spend_file")),
+        releases_json=snapshot_mod.read_releases_json(config.mobile_setting("mobile_releases_file")),
         repos=snapshot_mod.read_repos(sources.REPOS_DIR),
         now=now,
     )

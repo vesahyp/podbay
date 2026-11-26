@@ -20,7 +20,12 @@ and uploads it when it changed (mobile.py); the API hands it to the app.
               mobile-spend-file`): per day and service over 90 days, the
               normal level, month totals, anomalies, when each account's
               data was read and whether its last run failed
-    lines     every id the app can reply to, with the target and quote the
+    releases  the release notes that could make clavesa smaller, from the
+              release-watch.json the home repo's daily `release-watch` run
+              writes (`podbay config mobile-releases-file`): the kept items
+              with how each could help and when it was pushed, the last
+              run, and the kept and dropped counts per source
+    lines    every id the app can reply to, with the target and quote the
               API puts in front of the text; the API never takes these from
               the phone
     repos     the repos a new session can start in
@@ -457,6 +462,51 @@ def spend_part(report: dict | None) -> dict | None:
     return {"generated": report.get("generated"), "accounts": accounts}
 
 
+# --- release watch ------------------------------------------------------------
+
+RELEASE_USES = ("remove", "runner", "simplify", "nothing yet")
+RELEASE_ITEM_KEYS = ("id", "source", "group", "date", "title", "link", "use", "part", "why", "breaks", "found", "pushed_at")
+RELEASE_RUN_KEYS = ("at", "read", "new", "kept", "model", "model_calls", "seconds", "errors", "gaps")
+RELEASE_MAX_ITEMS = 200
+
+
+def releases_part(report: dict | None) -> dict | None:
+    """The release notes that could make clavesa smaller, for the app's
+    Release watch screen, from the release-watch.json the home repo's daily
+    `release-watch` run writes. The items newest first, each with how it
+    could help (remove, runner, simplify, nothing yet) and when it was
+    pushed; the last run; and the kept and dropped counts per source over
+    the runs in the file, so what was left out stays visible."""
+    if not isinstance(report, dict):
+        return None
+    items = []
+    for it in report.get("items") or []:
+        if not isinstance(it, dict) or not it.get("title"):
+            continue
+        x = {k: it.get(k) for k in RELEASE_ITEM_KEYS}
+        if x["use"] not in RELEASE_USES:
+            x["use"] = "nothing yet"
+        x["breaks"] = x["breaks"] is True
+        items.append(x)
+    order = {u: i for i, u in enumerate(RELEASE_USES)}
+    items.sort(key=lambda x: (str(x.get("date") or ""), -order[x["use"]]), reverse=True)
+    sources: dict[str, dict] = {}
+    for run in report.get("runs") or []:
+        for name, c in ((run or {}).get("per_source") or {}).items():
+            s = sources.setdefault(str(name), {"source": str(name), "kept": 0, "dropped": 0})
+            s["kept"] += int(_num((c or {}).get("kept")))
+            s["dropped"] += int(_num((c or {}).get("dropped")))
+    last = report.get("last_run") or {}
+    return {
+        "generated": report.get("generated"),
+        "window_days": report.get("window_days"),
+        "last_run": {k: last.get(k) for k in RELEASE_RUN_KEYS},
+        "last_push": report.get("last_push"),
+        "sources": sorted(sources.values(), key=lambda s: -(s["kept"] + s["dropped"])),
+        "items": items[:RELEASE_MAX_ITEMS],
+    }
+
+
 # --- the whole object --------------------------------------------------------
 
 
@@ -473,6 +523,7 @@ def build(
     cron_dir: Path | None,
     runs_json: dict | None,
     spend_json: dict | None = None,
+    releases_json: dict | None = None,
     repos: list[str] | None = None,
     now: datetime | None = None,
 ) -> dict:
@@ -502,6 +553,7 @@ def build(
         "nightly": nightly,
         "runs": runs_part(runs_json),
         "spend": spend_part(spend_json),
+        "releases": releases_part(releases_json),
         "lines": lines,
         "repos": repos,
     }
@@ -623,4 +675,9 @@ def read_runs_json(path: str | None) -> dict | None:
 
 def read_spend_json(path: str | None) -> dict | None:
     """The AWS cost report.json from `podbay config mobile-spend-file`."""
+    return read_json_file(path)
+
+
+def read_releases_json(path: str | None) -> dict | None:
+    """release-watch.json from `podbay config mobile-releases-file`."""
     return read_json_file(path)

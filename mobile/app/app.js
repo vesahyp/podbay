@@ -480,6 +480,62 @@
       (stale ? " · " + stale + " stale" : "") + (late ? " · no run for " + Math.floor(age) + " days" : "") + "</span></button>";
   }
 
+  // ---- release watch (the snapshot's releases part: jeeves release-watch, daily) ----
+
+  var RW_SECTIONS = [
+    ["remove", "Could remove a part"],
+    ["runner", "Another runner"],
+    ["simplify", "Could simplify"],
+    ["nothing yet", "Touches clavesa, no use yet"]
+  ];
+  function rwStamp(iso) { return iso ? ddmm(iso.slice(0, 10)) + " " + iso.slice(11, 16) : ""; }
+  function rwCounts(items) {
+    var n = {};
+    items.forEach(function (it) { n[it.use] = (n[it.use] || 0) + 1; });
+    return n;
+  }
+  // The Nightly tab's way into the Release watch screen.
+  function releasesCard(s) {
+    var r = s.releases;
+    if (!r) return "";
+    var n = rwCounts(r.items || []), lr = r.last_run || {}, bad = (lr.errors || []).length;
+    var line = ["remove", "runner", "simplify"].filter(function (u) { return n[u]; }).map(function (u) { return n[u] + " " + u; }).join(" · ") || "nothing that could help yet";
+    return '<h2>Release watch</h2><button class="card ccard' + (bad ? " warnish" : "") + '" type="button" data-releases="1"><span class="mini"><span class="big">' + (r.items || []).length +
+      '<small>kept, 90 days</small></span><span class="chev">›</span></span><span class="label">' + esc(line) + " · run " + esc(rwStamp(lr.at)) + (bad ? " · " + bad + " errors" : "") + "</span></button>";
+  }
+  function rwItem(it) {
+    var pushed = it.pushed_at ? '<span class="chip amber">pushed ' + esc(rwStamp(it.pushed_at)) + "</span>" : "";
+    var breaks = it.breaks ? '<span class="chip red">could break</span>' : "";
+    return '<article class="card rwitem' + (it.pushed_at ? " pushed" : "") + '"><div class="mini"><span class="label">' + esc(it.source) + " · " + esc(it.date ? ddmm(it.date) : "") + "</span>" + pushed + breaks + "</div>" +
+      '<h3><a href="' + esc(it.link || "#") + '" target="_blank" rel="noopener">' + esc(it.title) + "</a></h3>" +
+      '<p class="q">' + (it.part ? "<b>" + esc(it.part) + ":</b> " : "") + esc(it.why || "") + "</p></article>";
+  }
+  function releases(s) {
+    var r = s.releases, back = '<div class="row gap"><button class="btn wide" type="button" data-tab="nightly">Back to the Nightly tab</button></div>';
+    if (!r) return '<h1>Release watch</h1><p class="none">No release watch file on the Mac yet. The release-watch run at 10:20 each day writes it.</p>' + back;
+    var lr = r.last_run || {}, items = r.items || [];
+    var sub = "Release notes that could let clavesa drop a part, get simpler or use another runner. Last run " + rwStamp(lr.at) + ": read " + (lr.read || 0) +
+      ", " + (lr.new || 0) + " new, kept " + (lr.kept || 0) + ", " + (lr.model_calls || 0) + " " + (lr.model || "model") + (lr.model_calls === 1 ? " call, " : " calls, ") + Math.round(lr.seconds || 0) + " s." +
+      (r.last_push ? " Last push " + ddmm(r.last_push) + "." : "");
+    var warn = (lr.errors || []).map(function (e) { return '<p class="err">' + esc(e) + "</p>"; }).join("") +
+      (lr.gaps || []).map(function (g) { return '<p class="err">' + esc(g) + ": the feed starts after the last run, so some items were missed.</p>"; }).join("");
+    var src = r.sources || [], max = Math.max.apply(null, src.map(function (x) { return x.kept + x.dropped; }).concat([1]));
+    var bars = src.map(function (x) {
+      var all = x.kept + x.dropped;
+      return '<div class="qrow"><span class="k">' + esc(x.source) + '</span><div class="bar"><b class="rwall" data-w="' + Math.round(all / max * 100) + '"><i data-w="' + (all ? Math.round(x.kept / all * 100) : 0) + '"></i></b></div><span class="r">' + x.kept + " of " + all + "</span></div>";
+    }).join("");
+    var body = RW_SECTIONS.map(function (sec) {
+      var list = items.filter(function (it) { return it.use === sec[0]; });
+      if (!list.length) return "";
+      var head = sec[1] + ' <span class="n">' + list.length + "</span>";
+      if (sec[0] === "nothing yet") return '<details class="rwmore"><summary><h2>' + head + "</h2></summary>" + list.map(rwItem).join("") + "</details>";
+      return "<h2>" + head + "</h2>" + list.map(rwItem).join("");
+    }).join("");
+    return "<h1>Release watch</h1><p class=\"sub\">" + esc(sub) + "</p>" + warn + body +
+      (items.length ? "" : '<p class="none">Nothing kept yet.</p>') +
+      '<article class="card chartcard"><h3>Kept and left out, per source</h3><p class="q">Every run in the file. The green part was kept; the rest the model or the feed filter left out.</p>' + (bars || '<p class="none">No runs yet.</p>') + "</article>" + back;
+  }
+
   // ---- stats (the nightly podbay-mobile-traffic rollup) ----------------------------
 
   function dayBars(days, key, color, label) {
@@ -759,7 +815,7 @@
     return "<h1>Nightly runs</h1><p class=\"sub\">" + esc(summary) + "</p>" +
       '<article class="card chartcard"><h3>Every job, the last 7 nights</h3><p class="q">One cell per scheduled run, today on the right</p>' + g +
       '<div class="legend"><span class="ok">passed</span><span class="fail">failed</span><span class="skip">skipped</span><span class="miss">did not run</span><span class="unknown">no record</span><span>not scheduled</span></div></article>' +
-      runsBlock(s);
+      releasesCard(s) + runsBlock(s);
   }
 
   // ---- the chat with Head Jeeves -------------------------------------------------
@@ -956,7 +1012,7 @@
         return;
       }
       freshness();
-      $("#tabs").innerHTML = tabs(app.route === "stats" || app.route === "costs" ? "machine" : app.route);
+      $("#tabs").innerHTML = tabs((app.route === "stats" || app.route === "costs" ? "machine" : app.route === "releases" ? "nightly" : app.route));
       // While the chat box is in use, a poll redraws only the list under
       // it: the keyboard stays up and nothing typed is lost.
       var chat = $("#chat");
@@ -975,6 +1031,7 @@
       else if (app.route === "thread") html = thread();
       else if (app.route === "stats") html = stats();
       else if (app.route === "costs") html = costs(s);
+      else if (app.route === "releases") html = releases(s);
       else html = board(s);
       if (app.error && s) html = '<p class="err">' + esc(app.error) + "</p>" + html;
       if (app.route !== "thread") html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
@@ -1027,7 +1084,7 @@
       app.route = "nightly";
       app.sheet = { kind: "log", label: parts[1], day: parts[2] };
     } else {
-      app.route = ["board", "machine", "nightly", "thread", "stats", "costs"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
+      app.route = ["board", "machine", "nightly", "thread", "stats", "costs", "releases"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
     }
     if (app.route === "thread") { app.stick = true; loadMessages(); }
     if (app.route === "stats") loadStats();
@@ -1196,6 +1253,7 @@
     if (t.dataset.push) { turnOnPush(); return; }
     if (t.dataset.stats) { app.sheet = null; go("stats"); loadStats(); return; }
     if (t.dataset.costs) { app.sheet = null; go("costs"); return; }
+    if (t.dataset.releases) { app.sheet = null; go("releases"); return; }
     if (t.dataset.cacct) { var ca = costsPrefs(); ca.acct = t.dataset.cacct; ca.sel = -1; saveCosts(); track("costs-account", { n: [].indexOf.call(t.parentNode.children, t) }); render(); return; }
     if (t.dataset.crange) { var cr = costsPrefs(); cr.range = Number(t.dataset.crange); cr.sel = -1; saveCosts(); track("costs-range", { days: cr.range }); render(); return; }
     if (t.dataset.csvc) { var cs = costsPrefs(); if (cs.hidden[t.dataset.csvc]) delete cs.hidden[t.dataset.csvc]; else cs.hidden[t.dataset.csvc] = 1; saveCosts(); track("costs-service", { on: cs.hidden[t.dataset.csvc] ? 0 : 1 }); render(); return; }

@@ -154,6 +154,21 @@
    "line": null
   }
  ],
+ "releases": {
+  "generated": "2026-11-21T10:20:00+02:00",
+  "window_days": 30,
+  "last_run": {"at": "2026-11-21T10:20:00+02:00", "read": 40, "new": 12, "kept": 3, "model": "opus", "model_calls": 1, "seconds": 31.4, "errors": [], "gaps": []},
+  "last_push": "2026-11-21",
+  "sources": [
+   {"source": "Example Cloud", "kept": 2, "dropped": 20},
+   {"source": "Example Engine", "kept": 1, "dropped": 2}
+  ],
+  "items": [
+   {"id": "r1", "source": "Example Engine", "group": "Engines", "date": "2026-11-20", "title": "Example Engine 2.0 writes clustered tables", "link": "https://example.com/engine-2", "use": "runner", "part": "Alternative runner", "why": "Closes a known gap of the engine, so it could run more pipelines.", "breaks": false, "found": "2026-11-21", "pushed_at": "2026-11-21T10:20+02:00"},
+   {"id": "r2", "source": "Example Cloud", "group": "Cloud", "date": "2026-11-19", "title": "Catalog accepts writes from outside", "link": "https://example.com/catalog", "use": "remove", "part": "Shadow tables", "why": "Outside writers may now write managed tables, so the shadow tables could go.", "breaks": true, "found": "2026-11-21", "pushed_at": null},
+   {"id": "r3", "source": "Example Cloud", "group": "Cloud", "date": "2026-11-18", "title": "Functions get a new log format", "link": "https://example.com/logs", "use": "nothing yet", "part": "Logs", "why": "Touches the logs it reads, with no use yet.", "breaks": false, "found": "2026-11-21", "pushed_at": null}
+  ]
+ },
  "spend": {
   "generated": "2026-11-03 19:10",
   "accounts": [

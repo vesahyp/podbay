@@ -177,6 +177,25 @@ async def costs_checks(page, check) -> None:
     await page.click("[data-cacct='shop']")
 
 
+async def releases_checks(page, check) -> None:
+    """The Release watch screen over the fixture's made-up releases part:
+    the Nightly tab's card opens it, a push link (#releases) opens it
+    straight, the pushed item says when, and the per-source bars draw."""
+    await page.goto(f"{ORIGIN}/#nightly", wait_until="networkidle")
+    await page.click("[data-releases]")
+    await page.wait_for_selector(".rwitem")
+    check("releases: the Nightly card opens the screen", "#releases" in page.url)
+    await page.goto(f"{ORIGIN}/#board", wait_until="networkidle")
+    await page.goto(f"{ORIGIN}/#releases", wait_until="networkidle")
+    await page.wait_for_selector(".rwitem")
+    main_text = (await page.inner_text("#main")).lower()
+    check("releases: a push link opens the screen", "could remove a part" in main_text and "another runner" in main_text, main_text[:160])
+    pushed = await page.inner_text(".rwitem.pushed")
+    check("releases: the pushed item says when", "pushed 21.11 10:20" in pushed, pushed[:160])
+    check("releases: one bar per source", await page.locator(".bar b.rwall").count() == 2)
+    check("releases: the Nightly tab is on", await page.get_attribute(".tab.on", "data-tab") == "nightly")
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
@@ -292,6 +311,9 @@ async def main() -> int:
         if not args.no_check and state.get("spend"):
             await costs_checks(page, check)
             await full("costs")
+        if not args.no_check and state.get("releases"):
+            await releases_checks(page, check)
+            await full("releases")
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
 

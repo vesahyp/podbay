@@ -51,7 +51,10 @@ Keys:
   mobile_spend_file  the AWS cost report.json the home repo's monthly
               aws-costs run writes, for the Costs screen (Machine tab).
               Empty leaves it out.
-  mobile_url  the app's address. `podbay notify` then links to the app,
+  mobile_releases_file  the release-watch.json the home repo's daily
+              release-watch run writes, for the Release watch screen
+              (Nightly tab). Empty leaves it out.
+  mobile_url the app's address. `podbay notify` then links to the app,
               and `--line <id>` to one line in it.
   mobile_push_command  the command that registers the app's Web Push
               subscription with the push sender; it gets the subscription
@@ -91,6 +94,7 @@ KEYS = {
     "mobile-cron-dir": "mobile_cron_dir",
     "mobile-runs-file": "mobile_runs_file",
     "mobile-spend-file": "mobile_spend_file",
+    "mobile-releases-file": "mobile_releases_file",
     "mobile-url": "mobile_url",
     "mobile-push-command": "mobile_push_command",
 }

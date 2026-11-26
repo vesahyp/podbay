@@ -178,6 +178,43 @@ def test_build_carries_the_spend_part():
     assert len(json.dumps(state["spend"])) < 2000
 
 
+def _release_watch() -> dict:
+    """A release-watch.json as the home repo writes it, with made-up items."""
+    item = {"id": "a1", "source": "Sail", "group": "Sail", "date": "2026-11-20", "title": "v9.9.9",
+            "link": "https://example.com/r", "use": "runner", "part": "Sail runner", "why": "Closes a gap.",
+            "breaks": False, "found": "2026-11-21", "pushed": True, "pushed_at": "2026-11-21T10:20+02:00",
+            "text": "left out"}
+    return {
+        "generated": "2026-11-21T10:20:00+02:00", "window_days": 30, "last_push": "2026-11-21",
+        "last_run": {"at": "2026-11-21T10:20:00+02:00", "read": 40, "new": 12, "kept": 2, "model": "opus",
+                     "model_calls": 1, "seconds": 30.0, "errors": [], "gaps": [], "per_source": {}},
+        "runs": [{"per_source": {"Sail": {"judged": 1, "kept": 1, "dropped": 0},
+                                 "Databricks": {"judged": 9, "kept": 1, "dropped": 8}}},
+                 {"per_source": {"Databricks": {"judged": 3, "kept": 0, "dropped": 3}}}],
+        "items": [item,
+                  {**item, "id": "b2", "date": "2026-11-21", "use": "odd", "breaks": "yes", "pushed_at": None},
+                  {"id": "c3"}],
+    }
+
+
+def test_releases_part_keeps_items_counts_and_push_times():
+    out = snapshot.releases_part(_release_watch())
+    assert [x["id"] for x in out["items"]] == ["b2", "a1"]
+    assert out["items"][0]["use"] == "nothing yet" and out["items"][0]["breaks"] is False
+    assert out["items"][1]["pushed_at"] == "2026-11-21T10:20+02:00" and "text" not in out["items"][1]
+    assert out["sources"] == [{"source": "Databricks", "kept": 1, "dropped": 11},
+                              {"source": "Sail", "kept": 1, "dropped": 0}]
+    assert out["last_run"]["model_calls"] == 1 and "per_source" not in out["last_run"]
+    assert snapshot.releases_part(None) is None
+
+
+def test_build_carries_the_releases_part():
+    state = snapshot.build(payload={"sessions": []}, headlines={}, quota_payload=None, health=None, power=None,
+                           docker_up=None, agents=[], crontab_text="", cron_dir=None, runs_json=None,
+                           releases_json=_release_watch(), now=NOW)
+    assert state["releases"]["last_push"] == "2026-11-21"
+
+
 def test_read_spend_json_and_runs_json_cache_apart(tmp_path):
     a, b = tmp_path / "runs.json", tmp_path / "report.json"
     a.write_text('{"runs": []}')

@@ -235,6 +235,18 @@ body.chatting { padding-bottom: calc(150px + var(--safe-bottom)); }
 .ccard .mini { margin-bottom: 4px; }
 .ccard .chev { color: var(--muted); font-size: 22px; }
 .ccard.warnish { border-color: #4a3410; }
+/* Release watch: items, the pushed ones edged amber, and the per-source bars
+   (the whole bar is what was read, the green part what was kept). */
+.rwitem h3 { margin: 4px 0 6px; font-size: 15px; line-height: 1.3; }
+.rwitem h3 a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.rwitem .mini { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+.rwitem.pushed { border-color: #4a3410; }
+.bar b.rwall { background: #4a4038; overflow: hidden; }
+.bar b.rwall i { display: block; height: 100%; background: var(--green); width: 0; }
+.rwmore summary { list-style: none; cursor: pointer; }
+.rwmore summary::-webkit-details-marker { display: none; }
+.rwmore summary h2::after { content: " ›"; color: var(--muted); }
+.rwmore[open] summary h2::after { content: " ⌄"; }
 .ctiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
 .ctile { margin: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; color: inherit; font: inherit; padding: 10px; min-width: 0; }
 .ctile .big { font-size: 17px; }
