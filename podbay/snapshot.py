@@ -552,7 +552,8 @@ def pushes_part(entries: list[dict], alarm_states: dict[str, str] | None, now: d
             continue
         if at < cutoff or not e.get("title"):
             continue
-        key = (round(at, 3), str(e.get("title")))
+        # The AWS sender's retries of one SNS message are one push.
+        key = ("sns", str(e["message_id"])) if e.get("message_id") else (round(at, 3), str(e.get("title")))
         if key in seen:
             continue
         seen.add(key)

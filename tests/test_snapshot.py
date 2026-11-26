@@ -238,6 +238,8 @@ def test_pushes_part_merges_senders_newest_first_with_alarm_state_now():
     assert alarm["state"] == "ALARM" and alarm["state_now"] == "OK" and "[removed]" in alarm["body"]
     assert out["items"][3]["url"].endswith("#line/s1")
     assert snapshot.pushes_part([entries[1]], {}, NOW)["items"][0]["state_now"] is None
+    retries = [{**entries[2], "at": t - 3000 + k * 60, "message_id": "m1", "delivered": 0} for k in range(3)]
+    assert len(snapshot.pushes_part(retries, {}, NOW)["items"]) == 1
 
 
 def test_read_pushes_file_skips_broken_lines(tmp_path):
