@@ -48,7 +48,10 @@ def shifted() -> tuple[dict, dict]:
         for k in TIME_KEYS:
             if m.get(k):
                 m[k] += delta
-    state["generated_at"] = int(time.time()) - 20
+    now = int(time.time()) - 20
+    for p in (state.get("pushes") or {}).get("items") or []:
+        p["at"] += now - state["generated_at"]
+    state["generated_at"] = now
     return state, msgs
 
 
@@ -196,6 +199,34 @@ async def releases_checks(page, check) -> None:
     check("releases: the Nightly tab is on", await page.get_attribute(".tab.on", "data-tab") == "nightly")
 
 
+async def pushes_checks(page, check) -> None:
+    """The Pushes tab over the fixture's made-up pushes: newest first, an
+    open alarm says so on the tab and the card, a fixed one says OK now,
+    a push that reached no device says so, a Head Jeeves push opens its
+    board line, a release-watch push its screen, and an outside link in a
+    body is a link."""
+    await page.goto(f"{ORIGIN}/#board", wait_until="networkidle")
+    await page.click("[data-tab='pushes']")
+    await page.wait_for_selector(".pitem")
+    check("pushes: the tab opens the list", "#pushes" in page.url)
+    titles = await page.locator(".pitem h3").all_inner_texts()
+    check("pushes: newest first", titles[:1] == ["fixture-mac: Head Jeeves"] and len(titles) == 6, titles)
+    check("pushes: the tab badge counts open alarms", (await page.inner_text("[data-tab='pushes'] .badge")) == "1")
+    text = (await page.inner_text("#main")).lower()
+    check("pushes: open and fixed alarms", "still in alarm: shop-api-down" in text and "ok now" in text, text[:200])
+    check("pushes: a push no device took", "no device took it" in text)
+    check("pushes: the outside link is a link", await page.locator(".pitem .pbody a[href='https://example.com/runbook']").count() == 1)
+    check("pushes: the per-day chart draws", await page.locator(".chartcard svg rect").count() >= 1)
+    await page.click("[data-open-push='releases']")
+    await page.wait_for_selector(".rwitem")
+    check("pushes: a release-watch push opens its screen", "#releases" in page.url)
+    await page.goto(f"{ORIGIN}/#pushes", wait_until="networkidle")
+    await page.click("[data-open-push='line/fixture-decision']")
+    await page.wait_for_selector(".sheet")
+    check("pushes: a Head Jeeves push opens its board line", "#line/fixture-decision" in page.url and await page.get_attribute(".tab.on", "data-tab") == "board")
+    await page.goto(f"{ORIGIN}/#pushes", wait_until="networkidle")
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
@@ -314,6 +345,9 @@ async def main() -> int:
         if not args.no_check and state.get("releases"):
             await releases_checks(page, check)
             await full("releases")
+        if not args.no_check and state.get("pushes"):
+            await pushes_checks(page, check)
+            await full("pushes")
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
 

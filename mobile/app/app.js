@@ -536,6 +536,59 @@
       '<article class="card chartcard"><h3>Kept and left out, per source</h3><p class="q">Every run in the file. The green part was kept; the rest the model or the feed filter left out.</p>' + (bars || '<p class="none">No runs yet.</p>') + "</article>" + back;
   }
 
+  // ---- pushes (the snapshot's pushes part: every push of the last 30 days) ----
+
+  var PUSH_KIND = { "head-jeeves": "Head Jeeves", nightly: "Nightly", "release-watch": "Release watch", alarm: "Alarm", aws: "AWS", other: "Mac" };
+  function isoDay(epoch) {
+    var d = new Date(epoch * 1000);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  // Where tapping a push goes: its own place in the app (a board line, a
+  // screen), or nothing when it only opened the board's top.
+  function pushTarget(p) {
+    var u = String(p.url || ""), i = u.indexOf("#");
+    var h = i >= 0 ? u.slice(i + 1) : "";
+    return h && h !== "board" ? h : "";
+  }
+  function linkify(text) {
+    return esc(text).replace(/https?:\/\/[^\s<>"']+/g, function (m) {
+      var u = safeUrl(m.replace(/&amp;/g, "&"));
+      return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + m + "</a>" : m;
+    });
+  }
+  function pushItem(p) {
+    var chips = '<span class="chip">' + esc(PUSH_KIND[p.kind] || p.kind) + "</span>";
+    if (p.kind === "alarm") {
+      chips += p.state_now === "ALARM" ? '<span class="chip red">still in alarm</span>' : p.state_now === "OK" ? '<span class="chip green">OK now</span>' :
+        p.state_now ? '<span class="chip amber">' + esc(p.state_now.toLowerCase().replace(/_/g, " ")) + " now</span>" : '<span class="chip">state unknown</span>';
+    }
+    if (!p.delivered) chips += '<span class="chip red">no device took it</span>';
+    var target = pushTarget(p), open = target ? '<span class="chev">›</span>' : "";
+    var inner = '<div class="mini"><span class="label">' + esc(hhmm(p.at)) + "</span>" + chips + open + "</div><h3>" + esc(p.title) + "</h3>" +
+      (p.body ? '<p class="q pbody">' + (target ? esc(p.body) : linkify(p.body)) + "</p>" : "");
+    return target ? '<button class="card pitem" type="button" data-open-push="' + esc(target) + '">' + inner + "</button>" : '<article class="card pitem">' + inner + "</article>";
+  }
+  function pushes(s) {
+    var p = s.pushes;
+    if (!p) return '<h1>Pushes</h1><p class="none">The Mac sends no push history yet.</p>';
+    var items = p.items || [], days = [], byDay = {}, today = isoDay(Date.now() / 1000);
+    for (var k = (p.days || 30) - 1; k >= 0; k--) { var iso = isoDay(Date.now() / 1000 - k * 86400); days.push({ date: iso, n: 0 }); byDay[iso] = days[days.length - 1]; }
+    items.forEach(function (it) { var d = byDay[isoDay(it.at)]; if (d) d.n++; });
+    var open = items.filter(function (it) { return it.kind === "alarm" && it.state_now === "ALARM"; }).map(function (it) { return it.alarm; });
+    open = open.filter(function (a, i) { return open.indexOf(a) === i; });
+    var sub = items.length + (items.length === 1 ? " push" : " pushes") + " in " + (p.days || 30) + " days, newest first. Tap one to open its board line or screen.";
+    var list = "", last = "";
+    items.forEach(function (it) {
+      var d = isoDay(it.at);
+      if (d !== last) { list += "<h2>" + esc(d === today ? "Today" : longDay(d)) + "</h2>"; last = d; }
+      list += pushItem(it);
+    });
+    return "<h1>Pushes</h1><p class=\"sub\">" + esc(sub) + "</p>" +
+      (open.length ? '<p class="err">Still in alarm: ' + esc(open.join(", ")) + "</p>" : "") +
+      '<article class="card chartcard"><h3>Pushes per day</h3>' + dayBars(days, "n", "#e0a030", "Pushes per day, last " + (p.days || 30) + " days") + "</article>" +
+      (list || '<p class="none">No pushes in ' + (p.days || 30) + " days.</p>");
+  }
+
   // ---- stats (the nightly podbay-mobile-traffic rollup) ----------------------------
 
   function dayBars(days, key, color, label) {
@@ -976,13 +1029,17 @@
     machine: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 13l3-3 3 2 4-4 2 2"/></svg>',
     nightly: '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
     thread: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+    pushes: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
   };
   function tabs(on) {
     var s = app.state, dec = s ? (s.board.sections.decision || []).length : 0, bad = 0;
     if (s) s.nightly.jobs.forEach(function (j) { var c = j.cells[j.cells.length - 1]; if (c && (c.state === "fail" || c.state === "miss")) bad++; });
     var queued = app.messages.filter(function (m) { return m.state === "expired"; }).length;
+    var open = {};
+    if (s && s.pushes) s.pushes.items.forEach(function (it) { if (it.kind === "alarm" && it.state_now === "ALARM") open[it.alarm] = 1; });
+    var alarms = Object.keys(open).length;
     return [["board", "Board", dec ? '<span class="badge amber">' + dec + "</span>" : ""], ["machine", "Machine", s && s.machine.overloaded ? '<span class="badge">!</span>' : ""],
-      ["nightly", "Nightly", bad ? '<span class="badge">' + bad + "</span>" : ""], ["thread", "Thread", queued ? '<span class="badge">' + queued + "</span>" : ""]]
+      ["nightly", "Nightly", bad ? '<span class="badge">' + bad + "</span>" : ""], ["thread", "Thread", queued ? '<span class="badge">' + queued + "</span>" : ""], ["pushes", "Pushes", alarms ? '<span class="badge">' + alarms + "</span>" : ""]]
       .map(function (t) { return '<button class="tab' + (t[0] === on ? " on" : "") + '" type="button" data-tab="' + t[0] + '" aria-current="' + (t[0] === on ? "page" : "false") + '">' + ICONS[t[0]] + t[1] + t[2] + "</button>"; }).join("");
   }
   function freshness() {
@@ -1032,6 +1089,7 @@
       else if (app.route === "stats") html = stats();
       else if (app.route === "costs") html = costs(s);
       else if (app.route === "releases") html = releases(s);
+      else if (app.route === "pushes") html = pushes(s);
       else html = board(s);
       if (app.error && s) html = '<p class="err">' + esc(app.error) + "</p>" + html;
       if (app.route !== "thread") html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
@@ -1084,7 +1142,7 @@
       app.route = "nightly";
       app.sheet = { kind: "log", label: parts[1], day: parts[2] };
     } else {
-      app.route = ["board", "machine", "nightly", "thread", "stats", "costs", "releases"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
+      app.route = ["board", "machine", "nightly", "thread", "stats", "costs", "releases", "pushes"].indexOf(parts[0]) >= 0 ? parts[0] : "board";
     }
     if (app.route === "thread") { app.stick = true; loadMessages(); }
     if (app.route === "stats") loadStats();
@@ -1254,6 +1312,7 @@
     if (t.dataset.stats) { app.sheet = null; go("stats"); loadStats(); return; }
     if (t.dataset.costs) { app.sheet = null; go("costs"); return; }
     if (t.dataset.releases) { app.sheet = null; go("releases"); return; }
+    if (t.dataset.openPush) { track("push-open", {}); location.hash = "#" + t.dataset.openPush; return; }
     if (t.dataset.cacct) { var ca = costsPrefs(); ca.acct = t.dataset.cacct; ca.sel = -1; saveCosts(); track("costs-account", { n: [].indexOf.call(t.parentNode.children, t) }); render(); return; }
     if (t.dataset.crange) { var cr = costsPrefs(); cr.range = Number(t.dataset.crange); cr.sel = -1; saveCosts(); track("costs-range", { days: cr.range }); render(); return; }
     if (t.dataset.csvc) { var cs = costsPrefs(); if (cs.hidden[t.dataset.csvc]) delete cs.hidden[t.dataset.csvc]; else cs.hidden[t.dataset.csvc] = 1; saveCosts(); track("costs-service", { on: cs.hidden[t.dataset.csvc] ? 0 : 1 }); render(); return; }

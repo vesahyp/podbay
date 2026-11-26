@@ -131,7 +131,7 @@ svg.sw { display: inline-block; width: 10px; height: 10px; margin-right: 5px; ve
 .acct + .acct, .qrow + .acct { margin-top: 14px; }
 
 /* Tab bar */
-.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(4, 1fr);
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: grid; grid-template-columns: repeat(5, 1fr);
   background: rgba(10,9,8,.97); border-top: 1px solid var(--line); padding: 0 6px calc(8px + var(--safe-bottom)); }
 .tab { background: none; border: 0; padding: 10px 0 4px; font: 11px var(--mono); color: var(--muted); position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 52px; }
 .tab svg { width: 22px; height: 22px; }
@@ -241,6 +241,14 @@ body.chatting { padding-bottom: calc(150px + var(--safe-bottom)); }
 .rwitem h3 a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 .rwitem .mini { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
 .rwitem.pushed { border-color: #4a3410; }
+/* Pushes: one card per push; a card that opens a line or a screen is a
+   button with a chevron, the others are plain. */
+.pitem { display: block; width: 100%; text-align: left; color: inherit; font: inherit; }
+.pitem h3 { margin: 4px 0 4px; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.pitem .mini { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+.pitem .chev { color: var(--muted); font-size: 22px; margin-left: auto; }
+.pitem .pbody { white-space: pre-line; overflow-wrap: anywhere; margin: 0; }
+.pitem .pbody a { color: inherit; text-decoration: underline; }
 .bar b.rwall { background: #4a4038; overflow: hidden; }
 .bar b.rwall i { display: block; height: 100%; background: var(--green); width: 0; }
 .rwmore summary { list-style: none; cursor: pointer; }
