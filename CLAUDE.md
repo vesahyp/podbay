@@ -109,7 +109,10 @@ podbay/
   snapshot.py       `podbay snapshot`: state.json, what both boards show
                       (board lines with ids, machine, accounts, nightly
                       cells from cronrun's history, clavesa run timings by
-                      phase, the AWS cost report as `spend`, the lines
+                      phase, the AWS cost report as `spend`, every push
+                      of 30 days as `pushes` (the Mac's history file and
+                      the AWS sender's table, alarm states from
+                      CloudWatch, AWS read at most every 5 min), the lines
                       the API may quote); log tails
                       scrubbed of keys. The screen writes it every minute
   boardview.py      the board screen in the TUI (key b), drawn from

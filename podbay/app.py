@@ -2490,6 +2490,8 @@ def gather_snapshot(now: datetime | None = None) -> dict:
     health = machine_mod.snapshot()
     health["overloaded"] = machine_mod.overload_reason(health)
     cron_dir = config.mobile_setting("mobile_cron_dir")
+    remote_pushes = snapshot_mod.read_pushes_table(config.mobile_setting("mobile_pushes_table"))
+    push_entries = snapshot_mod.read_pushes_file(config.mobile_setting("mobile_pushes_file")) + remote_pushes
     return snapshot_mod.build(
         payload=payload,
         headlines=headlines,
@@ -2503,6 +2505,8 @@ def gather_snapshot(now: datetime | None = None) -> dict:
         runs_json=snapshot_mod.read_runs_json(config.mobile_setting("mobile_runs_file")),
         spend_json=snapshot_mod.read_spend_json(config.mobile_setting("mobile_spend_file")),
         releases_json=snapshot_mod.read_releases_json(config.mobile_setting("mobile_releases_file")),
+        push_entries=push_entries,
+        alarm_states=snapshot_mod.read_alarm_states(remote_pushes),
         repos=snapshot_mod.read_repos(sources.REPOS_DIR),
         now=now,
     )

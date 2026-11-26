@@ -25,7 +25,11 @@ and uploads it when it changed (mobile.py); the API hands it to the app.
               writes (`podbay config mobile-releases-file`): the kept items
               with how each could help and when it was pushed, the last
               run, and the kept and dropped counts per source
-    lines    every id the app can reply to, with the target and quote the
+    pushes    every push of the last 30 days, newest first: the Mac's
+              history file (`podbay config mobile-pushes-file`) and the AWS
+              alarm sender's table (`mobile-pushes-table`), with each
+              alarm's state now from CloudWatch
+    lines   every id the app can reply to, with the target and quote the
               API puts in front of the text; the API never takes these from
               the phone
     repos     the repos a new session can start in
@@ -42,7 +46,7 @@ import os
 import plistlib
 import re
 import subprocess
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from . import board, machine
@@ -507,6 +511,72 @@ def releases_part(report: dict | None) -> dict | None:
     }
 
 
+# --- push history -------------------------------------------------------------
+
+PUSH_DAYS = 30
+PUSH_MAX_ITEMS = 300
+PUSH_BODY_CHARS = 600
+
+
+def push_kind(entry: dict) -> str:
+    """Which sender a push came from, by its tag: head-jeeves (podbay
+    notify), nightly (cronrun, cron-digest and the other jobs' watchers),
+    release-watch, alarm (a CloudWatch alarm through the AWS sender), aws
+    (another AWS message, such as a budget) or other."""
+    tag = str(entry.get("tag") or "")
+    if entry.get("source") == "aws":
+        return "alarm" if entry.get("alarm") else "aws"
+    if tag == "head-jeeves":
+        return "head-jeeves"
+    if tag == "release-watch":
+        return "release-watch"
+    if tag.startswith("cron-") or tag in ("clavesawatch", "dnswatch"):
+        return "nightly"
+    return "other"
+
+
+def pushes_part(entries: list[dict], alarm_states: dict[str, str] | None, now: datetime) -> dict:
+    """Every push of the last PUSH_DAYS days, newest first, from the Mac's
+    history file and the AWS sender's table together. An alarm push gets
+    `state_now` from CloudWatch (ALARM, OK, INSUFFICIENT_DATA, or None
+    when unknown), so an alarm that was fixed does not look open."""
+    cutoff = now.timestamp() - PUSH_DAYS * 86400
+    items = []
+    seen = set()
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        try:
+            at = float(e.get("at") or 0)
+        except (TypeError, ValueError):
+            continue
+        if at < cutoff or not e.get("title"):
+            continue
+        key = (round(at, 3), str(e.get("title")))
+        if key in seen:
+            continue
+        seen.add(key)
+        kind = push_kind(e)
+        x = {
+            "at": round(at),
+            "title": scrub(str(e.get("title")))[:200],
+            "body": "\n".join(scrub(line) for line in str(e.get("body") or "").splitlines())[:PUSH_BODY_CHARS],
+            "url": str(e.get("url") or ""),
+            "tag": str(e.get("tag") or ""),
+            "kind": kind,
+            "source": str(e.get("source") or ""),
+            "delivered": int(_num(e.get("delivered"))),
+        }
+        if kind == "alarm":
+            name, region = str(e.get("alarm")), str(e.get("region") or "")
+            x["alarm"] = name
+            x["state"] = str(e.get("state") or "")
+            x["state_now"] = (alarm_states or {}).get(f"{region}/{name}")
+        items.append(x)
+    items.sort(key=lambda x: x["at"], reverse=True)
+    return {"days": PUSH_DAYS, "items": items[:PUSH_MAX_ITEMS]}
+
+
 # --- the whole object --------------------------------------------------------
 
 
@@ -524,6 +594,8 @@ def build(
     runs_json: dict | None,
     spend_json: dict | None = None,
     releases_json: dict | None = None,
+    push_entries: list[dict] | None = None,
+    alarm_states: dict[str, str] | None = None,
     repos: list[str] | None = None,
     now: datetime | None = None,
 ) -> dict:
@@ -554,6 +626,7 @@ def build(
         "runs": runs_part(runs_json),
         "spend": spend_part(spend_json),
         "releases": releases_part(releases_json),
+        "pushes": pushes_part(push_entries or [], alarm_states, now),
         "lines": lines,
         "repos": repos,
     }
@@ -681,3 +754,123 @@ def read_spend_json(path: str | None) -> dict | None:
 def read_releases_json(path: str | None) -> dict | None:
     """release-watch.json from `podbay config mobile-releases-file`."""
     return read_json_file(path)
+
+
+_lines_cache: dict[str, dict] = {}
+
+
+def read_pushes_file(path: str | None) -> list[dict]:
+    """The Mac's push history (`podbay config mobile-pushes-file`), one JSON
+    object per line, read again only when the file changes. Broken lines
+    are skipped."""
+    if not path:
+        return []
+    p = Path(path).expanduser()
+    try:
+        st = p.stat()
+    except OSError:
+        return []
+    key = (st.st_mtime_ns, st.st_size)
+    cached = _lines_cache.get(str(p))
+    if not cached or cached["key"] != key:
+        rows = []
+        try:
+            for line in p.read_text(errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
+        except OSError:
+            rows = []
+        cached = _lines_cache[str(p)] = {"key": key, "data": rows}
+    return cached["data"]
+
+
+# The AWS reads run on the snapshot's worker thread once a minute, but ask
+# AWS at most every AWS_EVERY seconds: an alarm push is rare, and the state
+# of an alarm a few minutes late is still right enough to read. A failed
+# read keeps the last good answer, so a network gap does not empty the list.
+AWS_EVERY = 300
+_aws_cache: dict[str, dict] = {}
+
+
+def _aws_client(service: str, region: str | None = None):
+    from botocore.config import Config
+
+    from . import mobile
+
+    return mobile.session().client(service, region_name=region,
+                                   config=Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 2}))
+
+
+def _cached(key: str, fetch, now: float):
+    hit = _aws_cache.get(key)
+    if hit and now - hit["at"] < AWS_EVERY:
+        return hit["data"]
+    try:
+        data = fetch()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("snapshot: %s read failed: %s", key.split(":")[0], exc)
+        data = hit["data"] if hit else None
+    _aws_cache[key] = {"at": now, "data": data}
+    return data
+
+
+def read_pushes_table(table: str | None, now: float | None = None) -> list[dict]:
+    """The AWS alarm sender's copies of its pushes (`podbay config
+    mobile-pushes-table`): one Query of the "push" partition, the last
+    PUSH_DAYS days, newest first."""
+    if not table:
+        return []
+    now = now or datetime.now().timestamp()
+
+    def fetch() -> list[dict]:
+        since = datetime.fromtimestamp(now - PUSH_DAYS * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        client = _aws_client("dynamodb")
+        rows, start = [], None
+        while len(rows) < PUSH_MAX_ITEMS:
+            kw = {"TableName": table, "KeyConditionExpression": "pk = :p AND sk >= :s", "ScanIndexForward": False,
+                  "ExpressionAttributeValues": {":p": {"S": "push"}, ":s": {"S": since}}}
+            if start:
+                kw["ExclusiveStartKey"] = start
+            out = client.query(**kw)
+            for item in out.get("Items") or []:
+                rows.append({k: (v.get("S") if "S" in v else float(v["N"]) if "N" in v else None) for k, v in item.items()})
+            start = out.get("LastEvaluatedKey")
+            if not start:
+                break
+        return rows
+
+    return _cached(f"dynamodb:{table}", fetch, now) or []
+
+
+def read_alarm_states(entries: list[dict], now: float | None = None) -> dict[str, str]:
+    """The state now of every alarm named in `entries`, as
+    {"<region>/<name>": "ALARM" | "OK" | "INSUFFICIENT_DATA"}. An alarm that
+    no longer exists is left out, so the app says its state is unknown."""
+    wanted: dict[str, set[str]] = {}
+    for e in entries:
+        if e.get("alarm") and e.get("region"):
+            wanted.setdefault(str(e["region"]), set()).add(str(e["alarm"]))
+    if not wanted:
+        return {}
+    now = now or datetime.now().timestamp()
+    states: dict[str, str] = {}
+    for region, names in wanted.items():
+        names_sorted = sorted(names)
+
+        def fetch(region=region, names_sorted=names_sorted) -> dict[str, str]:
+            client = _aws_client("cloudwatch", region)
+            got: dict[str, str] = {}
+            for i in range(0, len(names_sorted), 100):
+                out = client.describe_alarms(AlarmNames=names_sorted[i:i + 100], AlarmTypes=["MetricAlarm", "CompositeAlarm"])
+                for a in (out.get("MetricAlarms") or []) + (out.get("CompositeAlarms") or []):
+                    got[f"{region}/{a['AlarmName']}"] = a["StateValue"]
+            return got
+
+        states.update(_cached(f"cloudwatch:{region}:{','.join(names_sorted)}", fetch, now) or {})
+    return states

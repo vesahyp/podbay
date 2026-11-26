@@ -54,6 +54,12 @@ Keys:
   mobile_releases_file  the release-watch.json the home repo's daily
               release-watch run writes, for the Release watch screen
               (Nightly tab). Empty leaves it out.
+  mobile_pushes_file  the push history the Mac's push sender writes, one
+              JSON line per push, for the Pushes tab. Empty leaves it out.
+  mobile_pushes_table  the DynamoDB table where the AWS alarm sender
+              keeps its copy of each push, read with mobile_profile; the
+              alarms in it get their state now from CloudWatch. Empty
+              leaves those pushes out.
   mobile_url the app's address. `podbay notify` then links to the app,
               and `--line <id>` to one line in it.
   mobile_push_command  the command that registers the app's Web Push
@@ -95,6 +101,8 @@ KEYS = {
     "mobile-runs-file": "mobile_runs_file",
     "mobile-spend-file": "mobile_spend_file",
     "mobile-releases-file": "mobile_releases_file",
+    "mobile-pushes-file": "mobile_pushes_file",
+    "mobile-pushes-table": "mobile_pushes_table",
     "mobile-url": "mobile_url",
     "mobile-push-command": "mobile_push_command",
 }

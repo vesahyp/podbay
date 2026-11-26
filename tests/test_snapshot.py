@@ -215,6 +215,39 @@ def test_build_carries_the_releases_part():
     assert state["releases"]["last_push"] == "2026-11-21"
 
 
+def test_pushes_part_merges_senders_newest_first_with_alarm_state_now():
+    t = NOW.timestamp()
+    entries = [
+        {"at": t - 100, "title": "Head Jeeves", "body": "Ship now?", "url": "https://app.example/#line/s1",
+         "tag": "head-jeeves", "source": "Mac", "delivered": 1},
+        {"at": t - 50, "title": "OK: api-down", "body": "Back to normal.", "url": "https://app.example/", "tag": "alarm-api-down",
+         "source": "aws", "delivered": 1, "alarm": "api-down", "region": "eu-north-1", "state": "OK"},
+        {"at": t - 3000, "title": "ALARM: api-down", "body": "key=" + "A" * 45, "tag": "alarm-api-down",
+         "source": "aws", "delivered": 1, "alarm": "api-down", "region": "eu-north-1", "state": "ALARM"},
+        {"at": t - 20, "title": "nightly-x failed", "tag": "cron-nightly-x", "source": "Mac", "delivered": 0},
+        {"at": t - 10, "title": "Release notes", "tag": "release-watch", "source": "Mac"},
+        {"at": t - 10, "title": "Release notes", "tag": "release-watch", "source": "Mac"},  # the same push twice
+        {"at": t - 31 * 86400, "title": "too old", "tag": "jeeves"},
+        {"at": "x", "title": "broken"},
+        "not a dict",
+    ]
+    out = snapshot.pushes_part(entries, {"eu-north-1/api-down": "OK"}, NOW)
+    assert [x["kind"] for x in out["items"]] == ["release-watch", "nightly", "alarm", "head-jeeves", "alarm"]
+    assert out["items"][1]["delivered"] == 0
+    alarm = out["items"][4]
+    assert alarm["state"] == "ALARM" and alarm["state_now"] == "OK" and "[removed]" in alarm["body"]
+    assert out["items"][3]["url"].endswith("#line/s1")
+    assert snapshot.pushes_part([entries[1]], {}, NOW)["items"][0]["state_now"] is None
+
+
+def test_read_pushes_file_skips_broken_lines(tmp_path):
+    p = tmp_path / "pushes.jsonl"
+    p.write_text('{"at": 1, "title": "a"}\nnot json\n[1]\n{"at": 2, "title": "b"}\n')
+    assert [r["title"] for r in snapshot.read_pushes_file(str(p))] == ["a", "b"]
+    assert snapshot.read_pushes_file(str(tmp_path / "missing.jsonl")) == []
+    assert snapshot.read_pushes_table("") == [] and snapshot.read_alarm_states([{"title": "no alarm"}]) == {}
+
+
 def test_read_spend_json_and_runs_json_cache_apart(tmp_path):
     a, b = tmp_path / "runs.json", tmp_path / "report.json"
     a.write_text('{"runs": []}')
