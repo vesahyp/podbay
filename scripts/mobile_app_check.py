@@ -84,6 +84,27 @@ async def main() -> int:
         await page.screenshot(path=str(OUT / "mobile-app-0-signin.png"))
         await ctx.close()
 
+        # 1b. A login whose access token ran out an hour ago: the app renews
+        # it from the refresh token at the real Cognito, with no sign-in
+        # (mobile/app/auth.js; scripts/auth_check.mjs has the offline cases).
+        ctx = await browser.new_context(**device)
+        stale = dict(test_tokens(), access="expired", exp=int(time.time() * 1000) - 3600_000)
+        await ctx.add_init_script(f"if (!sessionStorage.getItem('seeded')) {{ sessionStorage.setItem('seeded', '1'); localStorage.setItem('podbay.auth', {json.dumps(json.dumps(stale))}); }}")
+        page = await ctx.new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        renewals: list[int] = []
+
+        async def on_response(r) -> None:
+            if "cognito-idp" in r.url and "REFRESH_TOKEN_AUTH" in (r.request.post_data or ""):
+                renewals.append(r.status)
+        page.on("response", on_response)
+        await page.goto(f"{URL}/#board", wait_until="networkidle")
+        await page.wait_for_selector("main h1", timeout=15000)
+        renewed = await page.evaluate("(JSON.parse(localStorage.getItem('podbay.auth') || 'null') || {}).access || ''")
+        check("auth: an expired access token is renewed, no sign-in", renewals == [200] and await page.locator("input#email").count() == 0
+              and renewed not in ("", "expired"), renewals)
+        await ctx.close()
+
         # 2. Signed in as the test user.
         ctx = await browser.new_context(**device)
         auth = test_tokens()
