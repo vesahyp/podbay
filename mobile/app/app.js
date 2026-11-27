@@ -63,6 +63,7 @@
   function applyWidths(root) {
     (root || document).querySelectorAll("[data-w]").forEach(function (el) {
       el.style.width = Math.max(0, Math.min(100, Number(el.getAttribute("data-w")) || 0)) + "%";
+      if (el.hasAttribute("data-bg")) el.style.background = el.getAttribute("data-bg");
     });
   }
 
@@ -751,7 +752,7 @@
         '<div class="prow total"><span>All services</span><span>' + usd(tot) + "</span></div>" +
         rows.map(function (r) {
           return '<div class="qrow' + (p.hidden[r[0]] ? " off" : "") + '"><span class="k"><svg class="sw" viewBox="0 0 10 10"><rect width="10" height="10" rx="2" fill="' + col[r[0]] + '"/></svg>' + esc(r[0]) +
-            '</span><div class="bar"><b style="background:' + col[r[0]] + '" data-w="' + Math.round((r[1] / max) * 100) + '"></b></div><span class="r">' + r[1].toFixed(2) + "</span></div>";
+            '</span><div class="bar"><b data-bg="' + col[r[0]] + '" data-w="' + Math.round((r[1] / max) * 100) + '"></b></div><span class="r">' + r[1].toFixed(2) + "</span></div>";
         }).join("") + (rows.length ? "" : '<p class="none">No running cost this day.</p>') +
         (anomalyDay[d] || []).map(function (x) {
           return '<p class="q">' + esc(x.service + ": " + (x.kind === "new service" ? "new service" : "+" + (x.excess || 0).toFixed(2) + " USD above normal") +
