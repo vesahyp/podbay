@@ -47,7 +47,7 @@ app only.
   30 d / 90 d.
 - **Usage types** under a service (tap a chip twice). This needs the usage
   types in the snapshot, which `docs/aws-costs.md` keeps out for size: more
-  than 3 KB gzipped. Do this one only if Vesa asks for it.
+  than 3 KB gzipped. Do this one only if asked for.
 
 ## Monthly running cost
 
@@ -79,5 +79,5 @@ The app path adds nothing measurable:
 **Run the existing report daily: about 2 USD a month.** It turns the chart
 that exists into a daily view, with one crontab line and one threshold in
 the app. Hourly costs 24 times more for data that AWS refreshes once a day.
-Add "All accounts" and the date range as a second slice if Vesa wants more
+Add "All accounts" and the date range as a second slice if more is wanted
 of Cost Explorer after he has used the daily view.

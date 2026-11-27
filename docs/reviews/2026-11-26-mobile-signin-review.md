@@ -186,7 +186,7 @@ Two cheap additions, not needed now:
   passkey on that same sign-in. The ADR treats a send as a shell on the
   Mac. So `refresh_token_validity` is the longest time a copied token can
   type into Head Jeeves. At 30 days that window ends by itself every month;
-  at 365 days only `podbay mobile signout` ends it, and only if Vesa
+  at 365 days only `podbay mobile signout` ends it, and only if the user
   notices.
 - **The monthly cost is now small and on a known date.** Without rotation
   the expiry is fixed from the sign-in, not from the last use. The current
