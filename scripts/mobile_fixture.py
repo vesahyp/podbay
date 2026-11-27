@@ -10,13 +10,16 @@ chat messages, Head Jeeves' own lines and replies to board lines.
 shot). Checks: the chat is in time order, each line reply shows in the
 chat once and its answer only in the line's sheet, the sheet is in time
 order, and the session that waits on a question is orange on the board
-and the Machine tab.
+and the Machine tab, and the tab bar stays at the screen's bottom edge
+when scrolled and after a reply sheet with the keyboard up closes (see
+stuck_viewport).
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import mimetypes
 import sys
@@ -236,6 +239,72 @@ async def pushes_checks(page, check) -> None:
     check("pushes: an alarm push has nothing to open", await page.locator(".pitem:not(.tap)").count() == 3)
 
 
+# The home-screen app on an iPhone 16: the whole 852 pt screen, no Safari bars.
+SCREEN_H = 852
+# The iOS keyboard with its suggestion bar, about this tall.
+KEYBOARD_H = 300
+
+
+async def stuck_viewport(p, app_dir: Path, state: dict, msgs: dict, prefix: str, check) -> None:
+    """The tab bar at the bottom edge of the screen at every scroll
+    position, and after a reply sheet with the keyboard up is closed.
+    iOS 26 in standalone mode can keep the keyboard's shorter layout
+    viewport after the keyboard is gone (WebKit bug 297779), and anything at
+    bottom: 0 then floats mid-screen with the board drawn under it. Here
+    that state is made by shrinking the viewport by the keyboard's height
+    and leaving it short after the sheet closes; the shot is taken past the
+    viewport's end (captureBeyondViewport), so it shows the whole screen as
+    the phone does."""
+    browser, ctx = await fixture_context(p, app_dir, state, msgs, fixture_me())
+    await ctx.add_init_script("Object.defineProperty(navigator, 'standalone', {get: () => true});")
+    page = await ctx.new_page()
+    await page.set_viewport_size({"width": 393, "height": SCREEN_H})
+    cdp = await ctx.new_cdp_session(page)
+
+    async def screen(name: str) -> float:
+        """Shot of the whole screen; returns where the tab bar's bottom
+        edge is drawn, in pt from the top of the screen."""
+        await page.wait_for_timeout(150)
+        # Measured first: the capture resizes the page for a moment.
+        y, bottom = await page.evaluate("[scrollY, document.querySelector('#tabs').getBoundingClientRect().bottom]")
+        shot = await cdp.send("Page.captureScreenshot", {"captureBeyondViewport": True, "clip": {"x": 0, "y": y, "width": 393, "height": SCREEN_H, "scale": 1}})
+        (OUT / f"mobile-fixture-{prefix}-screen-{name}.png").write_bytes(base64.b64decode(shot["data"]))
+        await page.wait_for_timeout(100)
+        return bottom
+
+    await page.goto(f"{ORIGIN}/#board", wait_until="networkidle")
+    await page.wait_for_timeout(300)
+    end = await page.evaluate("document.documentElement.scrollHeight - innerHeight")
+    for name, y in (("top", 0), ("middle", end // 2), ("end", end)):
+        await page.evaluate(f"window.scrollTo(0, {y})")
+        bottom = await screen(f"board-{name}")
+        check(f"tab bar: at the screen's bottom edge, board scrolled to the {name}", abs(bottom - SCREEN_H) <= 1, bottom)
+    await page.evaluate(f"window.scrollTo(0, {end // 2})")
+    # A Reply button already on screen, so the board keeps its place.
+    await page.evaluate("""() => [...document.querySelectorAll('button[data-reply], button.thr')]
+        .find(b => { const r = b.getBoundingClientRect(); return r.top > 80 && r.bottom < innerHeight - 120; }).click()""")
+    await page.wait_for_selector(".sheet textarea")
+    await page.locator(".sheet textarea").focus()
+    # A resize here puts the page back at its top; the keyboard does not.
+    y = await page.evaluate("scrollY")
+    await page.set_viewport_size({"width": 393, "height": SCREEN_H - KEYBOARD_H})
+    await page.evaluate(f"window.scrollTo(0, {y})")
+    await screen("sheet-keyboard")
+    await page.locator(".scrim").click(position={"x": 200, "y": 40})
+    await page.wait_for_timeout(700)
+    bottom = await screen("sheet-closed")
+    check("tab bar: at the screen's bottom edge after the sheet closes, viewport left short", abs(bottom - SCREEN_H) <= 1, bottom)
+    await page.evaluate("window.scrollBy(0, 300)")
+    bottom = await screen("sheet-closed-scrolled")
+    check("tab bar: still at the bottom edge after scrolling on", abs(bottom - SCREEN_H) <= 1, bottom)
+    y = await page.evaluate("scrollY")
+    await page.set_viewport_size({"width": 393, "height": SCREEN_H})
+    await page.evaluate(f"window.scrollTo(0, {y})")
+    bottom = await screen("viewport-back")
+    check("tab bar: at the bottom edge once the viewport is whole again", abs(bottom - SCREEN_H) <= 1, bottom)
+    await browser.close()
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
@@ -359,6 +428,7 @@ async def main() -> int:
             await full("pushes")
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
+        await stuck_viewport(p, app_dir, state, msgs, args.prefix, check)
 
     print(f"→ {OUT}/mobile-fixture-{args.prefix}-*.png")
     if failures:

@@ -1078,6 +1078,9 @@
       var sheetKey = JSON.stringify([app.sheet, canSend(), me.passkeys, me.enrol_open, hist]);
       if (overlay.getAttribute("data-sheet") !== sheetKey || !app.sheet) {
         var sameSheet = JSON.parse(overlay.getAttribute("data-sheet") || "[null]")[0];
+        // A focused box that is removed never blurs, and iOS then keeps
+        // the keyboard's shorter viewport (see viewportGuard).
+        if (overlay.contains(document.activeElement)) document.activeElement.blur();
         overlay.innerHTML = sheet;
         overlay.setAttribute("data-sheet", sheetKey);
         if (hadText != null && $("#text") && JSON.stringify(sameSheet) === JSON.stringify(app.sheet)) $("#text").value = hadText;
@@ -1328,6 +1331,54 @@
   });
 
   window.addEventListener("hashchange", fromHash);
+
+  // The home-screen app on iOS 26 can keep the keyboard's shorter layout
+  // viewport after the keyboard closes (WebKit bug 297779): window.innerHeight
+  // stays about 300 px short, so everything at bottom: 0 (the tab bar, the
+  // chat box, a sheet) floats in the middle of the screen with the page
+  // under it. Only in standalone mode, where nothing but the keyboard
+  // changes the height: in Safari the address bar does too. When no text
+  // field has focus and the height is below the tallest seen at this width,
+  // a forced reflow often makes WebKit measure again; if it is still short,
+  // --stuck moves the bottom bars down by the missing height.
+  var standalone = navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  var fullH = {}, guardQueued = false;  // the tallest height seen, per width
+  function typing() {
+    var el = document.activeElement;
+    return !!el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "button" && el.type !== "submit"));
+  }
+  function viewportGuard(heal) {
+    guardQueued = false;
+    if (!standalone) return;
+    var w = window.innerWidth;
+    if (!(window.innerHeight <= fullH[w])) fullH[w] = window.innerHeight;
+    var gap = typing() ? 0 : fullH[w] - window.innerHeight;
+    if (gap > 4 && heal) {
+      var body = document.body, y = window.scrollY;
+      body.style.display = "none";
+      void body.offsetHeight;
+      body.style.display = "";
+      window.scrollTo(0, y);
+      gap = fullH[w] - window.innerHeight;
+    }
+    var want = gap > 4 ? gap + "px" : "0px";
+    if (document.documentElement.style.getPropertyValue("--stuck") !== want) {
+      document.documentElement.style.setProperty("--stuck", want);
+      if (gap > 4) track("viewport-stuck", { gap: gap });
+    }
+  }
+  function queueGuard() {
+    if (guardQueued) return;
+    guardQueued = true;
+    requestAnimationFrame(function () { viewportGuard(false); });
+  }
+  function afterKeyboard() { setTimeout(function () { viewportGuard(true); }, 150); setTimeout(function () { viewportGuard(true); }, 600); }
+  viewportGuard(false);
+  document.addEventListener("focusout", afterKeyboard);
+  window.addEventListener("resize", queueGuard);
+  window.addEventListener("scroll", queueGuard, { passive: true });
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", queueGuard);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) afterKeyboard(); });
 
   // A tapped notification: go to its line. sw.js writes the tap's target
   // to the "podbay-open" cache before it opens or wakes the app, because on
