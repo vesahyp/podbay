@@ -1033,6 +1033,7 @@
       $("#top").hidden = !signedIn;
       $("#tabs").hidden = !signedIn;
       if (!signedIn) {
+        if ($("#main").contains(document.activeElement)) document.activeElement.blur();
         $("#main").innerHTML = signInScreen(signin.stage, signin.email, signin.err);
         $("#overlay").innerHTML = "";
         return;
@@ -1063,6 +1064,9 @@
       if (app.error && s) html = '<p class="err">' + esc(app.error) + "</p>" + html;
       if (app.route !== "thread") html += '<div class="row gap"><button class="btn ghost" type="button" data-signout="1">Sign out</button></div>';
       var keep = window.scrollY;
+      // A focused box that is removed never blurs, and iOS then keeps the
+      // keyboard's shorter viewport (see viewportGuard).
+      if ($("#main").contains(document.activeElement)) document.activeElement.blur();
       $("#main").innerHTML = html;
       // The chat opens at its newest message and stays there while new
       // ones arrive, unless he scrolled up to read.
@@ -1341,7 +1345,10 @@
   // field has focus and the height is below the tallest seen at this width,
   // a forced reflow often makes WebKit measure again; if it is still short,
   // --stuck moves the bottom bars down by the missing height.
-  var standalone = navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  // navigator.standalone is true only for the iOS home-screen app: an
+  // installed desktop or Android window also matches display-mode, and a
+  // window made shorter there is not this bug.
+  var standalone = navigator.standalone === true;
   var fullH = {}, guardQueued = false;  // the tallest height seen, per width
   function typing() {
     var el = document.activeElement;

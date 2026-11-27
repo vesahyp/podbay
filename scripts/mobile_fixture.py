@@ -305,6 +305,48 @@ async def stuck_viewport(p, app_dir: Path, state: dict, msgs: dict, prefix: str,
     await browser.close()
 
 
+async def blur_checks(p, app_dir: Path, state: dict, msgs: dict, check) -> None:
+    """A redraw that removes the focused chat box blurs it first (a removed
+    box never blurs, and iOS then keeps the keyboard's short viewport):
+    a tab tap, a /me change that redraws the chat, and the passkey 403."""
+    me = fixture_me()
+    browser, ctx = await fixture_context(p, app_dir, state, msgs, me)
+    page = await ctx.new_page()
+    await ctx.route(f"{ORIGIN}/api/messages", lambda r: r.fulfill(status=403, json={"error": "passkey"}) if r.request.method == "POST" else r.fallback())
+    await page.goto(f"{ORIGIN}/#thread", wait_until="networkidle")
+    await page.wait_for_selector("#chat")
+
+    async def focused() -> str:
+        """BLURRED when a focusout reached the document while the box was
+        still in the page; Chromium drops a removed box's focus silently."""
+        await page.wait_for_timeout(400)
+        n = await page.evaluate("window.__blurs")
+        await page.evaluate("window.__blurs = 0")
+        return "BLURRED" if n else "NOT BLURRED"
+
+    async def watch() -> None:
+        await page.evaluate("window.__blurs = 0; document.addEventListener('focusout', e => { if (e.target.id === 'chat' && e.target.isConnected) window.__blurs++; })")
+
+    await watch()
+    await page.focus("#chat")
+    await page.click("#tabs [data-tab=machine]")
+    check("blur: a tab tap while the chat box has focus", await focused() == "BLURRED", await focused())
+    await page.goto(f"{ORIGIN}/#thread", wait_until="networkidle")
+    await page.wait_for_selector("#chat")
+    await watch()
+    await page.focus("#chat")
+    me["passkeys"] = 2
+    await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+    check("blur: /me changes while the chat box is empty and focused", await focused() == "BLURRED", await focused())
+    await page.wait_for_selector("#chat")
+    await watch()
+    await page.fill("#chat", "hello")
+    await page.focus("#chat")
+    await page.click("[data-chat-send]")
+    check("blur: the passkey 403 on send", await focused() == "BLURRED", await focused())
+    await browser.close()
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", default=str(REPO / "mobile" / "app"))
@@ -429,6 +471,7 @@ async def main() -> int:
         check("no page errors", not errors, errors) if not args.no_check else None
         await browser.close()
         await stuck_viewport(p, app_dir, state, msgs, args.prefix, check)
+        await blur_checks(p, app_dir, state, msgs, check)
 
     print(f"→ {OUT}/mobile-fixture-{args.prefix}-*.png")
     if failures:
